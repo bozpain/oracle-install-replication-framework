@@ -1,0 +1,66 @@
+{
+  "run_id": "rac-dg-demo",
+  "install_type": "rac-db",
+  "sources_path": "/u01/sources",
+  "patch_version": "19.30",
+  "os": {
+    "distribution": "oracle_linux",
+    "version": "8.10",
+    "package_manager": "dnf",
+    "preinstall_package": "oracle-database-preinstall-19c"
+  },
+  "ssh": {
+    "user": "root",
+    "port": 22,
+    "connect_timeout": 10,
+    "strict_host_key_checking": "accept-new"
+  },
+  "primary_site": {
+    "name": "site-a",
+    "nodes": [
+      {
+        "host": "db1-site-a.example.com"
+      },
+      {
+        "host": "db2-site-a.example.com"
+      }
+    ],
+    "db_name": "ORCL",
+    "db_unique_name": "ORCL_A",
+    "scan_name": "scan-site-a.example.com",
+    "vip_names": [
+      "db1-site-a-vip.example.com",
+      "db2-site-a-vip.example.com"
+    ],
+    "private_interconnects": [
+      "192.168.10.11",
+      "192.168.10.12"
+    ]
+  },
+  "standby_site": {
+    "name": "site-b",
+    "nodes": [
+      {
+        "host": "db1-site-b.example.com"
+      },
+      {
+        "host": "db2-site-b.example.com"
+      }
+    ],
+    "db_unique_name": "ORCL_B",
+    "scan_name": "scan-site-b.example.com",
+    "vip_names": [
+      "db1-site-b-vip.example.com",
+      "db2-site-b-vip.example.com"
+    ],
+    "private_interconnects": [
+      "192.168.20.11",
+      "192.168.20.12"
+    ]
+  },
+  "replication": {
+    "enabled": true,
+    "mode": "dataguard",
+    "protection_mode": "max_performance"
+  }
+}

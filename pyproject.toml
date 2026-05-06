@@ -1,0 +1,12 @@
+[project]
+name = "oracle-install-replication-framework"
+version = "0.1.0"
+description = "Python automation framework for Oracle Database, Grid Infrastructure, RAC, and Data Guard installation flows."
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[project.optional-dependencies]
+yaml = ["PyYAML>=6.0"]
+
+[tool.oracle_auto]
+phase = "1-foundation"

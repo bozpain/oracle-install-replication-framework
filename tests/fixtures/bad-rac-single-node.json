@@ -1,0 +1,8 @@
+{
+  "install_type": "rac-db",
+  "primary_site": {
+    "nodes": [
+      "db1"
+    ]
+  }
+}

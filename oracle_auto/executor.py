@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+import subprocess
+from dataclasses import dataclass
+
+from oracle_auto.config import NodeConfig, SSHConfig
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    host: str
+    command: str
+    returncode: int
+    stdout: str
+    stderr: str
+    skipped: bool = False
+
+    @property
+    def ok(self) -> bool:
+        return self.returncode == 0
+
+
+class SSHExecutor:
+    def __init__(self, config: SSHConfig, dry_run: bool = False):
+        self.config = config
+        self.dry_run = dry_run
+
+    def run(self, node: NodeConfig, command: str, timeout: int = 60) -> CommandResult:
+        user = node.ssh_user or self.config.user
+        target = f"{user}@{node.host}"
+
+        if self.dry_run:
+            return CommandResult(
+                host=node.host,
+                command=self._format_display_command(target, command),
+                returncode=0,
+                stdout="DRY-RUN",
+                stderr="",
+                skipped=True,
+            )
+
+        ssh_command = self._build_ssh_command(target, command)
+        completed = subprocess.run(
+            ssh_command,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+        return CommandResult(
+            host=node.host,
+            command=self._format_display_command(target, command),
+            returncode=completed.returncode,
+            stdout=completed.stdout.strip(),
+            stderr=completed.stderr.strip(),
+        )
+
+    def _build_ssh_command(self, target: str, command: str) -> list[str]:
+        ssh_command = [
+            "ssh",
+            "-p",
+            str(self.config.port),
+            "-o",
+            f"ConnectTimeout={self.config.connect_timeout}",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            f"StrictHostKeyChecking={self.config.strict_host_key_checking}",
+        ]
+        if self.config.key_file:
+            ssh_command.extend(["-i", self.config.key_file])
+        ssh_command.extend([target, command])
+        return ssh_command
+
+    @staticmethod
+    def _format_display_command(target: str, command: str) -> str:
+        return f"ssh {target} {command!r}"

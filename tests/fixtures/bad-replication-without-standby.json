@@ -1,0 +1,11 @@
+{
+  "install_type": "single-db",
+  "primary_site": {
+    "nodes": [
+      "db1"
+    ]
+  },
+  "replication": {
+    "enabled": true
+  }
+}
