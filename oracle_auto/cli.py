@@ -75,6 +75,7 @@ PHASE_BUILDERS: dict[str, PhaseBuilder] = {
     "failover": failover_steps,
     "collect-diagnostics": collect_diagnostics_steps,
     "cleanup-lab": cleanup_lab_steps,
+    "rollback-framework": cleanup_lab_steps,
     "inventory": inventory_steps,
 }
 
@@ -146,6 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
         "failover": "Failover to standby.",
         "collect-diagnostics": "Collect remote diagnostics for troubleshooting.",
         "cleanup-lab": "Clean limited framework-generated lab artifacts.",
+        "rollback-framework": "Rollback limited framework-generated files without removing Oracle homes/databases.",
         "inventory": "Collect read-only remote inventory.",
     }.items():
         subparser = subparsers.add_parser(command, help=help_text)
@@ -168,11 +170,11 @@ def build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="Allow OPatch, patch analysis/apply, or datapatch. Required unless --dry-run is used.",
             )
-        if command == "cleanup-lab":
+        if command in {"cleanup-lab", "rollback-framework"}:
             subparser.add_argument(
                 "--yes",
                 action="store_true",
-                help="Confirm limited lab cleanup. Required unless --dry-run is used.",
+                help="Confirm limited framework cleanup/rollback. Required unless --dry-run is used.",
             )
 
     report = subparsers.add_parser("generate-report", help="Generate HTML report from current state.")
@@ -263,8 +265,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "failover" and not args.dry_run and not getattr(args, "yes", False):
         print("Failover requires --yes unless --dry-run is used.", file=sys.stderr)
         return 2
-    if args.command == "cleanup-lab" and not args.dry_run and not getattr(args, "yes", False):
-        print("cleanup-lab requires --yes unless --dry-run is used.", file=sys.stderr)
+    if args.command in {"cleanup-lab", "rollback-framework"} and not args.dry_run and not getattr(args, "yes", False):
+        print(f"{args.command} requires --yes unless --dry-run is used.", file=sys.stderr)
         return 2
     if args.command in {"prepare-storage", "prepare-storage-rules", "configure-asm-storage"} and not args.dry_run:
         if not getattr(args, "allow_storage_changes", False):
@@ -399,6 +401,9 @@ def _print_config_summary(config: AutomationConfig) -> None:
     print(f"Primary site       : {config.primary_site.name} ({len(config.primary_site.nodes)} node(s))")
     print(f"ASM diskgroups     : OCR={len(config.asm.ocr_disks)}, DATA={len(config.asm.data_disks)}, RECO={len(config.asm.reco_disks)}")
     print(f"DNS resolvers      : {', '.join(config.dns.resolvers)}")
+    scans = ", ".join(site.scan_name for site in config.sites if site.scan_name) or "not used"
+    print(f"SCAN DNS           : {scans}")
+    print("Public/priv/VIP DNS: ignored; managed via /etc/hosts")
     print(f"Installer path     : {config.installer.sources_path}")
     print(f"Patch set          : {config.version.patch_set}")
     if config.active_dataguard_enabled and config.standby_site:

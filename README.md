@@ -4,6 +4,8 @@ Professional automation framework untuk provisioning Oracle Grid Infrastructure,
 
 Framework ini dirancang untuk environment fresh install dengan standar operasi yang konsisten: user `grid` dan `oracle` terpisah, semua deployment memakai Grid Infrastructure dan ASM, storage didefinisikan dari disk `DM_UUID` ke udev symlink `/dev/oracleasm/...`, diskgroup standar `OCR`, `DATA`, dan `RECO`, serta Active Data Guard aktif otomatis ketika `standby_site` diisi di config.
 
+Network baseline sengaja dibuat eksplisit: hanya SCAN yang wajib ada di DNS. Public, private `-priv`, dan VIP `-vip` dikelola sebagai informasi config dan ditulis otomatis ke `/etc/hosts` pada target.
+
 ## Current Baseline
 
 - Python `3.12`.
@@ -109,14 +111,21 @@ Semua command deployment utama mendukung:
 Destructive guardrails:
 
 - `prepare-storage-rules`, `configure-asm-storage`, dan compatibility command `prepare-storage` membutuhkan `--allow-storage-changes` saat real execution.
-- `apply-patch` membutuhkan `--allow-patch-apply` saat real execution.
-- `failover` dan `cleanup-lab` membutuhkan `--yes` saat real execution.
+- `apply-patch`, patch granular, dan `datapatch` membutuhkan `--allow-patch-apply` saat real execution.
+- `failover`, `cleanup-lab`, dan `rollback-framework` membutuhkan `--yes` saat real execution.
 
 Review plan sebelum eksekusi:
 
 ```bash
 python main.py generate-plan --config configs/sample-rac-dg.json
 ```
+
+Artifact plan:
+
+- `.oracle-auto/reports/<run_id>-plan.html`
+- `.oracle-auto/reports/<run_id>-plan.json`
+- `.oracle-auto/reports/<run_id>-runbook.sh`
+- `.oracle-auto/reports/<run_id>-phase-runbooks/<phase>.sh`
 
 Failover execution:
 

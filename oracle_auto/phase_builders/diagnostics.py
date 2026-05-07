@@ -60,8 +60,12 @@ def _cleanup_lab_script() -> str:
         "rm -f /etc/udev/rules.d/99-oracleasm.rules",
         "udevadm control --reload-rules || true",
         "find /dev/oracleasm -maxdepth 1 -type l -delete 2>/dev/null || true",
+        "awk '/# BEGIN ORACLE-AUTO HOSTS/{skip=1} /# END ORACLE-AUTO HOSTS/{skip=0; next} !skip{print}' /etc/hosts > /etc/hosts.oracle-auto.rollback && mv /etc/hosts.oracle-auto.rollback /etc/hosts",
+        "if ls -1t /etc/resolv.conf.oracle-auto.bak.* >/dev/null 2>&1; then cp -p $(ls -1t /etc/resolv.conf.oracle-auto.bak.* | head -1) /etc/resolv.conf; fi",
+        "if test -f /etc/chrony.conf; then awk '/# BEGIN ORACLE-AUTO CHRONY/{skip=1} /# END ORACLE-AUTO CHRONY/{skip=0; next} !skip{print}' /etc/chrony.conf | sed 's/^# oracle-auto disabled //' > /etc/chrony.conf.oracle-auto.rollback && mv /etc/chrony.conf.oracle-auto.rollback /etc/chrony.conf && systemctl restart chronyd || true; fi",
         f"rm -rf {STAGE}/installer-checks {STAGE}/diagnostics",
-        "echo 'Limited lab cleanup complete. Oracle homes, databases, ASM labels, and diskgroups were not removed.'",
+        f"rm -rf {STAGE}/oracle-auto/state",
+        f"mkdir -p {STAGE}/oracle-auto/state/cleanup_lab",
+        "echo 'Limited framework rollback complete. Oracle homes, databases, ASM labels, and diskgroups were not removed.'",
     ]
-    return shell_script("Limited lab cleanup", lines)
-
+    return shell_script("Limited framework rollback", lines)

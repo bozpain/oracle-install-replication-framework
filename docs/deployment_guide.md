@@ -15,8 +15,8 @@ Target servers:
 
 - Oracle Linux fresh install.
 - SSH root aktif untuk bootstrap.
-- DNS record public hostname tersedia.
-- Untuk RAC, SCAN DNS record tersedia dan resolve dari resolver yang akan dikonfigurasi.
+- Untuk RAC, hanya SCAN DNS record yang wajib tersedia dan resolve dari resolver yang akan dikonfigurasi.
+- Public, private, dan VIP hostname tidak wajib ada di DNS; framework menulis semuanya ke `/etc/hosts`.
 - Installer dan patch ZIP sudah disalin manual ke target, default `/u01/sources`.
 - Disk ASM untuk `OCR`, `DATA`, dan `RECO` sudah terlihat oleh udev dengan `DM_UUID`.
 
@@ -82,6 +82,7 @@ SCAN:
 - Jangan masukkan SCAN IP ke config.
 - Jangan masukkan SCAN ke `/etc/hosts`.
 - Pastikan DNS resolver dapat resolve SCAN.
+- Public/private/VIP hostnames diabaikan dari DNS validation dan divalidasi sebagai `/etc/hosts` entries.
 
 DNS resolver:
 
@@ -263,7 +264,7 @@ Precheck memvalidasi:
 - Yum/dnf repo.
 - Preinstall package.
 - DNS resolver.
-- Public hostname resolution.
+- `/etc/hosts` entries untuk public/private/VIP.
 - Installer ZIP files.
 - `/u01` capacity.
 - User `oracle` dan `grid`.
@@ -272,6 +273,7 @@ Precheck memvalidasi:
 - ASM disk DM_UUID visibility.
 - RAC hostname FQDN.
 - SCAN DNS resolution.
+- SCAN DNS record count sebagai warning/informasi.
 - Private interconnect hint.
 
 ## 10. Deployment Sequence
@@ -522,7 +524,12 @@ Output:
 
 ```text
 .oracle-auto/reports/<run_id>-plan.html
+.oracle-auto/reports/<run_id>-plan.json
+.oracle-auto/reports/<run_id>-runbook.sh
+.oracle-auto/reports/<run_id>-phase-runbooks/<phase>.sh
 ```
+
+Plan dan runbook juga menampilkan mapping storage `DM_UUID -> /dev/oracleasm/... -> AFD label` untuk review sebelum storage command sungguhan.
 
 ## 14.2 Step Logs
 
@@ -635,17 +642,35 @@ Cleanup lab terbatas:
 python main.py cleanup-lab --config configs/my-deployment.json --yes
 ```
 
-Cleanup ini tidak menghapus Oracle home, database, ASM label, atau diskgroup.
+Rollback framework terbatas:
+
+```bash
+python main.py rollback-framework --config configs/my-deployment.json --yes
+```
+
+Cleanup/rollback ini menghapus artifacts framework seperti udev rule, generated `/etc/hosts` block, generated chrony block, selected staged diagnostics/state, dan restore `/etc/resolv.conf` dari backup jika ada. Command ini tidak menghapus Oracle home, database, ASM label, atau diskgroup.
 
 ## 19. Production Readiness Checklist
 
 Sebelum production:
 
 - Config sudah direview DBA dan infra.
-- DNS public, private, VIP, dan SCAN sudah siap.
+- SCAN DNS sudah siap. Public/private/VIP sudah benar di config untuk ditulis ke `/etc/hosts`.
 - Disk ASM sudah valid.
 - Installer dan patch ZIP sudah benar.
 - Dry-run semua command sudah direview.
 - Precheck remote bersih dari `FAIL`.
 - Backup atau rollback plan tersedia.
 - Switchover/failover hanya dijalankan dengan window dan approval.
+
+## 20. Lab Test Matrix
+
+Sebelum production, validasi minimal:
+
+- `single-gi` tanpa standby.
+- `single-gi` dengan standby.
+- `rac` tanpa standby.
+- `rac` dengan standby method `manual`.
+- `rac` dengan standby method `broker`.
+
+Untuk setiap matrix, simpan `generate-plan`, `precheck`, `validate-deployment`, `patch-inventory`, dan HTML report sebagai bukti review.

@@ -18,6 +18,7 @@ from pathlib import Path
 
 from oracle_auto.config import NodeConfig
 from oracle_auto.executor import CommandResult, SSHExecutor
+from oracle_auto.secrets import redact
 from oracle_auto.state import StateStore
 
 
@@ -165,10 +166,10 @@ class AutomationRunner:
             host=result.host,
             name=step.name,
             status=status,
-            message=message,
-            command=result.command,
-            stdout=result.stdout,
-            stderr=result.stderr,
+            message=redact(message),
+            command=redact(result.command),
+            stdout=redact(result.stdout),
+            stderr=redact(result.stderr),
         )
 
 

@@ -68,7 +68,14 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
 
 
 def _db_root_script() -> str:
-    return shell_script("Run Database root script", [f"test -x {DB_HOME}/root.sh", f"{DB_HOME}/root.sh"])
+    return shell_script(
+        "Run Database root script",
+        [
+            "test -x /u01/app/oraInventory/orainstRoot.sh && /u01/app/oraInventory/orainstRoot.sh || true",
+            f"test -x {DB_HOME}/root.sh",
+            f"if test -f {DB_HOME}/install/root_script_ran.marker; then echo 'Database root script marker exists; skipping.'; else {DB_HOME}/root.sh && mkdir -p {DB_HOME}/install && touch {DB_HOME}/install/root_script_ran.marker; fi",
+        ],
+    )
 
 
 def _create_database_script(config: AutomationConfig) -> str:

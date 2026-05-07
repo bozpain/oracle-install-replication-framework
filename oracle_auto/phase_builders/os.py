@@ -37,6 +37,8 @@ def _prepare_os_script(config: AutomationConfig) -> str:
         'for group in oinstall dba oper backupdba dgdba kmdba racdba asmadmin asmdba asmoper; do getent group "$group" >/dev/null || groupadd "$group"; done',
         'id grid >/dev/null 2>&1 || useradd -g oinstall -G asmadmin,asmdba,asmoper,dba grid',
         'id oracle >/dev/null 2>&1 || useradd -g oinstall -G dba,oper,backupdba,dgdba,kmdba,racdba,asmdba oracle',
+        "sudo -iu grid true",
+        "sudo -iu oracle true",
         f"mkdir -p {GRID_BASE_DIR} {GRID_BASE} {ORACLE_BASE} {DB_HOME} {config.installer.sources_path} {STAGE}",
         f"chown -R grid:oinstall {GRID_BASE_DIR} {GRID_BASE}",
         f"chown -R oracle:oinstall {ORACLE_BASE}",
@@ -87,4 +89,3 @@ def _resolv_conf(config: AutomationConfig) -> str:
     if config.dns.search_domains:
         lines.append("search " + " ".join(config.dns.search_domains))
     return "\n".join(lines)
-

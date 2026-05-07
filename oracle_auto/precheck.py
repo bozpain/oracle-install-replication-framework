@@ -2,8 +2,8 @@
 
 Precheck is the non-destructive gate before OS preparation. It validates SSH,
 OS baseline, DNS resolver/SCAN behavior, installer source visibility, and ASM
-disk DM_UUID visibility. It should fail early when the target cannot support the later
-automation phases.
+disk DM_UUID visibility. Only SCAN is checked through DNS; public, private, and
+VIP names are treated as `/etc/hosts` content managed by prepare-os.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from oracle_auto.config import AutomationConfig, NodeConfig
 from oracle_auto.executor import CommandResult, SSHExecutor
+from oracle_auto.secrets import redact
 from oracle_auto.state import StateStore
 
 
@@ -137,9 +138,9 @@ class PrecheckRunner:
                 warn_only=True,
             ),
             Check(
-                name="public_hostname_resolve",
-                command=f"getent hosts {shlex.quote(node.host)}",
-                fail_message=f"Public hostname does not resolve: {node.host}",
+                name="hosts_file_entries",
+                command=_hosts_file_check(self.config),
+                fail_message="Configured public/private/VIP host entries are not all present in /etc/hosts yet; prepare-os will write them.",
                 warn_only=True,
             ),
             Check(
@@ -198,6 +199,12 @@ class PrecheckRunner:
                 fail_message="sudo is not available for root automation or requires interaction.",
             ),
             Check(
+                name="sudo_user_switch",
+                command="id grid && id oracle && sudo -iu grid true && sudo -iu oracle true",
+                fail_message="Cannot switch non-interactively to separated grid/oracle users yet; prepare-os creates users before this must pass.",
+                warn_only=True,
+            ),
+            Check(
                 name="secret_environment",
                 command=_secret_env_check(self.config),
                 fail_message="One or more required Oracle automation secret environment variables are missing on target.",
@@ -246,6 +253,12 @@ class PrecheckRunner:
                         fail_message="SCAN DNS name does not resolve from target DNS.",
                     ),
                     Check(
+                        name="scan_dns_record_count",
+                        command=_scan_count_check(self.config),
+                        fail_message="SCAN DNS record count could not be inspected.",
+                        warn_only=True,
+                    ),
+                    Check(
                         name="private_interconnect_hint",
                         command="ip -o addr show | awk '{print $2, $4}'",
                         fail_message="Cannot inspect network interfaces.",
@@ -276,10 +289,10 @@ class PrecheckRunner:
             host=result.host,
             name=check.name,
             status=status,
-            message=message,
-            command=result.command,
-            stdout=result.stdout,
-            stderr=result.stderr,
+            message=redact(message),
+            command=redact(result.command),
+            stdout=redact(result.stdout),
+            stderr=redact(result.stderr),
         )
 
 
@@ -344,6 +357,13 @@ def _disk_check(config: AutomationConfig) -> str:
     )
 
 
+def _hosts_file_check(config: AutomationConfig) -> str:
+    return " && ".join(
+        f"grep -qw -- {shlex.quote(hostname)} /etc/hosts"
+        for hostname in _local_hostnames(config)
+    )
+
+
 def _disk_signature_check(config: AutomationConfig) -> str:
     commands = []
     for dm_uuid in config.asm.all_dm_uuids:
@@ -380,6 +400,25 @@ def _disk_size_check(config: AutomationConfig) -> str:
 def _scan_check(config: AutomationConfig) -> str:
     scans = [site.scan_name for site in config.sites if site.scan_name]
     return " && ".join(f"getent hosts {shlex.quote(scan)}" for scan in scans)
+
+
+def _scan_count_check(config: AutomationConfig) -> str:
+    scans = [site.scan_name for site in config.sites if site.scan_name]
+    return " && ".join(
+        f"printf '%s ' {shlex.quote(scan)}; getent ahosts {shlex.quote(scan)} | awk '{{print $1}}' | sort -u | wc -l"
+        for scan in scans
+    )
+
+
+def _local_hostnames(config: AutomationConfig) -> list[str]:
+    names: list[str] = []
+    for node in config.all_nodes:
+        names.append(node.host)
+        if node.private_ip:
+            names.append(node.private_hostname)
+        if node.vip_ip:
+            names.append(node.vip_hostname)
+    return names
 
 
 def _compact(value: str, limit: int = 140) -> str:

@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import html
 import json
+import shlex
 from pathlib import Path
 
 from oracle_auto.automation import AutomationStep
 from oracle_auto.config import AutomationConfig
+from oracle_auto.phase_builders.storage import storage_mapping_text
 
 
 def write_plan(config: AutomationConfig, steps: list[AutomationStep], output_dir: Path) -> Path:
@@ -21,6 +23,9 @@ def write_plan(config: AutomationConfig, steps: list[AutomationStep], output_dir
     path.write_text(render_plan(config, steps), encoding="utf-8")
     json_path = output_dir / f"{_safe_run_id(config.run_id)}-plan.json"
     json_path.write_text(render_plan_json(config, steps), encoding="utf-8")
+    runbook_path = output_dir / f"{_safe_run_id(config.run_id)}-runbook.sh"
+    runbook_path.write_text(render_runbook(config, steps), encoding="utf-8")
+    _write_phase_runbooks(config, steps, output_dir)
     return path
 
 
@@ -75,6 +80,8 @@ def render_plan(config: AutomationConfig, steps: list[AutomationStep]) -> str:
   <h1>Oracle Automation Plan</h1>
   <p>Run ID: <code>{html.escape(config.run_id)}</code></p>
   <p>Install type: <code>{html.escape(config.install_type)}</code></p>
+  <h2>Storage Mapping</h2>
+  <pre>{html.escape(storage_mapping_text(config))}</pre>
   <table>
     <thead>
       <tr><th>#</th><th>Phase</th><th>Host</th><th>Step</th><th>Title</th><th>Command</th></tr>
@@ -84,6 +91,43 @@ def render_plan(config: AutomationConfig, steps: list[AutomationStep]) -> str:
 </body>
 </html>
 """
+
+
+def render_runbook(config: AutomationConfig, steps: list[AutomationStep]) -> str:
+    lines = [
+        "#!/usr/bin/env bash",
+        "# oracle-auto generated dry-run artifact.",
+        "# Review before manual execution. Generated commands use SSH and target-side root automation.",
+        "set -euo pipefail",
+        "",
+        "# ASM storage mapping",
+        "cat <<'MAP'",
+        storage_mapping_text(config),
+        "MAP",
+        "",
+    ]
+    for index, step in enumerate(steps, start=1):
+        user = step.node.ssh_user or config.ssh.user
+        port = f"-p {config.ssh.port}" if config.ssh.port else ""
+        lines.extend(
+            [
+                f"# [{index}] {step.phase}:{step.name} on {step.node.host}",
+                f"ssh {port} {shlex.quote(user + '@' + step.node.host)} {shlex.quote(step.command)}",
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _write_phase_runbooks(config: AutomationConfig, steps: list[AutomationStep], output_dir: Path) -> None:
+    phase_dir = output_dir / f"{_safe_run_id(config.run_id)}-phase-runbooks"
+    phase_dir.mkdir(parents=True, exist_ok=True)
+    by_phase: dict[str, list[AutomationStep]] = {}
+    for step in steps:
+        by_phase.setdefault(step.phase, []).append(step)
+    for phase, phase_steps in by_phase.items():
+        path = phase_dir / f"{_safe_run_id(phase)}.sh"
+        path.write_text(render_runbook(config, phase_steps), encoding="utf-8")
 
 
 def _safe_run_id(value: str) -> str:

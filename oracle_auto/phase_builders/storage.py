@@ -62,6 +62,13 @@ def asm_entries(config: AutomationConfig) -> list[ASMEntry]:
     return entries
 
 
+def storage_mapping_text(config: AutomationConfig) -> str:
+    rows = []
+    for label, path, group, disk in asm_entries(config):
+        rows.append(f"{group:4} {label:16} {disk.dm_uuid} -> {path}")
+    return "\n".join(rows)
+
+
 def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
     disk_list = ",".join(f"'AFD:{label}'" for label in labels)
     return (
@@ -88,6 +95,8 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
     ]
     lines = [
         "command -v udevadm",
+        "echo 'Planned ASM disk mapping:'",
+        "cat <<'MAP'\n" + storage_mapping_text(config) + "\nMAP",
         *uuid_checks,
         "mkdir -p /dev/oracleasm",
         *collision_checks,
@@ -122,6 +131,8 @@ def _configure_asm_storage_script(config: AutomationConfig) -> str:
         create_diskgroup_sql("RECO", [label for label, _path, group, _disk in entries if group == "RECO"], config.asm.redundancy),
     ]
     lines = [
+        "echo 'Resolved ASM disk mapping before AFD label:'",
+        "for path in " + " ".join(shlex.quote(path) for _label, path, _group, _disk in entries) + "; do printf '%s -> ' \"$path\"; readlink -f \"$path\"; done",
         *disk_checks,
         *signature_checks,
         *size_checks,

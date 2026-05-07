@@ -143,8 +143,7 @@ def _apply_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
         f"test -s {shlex.quote(patch_zip)}",
         f"mkdir -p {patch_dir}",
         f"unzip -oq {shlex.quote(patch_zip)} -d {patch_dir}",
-        f"PATCH_TOP=$(find {patch_dir} -mindepth 1 -maxdepth 1 -type d | head -1)",
-        'test -n "$PATCH_TOP"',
+        _patch_top_assignment(patch_dir),
         f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" || sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
     ]
     return shell_script(f"Apply patch {patch.label}", lines)
@@ -157,8 +156,8 @@ def _analyze_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
         f"test -s {shlex.quote(patch_zip)}",
         f"mkdir -p {patch_dir}",
         f"unzip -oq {shlex.quote(patch_zip)} -d {patch_dir}",
-        f"PATCH_TOP=$(find {patch_dir} -mindepth 1 -maxdepth 1 -type d | head -1)",
-        'test -n "$PATCH_TOP"',
+        _patch_top_assignment(patch_dir),
+        'echo "Detected patch top: $PATCH_TOP"',
         f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" -analyze || sudo -iu oracle {DB_HOME}/OPatch/opatch prereq CheckConflictAgainstOHWithDetail -phBaseDir \"$PATCH_TOP\"",
     ]
     return shell_script(f"Analyze patch {patch.label}", lines)
@@ -167,8 +166,7 @@ def _analyze_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
 def _apply_grid_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     patch_dir = f"{STAGE}/patches/{safe_name(patch.file)}"
     lines = [
-        f"PATCH_TOP=$(find {patch_dir} -mindepth 1 -maxdepth 1 -type d | head -1)",
-        'test -n "$PATCH_TOP"',
+        _patch_top_assignment(patch_dir),
         f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" -oh {GRID_BASE}",
     ]
     return shell_script(f"Apply Grid patch {patch.label}", lines)
@@ -177,8 +175,7 @@ def _apply_grid_patch_script(config: AutomationConfig, patch: PatchConfig) -> st
 def _apply_db_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     patch_dir = f"{STAGE}/patches/{safe_name(patch.file)}"
     lines = [
-        f"PATCH_TOP=$(find {patch_dir} -mindepth 1 -maxdepth 1 -type d | head -1)",
-        'test -n "$PATCH_TOP"',
+        _patch_top_assignment(patch_dir),
         f"sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
     ]
     return shell_script(f"Apply Database patch {patch.label}", lines)
@@ -197,3 +194,12 @@ def _patch_inventory_script() -> str:
         f"sudo -iu oracle {DB_HOME}/OPatch/opatch lsinventory",
     ]
     return shell_script("Collect patch inventory", lines)
+
+
+def _patch_top_assignment(patch_dir: str) -> str:
+    return (
+        f"PATCH_TOP=$(find {patch_dir} -path '*/etc/config/inventory.xml' -type f "
+        "-print | sed 's#/etc/config/inventory.xml##' | sort | head -1)\n"
+        f"if test -z \"$PATCH_TOP\"; then PATCH_TOP=$(find {patch_dir} -mindepth 1 -maxdepth 1 -type d | sort | head -1); fi\n"
+        "test -n \"$PATCH_TOP\""
+    )

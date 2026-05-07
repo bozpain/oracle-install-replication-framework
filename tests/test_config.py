@@ -1,10 +1,18 @@
 import unittest
+import json
+import uuid
 from pathlib import Path
 
 from oracle_auto.config import ConfigError, load_config
 
 
 class ConfigTest(unittest.TestCase):
+    def _write_config(self, name: str, data: dict) -> Path:
+        path = Path(".test-tmp") / f"{name}-{uuid.uuid4().hex}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
     def test_load_single_gi_config(self):
         config = load_config(Path("configs/sample-single.json"))
 
@@ -26,6 +34,20 @@ class ConfigTest(unittest.TestCase):
     def test_rac_requires_two_nodes(self):
         with self.assertRaises(ConfigError):
             load_config(Path("tests/fixtures/bad-rac-single-node.json"))
+
+    def test_duplicate_private_or_vip_ip_rejected(self):
+        data = json.loads(Path("configs/sample-rac-dg.json").read_text(encoding="utf-8"))
+        data["primary_site"]["nodes"][1]["private_ip"] = data["primary_site"]["nodes"][0]["private_ip"]
+
+        with self.assertRaises(ConfigError):
+            load_config(self._write_config("duplicate-private", data))
+
+    def test_normal_redundancy_requires_two_disks_per_group(self):
+        data = json.loads(Path("configs/sample-single.json").read_text(encoding="utf-8"))
+        data["asm"]["redundancy"] = "NORMAL"
+
+        with self.assertRaises(ConfigError):
+            load_config(self._write_config("bad-normal-asm", data))
 
 
 if __name__ == "__main__":

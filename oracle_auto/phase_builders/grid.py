@@ -46,6 +46,8 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
     response = grid_response(config, site)
     lines = [
         f"mkdir -p {STAGE}/responses",
+        _scan_dns_guard(site),
+        _hosts_guard(config),
         f"test -x {GRID_BASE}/gridSetup.sh || sudo -iu grid unzip -oq {shlex.quote(config.installer.sources_path)}/{shlex.quote(config.installer.grid_zip)} -d {GRID_BASE}",
         f"cat > {STAGE}/responses/grid-{site.name}.rsp <<'EOF'\n{response}\nEOF",
         f"chown grid:oinstall {STAGE}/responses/grid-{site.name}.rsp",
@@ -56,10 +58,27 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
 
 def _grid_root_script() -> str:
     lines = [
+        "test -x /u01/app/oraInventory/orainstRoot.sh && /u01/app/oraInventory/orainstRoot.sh || true",
         f"test -x {GRID_BASE}/root.sh",
-        f"{GRID_BASE}/root.sh",
+        f"if sudo -iu grid {GRID_BASE}/bin/crsctl check crs >/dev/null 2>&1; then echo 'Grid appears active; skipping root.sh rerun.'; else {GRID_BASE}/root.sh; fi",
         f"sudo -iu grid {GRID_BASE}/bin/crsctl check crs || true",
         "sudo -iu grid asmcmd lsdg || true",
     ]
     return shell_script("Run Grid root scripts", lines)
 
+
+def _scan_dns_guard(site: SiteConfig) -> str:
+    if not site.scan_name:
+        return "true"
+    return f"getent hosts {shlex.quote(site.scan_name)}"
+
+
+def _hosts_guard(config: AutomationConfig) -> str:
+    checks: list[str] = []
+    for node in config.all_nodes:
+        checks.append(f"grep -qw -- {shlex.quote(node.host)} /etc/hosts")
+        if node.private_ip:
+            checks.append(f"grep -qw -- {shlex.quote(node.private_hostname)} /etc/hosts")
+        if node.vip_ip:
+            checks.append(f"grep -qw -- {shlex.quote(node.vip_hostname)} /etc/hosts")
+    return " && ".join(checks)

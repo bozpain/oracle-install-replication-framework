@@ -5,9 +5,13 @@ decisions here first, then let runners consume typed dataclasses instead of raw
 JSON/YAML. The intended operator workflow is:
 
 1. Fill one deployment config for `single-gi` or `rac`.
-2. Provide public IPs, RAC VIP IPs, SCAN DNS names, ASM disk DM_UUIDs, and installer ZIPs.
+2. Provide public IPs, private IPs, RAC VIP IPs, SCAN DNS names, ASM disk DM_UUIDs, and installer ZIPs.
 3. Let the framework derive `-priv` and `-vip` hostnames, validate topology, and
    drive all later commands from this normalized model.
+
+Only SCAN names are expected to resolve from DNS. Public, private, and VIP names
+are written to `/etc/hosts` during OS preparation and are validated as local host
+file entries instead of DNS records.
 """
 
 from __future__ import annotations
@@ -457,6 +461,16 @@ def _validate_config(config: AutomationConfig) -> None:
     ):
         if not env_name or not env_name.replace("_", "").isalnum() or env_name[0].isdigit():
             raise ConfigError(f"Invalid secret environment variable name: {env_name}")
+    duplicate_secret_env = _duplicates(
+        [
+            config.secrets.sys_password_env,
+            config.secrets.system_password_env,
+            config.secrets.asmsnmp_password_env,
+            config.secrets.dg_password_env,
+        ]
+    )
+    if duplicate_secret_env:
+        raise ConfigError(f"Duplicate secret environment variable name(s): {', '.join(duplicate_secret_env)}")
     if not config.installer.grid_zip:
         raise ConfigError("installer.grid_zip is required.")
     if not config.installer.db_zip:
@@ -485,6 +499,10 @@ def _validate_config(config: AutomationConfig) -> None:
     if duplicated_ips:
         raise ConfigError(f"Duplicate public IP(s) in config: {', '.join(duplicated_ips)}")
     _validate_ip_values(config)
+    _validate_unique_addresses(config)
+    _validate_unique_generated_names(config)
+    _validate_scan_names(config)
+    _validate_asm_disk_counts(config)
 
     duplicated_disks = _duplicates(config.asm.all_dm_uuids)
     if duplicated_disks:
@@ -505,6 +523,60 @@ def _validate_rac_site(site: SiteConfig, label: str) -> None:
             raise ConfigError(f"{location}.private_ip is required for RAC.")
         if not node.vip_ip:
             raise ConfigError(f"{location}.vip_ip is required for RAC.")
+
+
+def _validate_unique_addresses(config: AutomationConfig) -> None:
+    addresses: list[str] = []
+    for node in config.all_nodes:
+        addresses.append(node.public_ip)
+        if node.private_ip:
+            addresses.append(node.private_ip)
+        if node.vip_ip:
+            addresses.append(node.vip_ip)
+    duplicates = _duplicates(addresses)
+    if duplicates:
+        raise ConfigError(f"Duplicate IP address(es) across public/private/VIP config: {', '.join(duplicates)}")
+
+
+def _validate_unique_generated_names(config: AutomationConfig) -> None:
+    names: list[str] = []
+    for node in config.all_nodes:
+        names.append(node.host)
+        if node.private_ip:
+            names.append(node.private_hostname)
+        if node.vip_ip:
+            names.append(node.vip_hostname)
+    duplicates = _duplicates(names)
+    if duplicates:
+        raise ConfigError(f"Duplicate generated hostname(s): {', '.join(duplicates)}")
+
+
+def _validate_scan_names(config: AutomationConfig) -> None:
+    scans = [site.scan_name for site in config.sites if site.scan_name]
+    duplicate_scans = _duplicates([scan for scan in scans if scan])
+    if duplicate_scans:
+        raise ConfigError(f"Duplicate SCAN name(s): {', '.join(duplicate_scans)}")
+
+    generated_names = {node.host for node in config.all_nodes}
+    for node in config.all_nodes:
+        generated_names.add(node.private_hostname)
+        generated_names.add(node.vip_hostname)
+    conflicts = sorted(scan for scan in scans if scan in generated_names)
+    if conflicts:
+        raise ConfigError(f"SCAN name must not match public/private/VIP hostname(s): {', '.join(conflicts)}")
+
+
+def _validate_asm_disk_counts(config: AutomationConfig) -> None:
+    min_count = {"EXTERNAL": 1, "NORMAL": 2, "HIGH": 3}.get(config.asm.redundancy)
+    if min_count is None:
+        raise ConfigError("asm.redundancy must be EXTERNAL, NORMAL, or HIGH.")
+    for group, disks in (
+        ("OCR", config.asm.ocr_disks),
+        ("DATA", config.asm.data_disks),
+        ("RECO", config.asm.reco_disks),
+    ):
+        if len(disks) < min_count:
+            raise ConfigError(f"asm.{group.lower()}_disks requires at least {min_count} disk(s) for {config.asm.redundancy} redundancy.")
 
 
 def _required_str_list(value: Any, name: str) -> list[str]:

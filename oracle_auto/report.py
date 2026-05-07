@@ -15,6 +15,7 @@ from typing import Any
 
 from oracle_auto.automation import StepResult, results_to_html_rows
 from oracle_auto.config import AutomationConfig, NodeConfig
+from oracle_auto.phase_builders.storage import asm_entries
 
 
 def write_html_report(
@@ -62,8 +63,12 @@ def render_html_report(
   {deployment_table(config)}
   <h2>Topology</h2>
   {topology_table(config)}
-  <h2>ASM</h2>
+  <h2>SCAN DNS</h2>
+  {scan_table(config)}
+  <h2>ASM Disk Mapping</h2>
   {asm_table(config)}
+  <h2>Data Guard</h2>
+  {dataguard_table(config)}
   <h2>Installer And Patch</h2>
   {installer_table(config)}
   <h2>Status Summary</h2>
@@ -96,6 +101,7 @@ def deployment_table(config: AutomationConfig) -> str:
         ("Data Guard Method", config.dataguard.configuration_method),
         ("Protection Mode", config.dataguard.protection_mode),
         ("DNS Resolvers", ", ".join(config.dns.resolvers)),
+        ("DNS Model", "SCAN only; public/private/VIP are managed in /etc/hosts"),
         ("NTP Servers", ", ".join(config.os.ntp_servers)),
         ("SELinux", config.os.selinux_mode),
     ]
@@ -125,11 +131,42 @@ def topology_table(config: AutomationConfig) -> str:
 
 
 def asm_table(config: AutomationConfig) -> str:
+    rows = "\n".join(
+        "<tr>"
+        f"<td>{html.escape(group)}</td>"
+        f"<td>{html.escape(label)}</td>"
+        f"<td>{html.escape(disk.dm_uuid)}</td>"
+        f"<td>{html.escape(path)}</td>"
+        f"<td>{html.escape(config.asm.redundancy)}</td>"
+        "</tr>"
+        for label, path, group, disk in asm_entries(config)
+    )
+    return (
+        "<table><thead><tr><th>Diskgroup</th><th>AFD Label</th><th>DM_UUID</th><th>Udev Symlink</th><th>Redundancy</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+    )
+
+
+def scan_table(config: AutomationConfig) -> str:
+    rows = []
+    for site in config.sites:
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(site.name)}</td>"
+            f"<td>{html.escape(site.scan_name or 'not used')}</td>"
+            f"<td>{html.escape('DNS required' if site.scan_name else 'not required')}</td>"
+            "</tr>"
+        )
+    return "<table><thead><tr><th>Site</th><th>SCAN Name</th><th>Validation Source</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+
+
+def dataguard_table(config: AutomationConfig) -> str:
     rows = [
-        ("OCR", _asm_disk_text("OCR", config.asm.ocr_disks)),
-        ("DATA", _asm_disk_text("DATA", config.asm.data_disks)),
-        ("RECO", _asm_disk_text("RECO", config.asm.reco_disks)),
-        ("Redundancy", config.asm.redundancy),
+        ("Enabled", "yes" if config.active_dataguard_enabled else "no"),
+        ("Method", config.dataguard.configuration_method),
+        ("Protection Mode", config.dataguard.protection_mode),
+        ("Primary DB Unique Name", config.primary_site.db_unique_name),
+        ("Standby DB Unique Name", config.standby_site.db_unique_name if config.standby_site else ""),
     ]
     return _kv_table(rows)
 
@@ -213,13 +250,6 @@ def _vip_cell(node: NodeConfig) -> str:
     if not node.vip_ip:
         return ""
     return f"{node.vip_hostname} / {node.vip_ip}"
-
-
-def _asm_disk_text(group: str, disks) -> str:
-    values = []
-    for index, disk in enumerate(disks, start=1):
-        values.append(f"{disk.dm_uuid} -> {disk.symlink_path(group, index)}")
-    return ", ".join(values)
 
 
 def _safe_run_id(value: str) -> str:

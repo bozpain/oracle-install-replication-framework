@@ -6,6 +6,7 @@ these helpers instead of redefining Oracle home paths or step construction.
 
 from __future__ import annotations
 
+import hashlib
 import shlex
 
 from oracle_auto.automation import AutomationStep
@@ -46,14 +47,18 @@ def safe_name(value: str) -> str:
 def _with_remote_marker(phase: str, name: str, command: str) -> str:
     marker_dir = f"{STAGE}/oracle-auto/state/{safe_name(phase)}"
     marker = f"{marker_dir}/{safe_name(name)}.done"
+    checksum = hashlib.sha256(command.encode("utf-8")).hexdigest()
     script = f"""# oracle-auto remote marker wrapper
 set -euo pipefail
 if test -f {shlex.quote(marker)}; then
-  echo "Already completed remotely: {phase}:{name}"
-  exit 0
+  if grep -q {shlex.quote(checksum)} {shlex.quote(marker)}; then
+    echo "Already completed remotely: {phase}:{name}"
+    exit 0
+  fi
+  echo "Remote marker checksum changed; rerunning: {phase}:{name}"
 fi
 mkdir -p {shlex.quote(marker_dir)}
 {command}
-touch {shlex.quote(marker)}
+printf '%s\\n' {shlex.quote(checksum)} > {shlex.quote(marker)}
 """
     return "bash -lc " + shlex.quote(script)

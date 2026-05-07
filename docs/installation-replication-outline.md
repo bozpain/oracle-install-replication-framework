@@ -75,6 +75,7 @@ SCAN:
 - SCAN tidak dimasukkan ke `/etc/hosts`.
 - Automation mengatur DNS resolver target, lalu mengecek SCAN resolve melalui DNS.
 - Jika SCAN tidak resolve, precheck gagal.
+- Public, private, dan VIP tidak divalidasi lewat DNS. Ketiganya menjadi generated `/etc/hosts` entries supaya install tidak tergantung DNS selain SCAN.
 
 ## 5. OS Baseline
 
@@ -105,6 +106,7 @@ Storage selalu ASM. User memberikan disk `DM_UUID` secara manual di config, buka
 Automation melakukan:
 
 - Normalisasi input UUID menjadi `DM_UUID=mpath-<uuid>` jika prefix `mpath-` belum ada.
+- Validasi duplicate IP public/private/VIP, duplicate generated hostname, duplicate SCAN, duplicate disk UUID, duplicate symlink, dan minimum disk count sesuai redundancy.
 - Membuat udev rules di `/etc/udev/rules.d/99-oracleasm.rules`.
 - Membuat symlink stabil `/dev/oracleasm/ocr01`, `/dev/oracleasm/data01`, dan `/dev/oracleasm/reco01`.
 - Set owner `grid`, group `asmadmin`, dan mode `0660` pada symlink hasil rule.
@@ -113,6 +115,7 @@ Automation melakukan:
 - Create diskgroup `OCR`, `DATA`, dan `RECO`.
 - Validasi diskgroup terlihat pada target.
 - Report mapping `DM_UUID`, symlink `/dev/oracleasm/...`, AFD label, dan diskgroup.
+- Generate plan/runbook juga menampilkan storage mapping sebelum eksekusi supaya DBA bisa review disk yang akan disentuh.
 
 ## 7. Installer and Patch Model
 
@@ -134,6 +137,7 @@ Automation melakukan:
 - Cek path.
 - Cek file ada dan size tidak `0`.
 - Cek permission baca untuk user `grid` dan `oracle`.
+- Deteksi patch top setelah unzip memakai Oracle patch inventory layout, dengan fallback ke top-level folder.
 - Ekstrak installer ke home yang sesuai.
 - Apply patch sesuai urutan.
 - Simpan inventory patch ke report.
@@ -197,6 +201,7 @@ Status baseline: semua command roadmap sudah tersedia sebagai struktur Python, m
 25. `generate-report`
 26. `collect-diagnostics`
 27. `cleanup-lab`
+28. `rollback-framework`
 
 ## 11. State and Reporting
 
@@ -223,7 +228,8 @@ Report berisi:
 - Installer and patch list.
 - Execution result.
 - Error and warning summary.
+- Failed steps first, per-step log path, SCAN section, Data Guard section, dan storage mapping detail.
 
 ## 12. Validation Note
 
-Framework sudah membangun automation skeleton yang serius: schema, runner, command phases, dry-run, state, report, dan tests. Bagian yang menyentuh Oracle installer, GI response file, udev storage rules, ASM/AFD, OPatch/opatchauto, DBCA, RMAN duplicate, Broker, switchover, dan failover tetap harus divalidasi di lab target sebelum production.
+Framework sudah membangun automation skeleton yang serius: schema, runner, command phases, dry-run, state, report, runbook artifact, secret redaction, dan tests. Bagian yang menyentuh Oracle installer, GI response file, root scripts, udev storage rules, ASM/AFD, OPatch/opatchauto, DBCA, RMAN duplicate, Broker, switchover, dan failover tetap harus divalidasi di lab target sebelum production.
