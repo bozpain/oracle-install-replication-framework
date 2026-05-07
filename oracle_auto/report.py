@@ -68,6 +68,8 @@ def render_html_report(
   {installer_table(config)}
   <h2>Status Summary</h2>
   {summary_table(results)}
+  <h2>Failed Steps First</h2>
+  {failed_steps_table(results)}
   <h2>Execution Results</h2>
   <table>
     <thead>
@@ -150,6 +152,26 @@ def summary_table(results: list[StepResult]) -> str:
         counts[item.status] = counts.get(item.status, 0) + 1
     rows = [(status, str(counts.get(status, 0))) for status in ("PASS", "SKIP", "WARN", "FAIL")]
     return _kv_table(rows)
+
+
+def failed_steps_table(results: list[StepResult]) -> str:
+    failed = [item for item in results if item.status == "FAIL"]
+    if not failed:
+        return "<p>No failed steps captured.</p>"
+    rows = "\n".join(
+        "<tr>"
+        f"<td>{html.escape(item.phase)}</td>"
+        f"<td>{html.escape(item.host)}</td>"
+        f"<td>{html.escape(item.name)}</td>"
+        f"<td>{html.escape(item.message)}</td>"
+        f"<td>{html.escape(item.log_path)}</td>"
+        "</tr>"
+        for item in failed
+    )
+    return (
+        "<table><thead><tr><th>Phase</th><th>Host</th><th>Step</th><th>Message</th><th>Log</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+    )
 
 
 def results_from_state(data: dict[str, Any]) -> list[StepResult]:

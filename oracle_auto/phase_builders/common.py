@@ -6,6 +6,8 @@ these helpers instead of redefining Oracle home paths or step construction.
 
 from __future__ import annotations
 
+import shlex
+
 from oracle_auto.automation import AutomationStep
 from oracle_auto.config import NodeConfig
 
@@ -31,7 +33,7 @@ def make_step(
         name=name,
         node=node,
         title=title,
-        command=command,
+        command=_with_remote_marker(phase, name, command),
         timeout=timeout,
         warn_only=warn_only,
     )
@@ -40,3 +42,18 @@ def make_step(
 def safe_name(value: str) -> str:
     return "".join(char if char.isalnum() else "_" for char in value).strip("_").lower()
 
+
+def _with_remote_marker(phase: str, name: str, command: str) -> str:
+    marker_dir = f"{STAGE}/oracle-auto/state/{safe_name(phase)}"
+    marker = f"{marker_dir}/{safe_name(name)}.done"
+    script = f"""# oracle-auto remote marker wrapper
+set -euo pipefail
+if test -f {shlex.quote(marker)}; then
+  echo "Already completed remotely: {phase}:{name}"
+  exit 0
+fi
+mkdir -p {shlex.quote(marker_dir)}
+{command}
+touch {shlex.quote(marker)}
+"""
+    return "bash -lc " + shlex.quote(script)

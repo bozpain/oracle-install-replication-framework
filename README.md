@@ -45,10 +45,22 @@ Validasi sample RAC + Active Data Guard config:
 python main.py validate-config --config configs/sample-rac-dg.json
 ```
 
+Local control-machine readiness:
+
+```bash
+python main.py doctor --config configs/sample-rac-dg.json
+```
+
 Lihat precheck tanpa SSH execution:
 
 ```bash
 python main.py precheck --config configs/sample-rac-dg.json --dry-run
+```
+
+Collect read-only remote inventory:
+
+```bash
+python main.py inventory --config configs/sample-rac-dg.json --dry-run
 ```
 
 Generate report dari state saat ini:
@@ -70,7 +82,12 @@ python main.py prepare-storage-rules --config configs/sample-rac-dg.json --dry-r
 python main.py install-grid --config configs/sample-rac-dg.json --dry-run
 python main.py configure-asm-storage --config configs/sample-rac-dg.json --dry-run
 python main.py install-db-software --config configs/sample-rac-dg.json --dry-run
-python main.py apply-patch --config configs/sample-rac-dg.json --dry-run
+python main.py update-opatch --config configs/sample-rac-dg.json --dry-run
+python main.py analyze-patch --config configs/sample-rac-dg.json --dry-run
+python main.py apply-grid-patch --config configs/sample-rac-dg.json --dry-run
+python main.py apply-db-patch --config configs/sample-rac-dg.json --dry-run
+python main.py datapatch --config configs/sample-rac-dg.json --dry-run
+python main.py patch-inventory --config configs/sample-rac-dg.json --dry-run
 python main.py create-database --config configs/sample-rac-dg.json --dry-run
 python main.py setup-active-dataguard --config configs/sample-rac-dg.json --dry-run
 python main.py setup-dataguard-broker --config configs/sample-rac-dg.json --dry-run

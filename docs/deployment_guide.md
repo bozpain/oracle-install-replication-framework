@@ -219,6 +219,27 @@ Expected result:
 
 Jika gagal, perbaiki config sebelum lanjut.
 
+## 8.1 Local Doctor
+
+Jalankan local readiness check di control machine:
+
+```bash
+python main.py doctor --config configs/my-deployment.json
+```
+
+Doctor mengecek Python version, binary SSH, direktori report/state/log writable, config parseability, dan optional YAML support.
+
+## 8.2 Remote Inventory
+
+Ambil inventory read-only dari target:
+
+```bash
+python main.py inventory --config configs/my-deployment.json --dry-run
+python main.py inventory --config configs/my-deployment.json
+```
+
+Inventory membantu review OS, network, DNS, storage `DM_UUID`, dan isi `/u01/sources` sebelum command yang mengubah server.
+
 ## 9. Precheck
 
 Dry-run precheck:
@@ -264,7 +285,12 @@ python main.py prepare-storage-rules --config configs/my-deployment.json --dry-r
 python main.py install-grid --config configs/my-deployment.json --dry-run
 python main.py configure-asm-storage --config configs/my-deployment.json --dry-run
 python main.py install-db-software --config configs/my-deployment.json --dry-run
-python main.py apply-patch --config configs/my-deployment.json --dry-run
+python main.py update-opatch --config configs/my-deployment.json --dry-run
+python main.py analyze-patch --config configs/my-deployment.json --dry-run
+python main.py apply-grid-patch --config configs/my-deployment.json --dry-run
+python main.py apply-db-patch --config configs/my-deployment.json --dry-run
+python main.py datapatch --config configs/my-deployment.json --dry-run
+python main.py patch-inventory --config configs/my-deployment.json --dry-run
 python main.py create-database --config configs/my-deployment.json --dry-run
 python main.py setup-active-dataguard --config configs/my-deployment.json --dry-run
 python main.py setup-dataguard-broker --config configs/my-deployment.json --dry-run
@@ -282,7 +308,7 @@ Implementation trace:
 - `prepare-storage-rules`, `configure-asm-storage`, dan compatibility `prepare-storage`: `oracle_auto/phase_builders/storage.py`
 - `install-grid`: `oracle_auto/phase_builders/grid.py`
 - `install-db-software` dan `create-database`: `oracle_auto/phase_builders/database.py`
-- `apply-patch`: `oracle_auto/phase_builders/patching.py`
+- `update-opatch`, `analyze-patch`, `apply-grid-patch`, `apply-db-patch`, `datapatch`, `patch-inventory`, dan wrapper `apply-patch`: `oracle_auto/phase_builders/patching.py`
 - `setup-active-dataguard` dan `setup-dataguard-broker`: `oracle_auto/phase_builders/dataguard.py`
 - `validate-deployment`: `oracle_auto/phase_builders/validation.py`
 - `switchover` dan `failover`: `oracle_auto/phase_builders/role.py`

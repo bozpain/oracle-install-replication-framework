@@ -193,6 +193,16 @@ class PrecheckRunner:
                 warn_only=True,
             ),
             Check(
+                name="sudo_available",
+                command="command -v sudo && sudo -n true",
+                fail_message="sudo is not available for root automation or requires interaction.",
+            ),
+            Check(
+                name="secret_environment",
+                command=_secret_env_check(self.config),
+                fail_message="One or more required Oracle automation secret environment variables are missing on target.",
+            ),
+            Check(
                 name="asm_disk_uuids_visible",
                 command=_disk_check(self.config),
                 fail_message="One or more configured ASM disk DM_UUID values are not visible to udev.",
@@ -314,6 +324,17 @@ def _installer_files(config: AutomationConfig) -> list[str]:
         files.append(config.installer.opatch_zip)
     files.extend(patch.file for patch in config.installer.patches)
     return files
+
+
+def _secret_env_check(config: AutomationConfig) -> str:
+    env_names = [
+        config.secrets.sys_password_env,
+        config.secrets.system_password_env,
+        config.secrets.asmsnmp_password_env,
+    ]
+    if config.standby_site:
+        env_names.append(config.secrets.dg_password_env)
+    return " && ".join(f"test -n \"${{{name}:-}}\"" for name in env_names)
 
 
 def _disk_check(config: AutomationConfig) -> str:

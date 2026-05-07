@@ -8,6 +8,7 @@ reading a long terminal dry-run.
 from __future__ import annotations
 
 import html
+import json
 from pathlib import Path
 
 from oracle_auto.automation import AutomationStep
@@ -18,7 +19,30 @@ def write_plan(config: AutomationConfig, steps: list[AutomationStep], output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"{_safe_run_id(config.run_id)}-plan.html"
     path.write_text(render_plan(config, steps), encoding="utf-8")
+    json_path = output_dir / f"{_safe_run_id(config.run_id)}-plan.json"
+    json_path.write_text(render_plan_json(config, steps), encoding="utf-8")
     return path
+
+
+def render_plan_json(config: AutomationConfig, steps: list[AutomationStep]) -> str:
+    payload = {
+        "run_id": config.run_id,
+        "install_type": config.install_type,
+        "steps": [
+            {
+                "index": index,
+                "phase": step.phase,
+                "host": step.node.host,
+                "name": step.name,
+                "title": step.title,
+                "timeout": step.timeout,
+                "warn_only": step.warn_only,
+                "command": step.command,
+            }
+            for index, step in enumerate(steps, start=1)
+        ],
+    }
+    return json.dumps(payload, indent=2)
 
 
 def render_plan(config: AutomationConfig, steps: list[AutomationStep]) -> str:

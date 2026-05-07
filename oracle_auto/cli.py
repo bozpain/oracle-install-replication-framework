@@ -14,10 +14,14 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from oracle_auto.doctor import run_doctor
 from oracle_auto.automation import AutomationRunner, AutomationStep, StepResult, render_results_text
 from oracle_auto.config import AutomationConfig, ConfigError, load_config
 from oracle_auto.executor import SSHExecutor
 from oracle_auto.phases import (
+    analyze_patch_steps,
+    apply_db_patch_steps,
+    apply_grid_patch_steps,
     apply_patch_steps,
     cleanup_lab_steps,
     collect_diagnostics_steps,
@@ -26,6 +30,9 @@ from oracle_auto.phases import (
     failover_steps,
     install_db_software_steps,
     install_grid_steps,
+    inventory_steps,
+    datapatch_steps,
+    patch_inventory_steps,
     prepare_os_steps,
     prepare_storage_rules_steps,
     prepare_storage_steps,
@@ -34,6 +41,7 @@ from oracle_auto.phases import (
     switchover_steps,
     validate_deployment_steps,
     verify_installer_steps,
+    update_opatch_steps,
 )
 from oracle_auto.plan import write_plan
 from oracle_auto.precheck import PrecheckRunner
@@ -52,6 +60,12 @@ PHASE_BUILDERS: dict[str, PhaseBuilder] = {
     "prepare-storage": prepare_storage_steps,
     "install-grid": install_grid_steps,
     "install-db-software": install_db_software_steps,
+    "update-opatch": update_opatch_steps,
+    "analyze-patch": analyze_patch_steps,
+    "apply-grid-patch": apply_grid_patch_steps,
+    "apply-db-patch": apply_db_patch_steps,
+    "datapatch": datapatch_steps,
+    "patch-inventory": patch_inventory_steps,
     "apply-patch": apply_patch_steps,
     "create-database": create_database_steps,
     "setup-active-dataguard": setup_active_dataguard_steps,
@@ -61,6 +75,7 @@ PHASE_BUILDERS: dict[str, PhaseBuilder] = {
     "failover": failover_steps,
     "collect-diagnostics": collect_diagnostics_steps,
     "cleanup-lab": cleanup_lab_steps,
+    "inventory": inventory_steps,
 }
 
 
@@ -71,7 +86,12 @@ DEPLOYMENT_PHASE_ORDER = [
     "install-grid",
     "configure-asm-storage",
     "install-db-software",
-    "apply-patch",
+    "update-opatch",
+    "analyze-patch",
+    "apply-grid-patch",
+    "apply-db-patch",
+    "datapatch",
+    "patch-inventory",
     "create-database",
     "setup-active-dataguard",
     "setup-dataguard-broker",
@@ -111,6 +131,12 @@ def build_parser() -> argparse.ArgumentParser:
         "prepare-storage": "Compatibility wrapper for storage rules and ASM storage.",
         "install-grid": "Install Grid Infrastructure.",
         "install-db-software": "Install Oracle Database software.",
+        "update-opatch": "Update OPatch in Grid and Database homes.",
+        "analyze-patch": "Analyze configured patches before apply.",
+        "apply-grid-patch": "Apply configured patches to Grid home.",
+        "apply-db-patch": "Apply configured patches to Database home.",
+        "datapatch": "Run datapatch on the primary database home.",
+        "patch-inventory": "Collect OPatch inventory.",
         "apply-patch": "Apply OPatch and configured patches.",
         "create-database": "Create the primary database with DBCA silent.",
         "setup-active-dataguard": "Configure and duplicate Active Data Guard standby.",
@@ -120,6 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
         "failover": "Failover to standby.",
         "collect-diagnostics": "Collect remote diagnostics for troubleshooting.",
         "cleanup-lab": "Clean limited framework-generated lab artifacts.",
+        "inventory": "Collect read-only remote inventory.",
     }.items():
         subparser = subparsers.add_parser(command, help=help_text)
         _add_execution_args(subparser)
@@ -135,11 +162,11 @@ def build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="Allow udev/ASM storage changes. Required unless --dry-run is used.",
             )
-        if command == "apply-patch":
+        if command in {"apply-patch", "update-opatch", "analyze-patch", "apply-grid-patch", "apply-db-patch", "datapatch"}:
             subparser.add_argument(
                 "--allow-patch-apply",
                 action="store_true",
-                help="Allow OPatch and patch apply. Required unless --dry-run is used.",
+                help="Allow OPatch, patch analysis/apply, or datapatch. Required unless --dry-run is used.",
             )
         if command == "cleanup-lab":
             subparser.add_argument(
@@ -159,6 +186,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEPLOYMENT_PHASE_ORDER,
         help="Optional phase command names to include. Defaults to all deployment phases.",
     )
+
+    doctor = subparsers.add_parser("doctor", help="Run local control-machine readiness checks.")
+    doctor.add_argument("--config", required=True, help="Path to JSON/YAML config.")
+    doctor.add_argument("--json", action="store_true", help="Print machine-readable JSON result.")
 
     return parser
 
@@ -206,6 +237,15 @@ def main(argv: list[str] | None = None) -> int:
         _print_config_summary(config)
         return 0
 
+    if args.command == "doctor":
+        items = run_doctor(config, Path(args.report_dir), Path(args.state_dir), Path(".oracle-auto/logs"))
+        if args.json:
+            print(json.dumps([item.to_dict() for item in items], indent=2))
+        else:
+            for item in items:
+                print(f"{item.status:5} {item.name:24} {item.message}")
+        return 1 if any(item.status == "FAIL" for item in items) else 0
+
     state = StateStore(Path(args.state_dir), config.run_id)
 
     if args.command == "generate-report":
@@ -230,8 +270,8 @@ def main(argv: list[str] | None = None) -> int:
         if not getattr(args, "allow_storage_changes", False):
             print(f"{args.command} requires --allow-storage-changes unless --dry-run is used.", file=sys.stderr)
             return 2
-    if args.command == "apply-patch" and not args.dry_run and not getattr(args, "allow_patch_apply", False):
-        print("apply-patch requires --allow-patch-apply unless --dry-run is used.", file=sys.stderr)
+    if args.command in {"apply-patch", "update-opatch", "analyze-patch", "apply-grid-patch", "apply-db-patch", "datapatch"} and not args.dry_run and not getattr(args, "allow_patch_apply", False):
+        print(f"{args.command} requires --allow-patch-apply unless --dry-run is used.", file=sys.stderr)
         return 2
 
     if args.command == "precheck":

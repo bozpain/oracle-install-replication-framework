@@ -171,24 +171,32 @@ Prinsip:
 Status baseline: semua command roadmap sudah tersedia sebagai struktur Python, mendukung `--dry-run`, state/resume, output JSON, dan HTML report.
 
 1. `validate-config`
-2. `precheck`
-3. `prepare-os`
-4. `verify-installer`
-5. `prepare-storage-rules`
-6. `install-grid`
-7. `configure-asm-storage`
-8. `install-db-software`
-9. `apply-patch`
-10. `create-database`
-11. `setup-active-dataguard`
-12. `setup-dataguard-broker`
-13. `validate-deployment`
-14. `switchover`
-15. `failover`
-16. `generate-plan`
-17. `generate-report`
-18. `collect-diagnostics`
-19. `cleanup-lab`
+2. `doctor`
+3. `inventory`
+4. `precheck`
+5. `prepare-os`
+6. `verify-installer`
+7. `prepare-storage-rules`
+8. `install-grid`
+9. `configure-asm-storage`
+10. `install-db-software`
+11. `update-opatch`
+12. `analyze-patch`
+13. `apply-grid-patch`
+14. `apply-db-patch`
+15. `datapatch`
+16. `patch-inventory`
+17. `apply-patch`
+18. `create-database`
+19. `setup-active-dataguard`
+20. `setup-dataguard-broker`
+21. `validate-deployment`
+22. `switchover`
+23. `failover`
+24. `generate-plan`
+25. `generate-report`
+26. `collect-diagnostics`
+27. `cleanup-lab`
 
 ## 11. State and Reporting
 

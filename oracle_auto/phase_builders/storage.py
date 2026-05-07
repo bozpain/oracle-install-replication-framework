@@ -11,7 +11,7 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import ASMDiskConfig, AutomationConfig
-from oracle_auto.phase_builders.common import make_step
+from oracle_auto.phase_builders.common import GRID_BASE, make_step
 
 
 ASMEntry = tuple[str, str, str, ASMDiskConfig]
@@ -65,7 +65,7 @@ def asm_entries(config: AutomationConfig) -> list[ASMEntry]:
 def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
     disk_list = ",".join(f"'AFD:{label}'" for label in labels)
     return (
-        "sudo -iu grid sqlplus -s / as sysasm <<'SQL'\n"
+        f"sudo -iu grid {GRID_BASE}/bin/sqlplus -s / as sysasm <<'SQL'\n"
         "WHENEVER SQLERROR EXIT SQL.SQLCODE\n"
         f"DECLARE\n  existing NUMBER;\nBEGIN\n  SELECT COUNT(*) INTO existing FROM v$asm_diskgroup WHERE name = '{name}';\n"
         "  IF existing = 0 THEN\n"
@@ -104,8 +104,16 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
 def _configure_asm_storage_script(config: AutomationConfig) -> str:
     entries = asm_entries(config)
     disk_checks = [f"test -b {shlex.quote(path)}" for _label, path, _group, _disk in entries]
+    signature_checks = [
+        f"test -z \"$(wipefs -n {shlex.quote(path)} 2>/dev/null | awk 'NR>1')\""
+        for _label, path, _group, _disk in entries
+    ]
+    size_checks = [
+        f"test \"$(blockdev --getsize64 {shlex.quote(path)})\" -gt 0"
+        for _label, path, _group, _disk in entries
+    ]
     label_commands = [
-        f"asmcmd afd_label {label} {shlex.quote(path)} --init || asmcmd afd_label {label} {shlex.quote(path)}"
+        f"{GRID_BASE}/bin/asmcmd afd_label {label} {shlex.quote(path)} --init || {GRID_BASE}/bin/asmcmd afd_label {label} {shlex.quote(path)}"
         for label, path, _group, _disk in entries
     ]
     diskgroup_commands = [
@@ -115,12 +123,16 @@ def _configure_asm_storage_script(config: AutomationConfig) -> str:
     ]
     lines = [
         *disk_checks,
-        "command -v asmcmd",
-        "asmcmd afd_state || true",
+        *signature_checks,
+        *size_checks,
+        f"test -x {GRID_BASE}/bin/asmcmd",
+        f"test -x {GRID_BASE}/bin/sqlplus",
+        f"sudo -iu grid {GRID_BASE}/bin/crsctl check crs",
+        f"sudo -iu grid {GRID_BASE}/bin/asmcmd afd_state || true",
         *label_commands,
-        "asmcmd afd_lslbl || true",
+        f"sudo -iu grid {GRID_BASE}/bin/asmcmd afd_lslbl || true",
         *diskgroup_commands,
-        "sudo -iu grid asmcmd lsdg",
+        f"sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg",
     ]
     return shell_script("Configure ASM AFD labels and diskgroups", lines)
 

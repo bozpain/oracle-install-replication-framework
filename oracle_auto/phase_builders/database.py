@@ -78,9 +78,12 @@ def _create_database_script(config: AutomationConfig) -> str:
     lines = [
         _secret_exports(config),
         f"mkdir -p {STAGE}/responses",
+        "umask 077",
         f"cat > {STAGE}/responses/dbca-primary.rsp <<EOF\n{response}\nEOF",
         f"chown oracle:oinstall {STAGE}/responses/dbca-primary.rsp",
+        f"chmod 600 {STAGE}/responses/dbca-primary.rsp",
         f"sudo -iu oracle {DB_HOME}/bin/dbca -silent -createDatabase -responseFile {STAGE}/responses/dbca-primary.rsp",
+        f"shred -u {STAGE}/responses/dbca-primary.rsp 2>/dev/null || rm -f {STAGE}/responses/dbca-primary.rsp",
         f"sudo -iu oracle {DB_HOME}/bin/srvctl status database -db {unique} || true",
         f"sudo -iu oracle bash -lc \"export ORACLE_SID={unique}; sqlplus -s / as sysdba <<'SQL'\nALTER DATABASE FORCE LOGGING;\nARCHIVE LOG LIST;\nSELECT name, open_mode, database_role FROM v\\$database;\nSQL\"",
     ]
