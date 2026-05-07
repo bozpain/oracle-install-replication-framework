@@ -153,6 +153,17 @@ class PrecheckRunner:
                 fail_message="One or more configured installer/patch ZIP files are missing or empty.",
             ),
             Check(
+                name="installer_zip_integrity",
+                command=_installer_integrity_check(self.config),
+                fail_message="One or more configured installer/patch ZIP files failed unzip integrity testing.",
+                timeout=300,
+            ),
+            Check(
+                name="installer_zip_contents",
+                command=_installer_content_check(self.config),
+                fail_message="Configured installer ZIP files do not contain expected Oracle installer entry points.",
+            ),
+            Check(
                 name="u01_capacity",
                 command="df -Pk /u01 | awk 'NR==2 {print $4}'",
                 fail_message="/u01 is missing or capacity cannot be checked.",
@@ -185,6 +196,29 @@ class PrecheckRunner:
                 name="asm_disk_uuids_visible",
                 command=_disk_check(self.config),
                 fail_message="One or more configured ASM disk DM_UUID values are not visible to udev.",
+            ),
+            Check(
+                name="multipath_health",
+                command="command -v multipath && multipath -ll",
+                fail_message="multipath command is unavailable or no multipath output is visible.",
+                warn_only=True,
+            ),
+            Check(
+                name="asm_disk_signatures",
+                command=_disk_signature_check(self.config),
+                fail_message="One or more ASM candidate disks already have filesystem signatures.",
+                warn_only=True,
+            ),
+            Check(
+                name="asm_disk_sizes",
+                command=_disk_size_check(self.config),
+                fail_message="Cannot read one or more ASM candidate disk sizes.",
+                warn_only=True,
+            ),
+            Check(
+                name="oracleasm_symlink_collisions",
+                command=_symlink_collision_check(self.config),
+                fail_message="One or more /dev/oracleasm symlink names already exist and are not block devices.",
             ),
         ]
 
@@ -254,11 +288,72 @@ def _installer_check(config: AutomationConfig) -> str:
     )
 
 
+def _installer_integrity_check(config: AutomationConfig) -> str:
+    return " && ".join(
+        f"unzip -t {shlex.quote(config.installer.sources_path + '/' + file)} >/dev/null"
+        for file in _installer_files(config)
+    )
+
+
+def _installer_content_check(config: AutomationConfig) -> str:
+    sources = config.installer.sources_path
+    checks = [
+        f"unzip -l {shlex.quote(sources + '/' + config.installer.grid_zip)} | grep -q 'gridSetup.sh'",
+        f"unzip -l {shlex.quote(sources + '/' + config.installer.db_zip)} | grep -q 'runInstaller'",
+    ]
+    if config.installer.opatch_zip:
+        checks.append(f"unzip -l {shlex.quote(sources + '/' + config.installer.opatch_zip)} | grep -q 'OPatch/'")
+    for patch in config.installer.patches:
+        checks.append(f"unzip -l {shlex.quote(sources + '/' + patch.file)} | awk 'NR > 3 {{print $4}}' | grep -q '^[0-9][0-9]*/'")
+    return " && ".join(checks)
+
+
+def _installer_files(config: AutomationConfig) -> list[str]:
+    files = [config.installer.grid_zip, config.installer.db_zip]
+    if config.installer.opatch_zip:
+        files.append(config.installer.opatch_zip)
+    files.extend(patch.file for patch in config.installer.patches)
+    return files
+
+
 def _disk_check(config: AutomationConfig) -> str:
     return " && ".join(
         f"udevadm info --export-db | grep -q {shlex.quote('DM_UUID=' + dm_uuid)}"
         for dm_uuid in config.asm.all_dm_uuids
     )
+
+
+def _disk_signature_check(config: AutomationConfig) -> str:
+    commands = []
+    for dm_uuid in config.asm.all_dm_uuids:
+        commands.append(
+            "device=$(udevadm info --export-db | awk "
+            f"{shlex.quote('/DM_UUID=' + dm_uuid + '/{found=1} found && /^N: /{print \"/dev/\"$2; exit}')} ); "
+            "test -n \"$device\" && test -z \"$(wipefs -n \"$device\" 2>/dev/null | awk 'NR>1')\""
+        )
+    return " && ".join(commands)
+
+
+def _symlink_collision_check(config: AutomationConfig) -> str:
+    paths: list[str] = []
+    for group, disks in (
+        ("OCR", config.asm.ocr_disks),
+        ("DATA", config.asm.data_disks),
+        ("RECO", config.asm.reco_disks),
+    ):
+        paths.extend(disk.symlink_path(group, index) for index, disk in enumerate(disks, start=1))
+    return " && ".join(f"test ! -e {shlex.quote(path)} || test -b {shlex.quote(path)}" for path in paths)
+
+
+def _disk_size_check(config: AutomationConfig) -> str:
+    commands = []
+    for dm_uuid in config.asm.all_dm_uuids:
+        commands.append(
+            "device=$(udevadm info --export-db | awk "
+            f"{shlex.quote('/DM_UUID=' + dm_uuid + '/{found=1} found && /^N: /{print \"/dev/\"$2; exit}')} ); "
+            f"test -n \"$device\" && printf '{dm_uuid} ' && blockdev --getsize64 \"$device\""
+        )
+    return " && ".join(commands)
 
 
 def _scan_check(config: AutomationConfig) -> str:

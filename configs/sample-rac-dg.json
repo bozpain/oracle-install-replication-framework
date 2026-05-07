@@ -103,5 +103,11 @@
   "dataguard": {
     "configuration_method": "broker",
     "protection_mode": "max_performance"
+  },
+  "secrets": {
+    "sys_password_env": "ORACLE_AUTO_SYS_PASSWORD",
+    "system_password_env": "ORACLE_AUTO_SYSTEM_PASSWORD",
+    "asmsnmp_password_env": "ORACLE_AUTO_ASMSNMP_PASSWORD",
+    "dg_password_env": "ORACLE_AUTO_DG_PASSWORD"
   }
 }

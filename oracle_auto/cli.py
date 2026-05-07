@@ -19,11 +19,15 @@ from oracle_auto.config import AutomationConfig, ConfigError, load_config
 from oracle_auto.executor import SSHExecutor
 from oracle_auto.phases import (
     apply_patch_steps,
+    cleanup_lab_steps,
+    collect_diagnostics_steps,
+    configure_asm_storage_steps,
     create_database_steps,
     failover_steps,
     install_db_software_steps,
     install_grid_steps,
     prepare_os_steps,
+    prepare_storage_rules_steps,
     prepare_storage_steps,
     setup_active_dataguard_steps,
     setup_dataguard_broker_steps,
@@ -31,6 +35,7 @@ from oracle_auto.phases import (
     validate_deployment_steps,
     verify_installer_steps,
 )
+from oracle_auto.plan import write_plan
 from oracle_auto.precheck import PrecheckRunner
 from oracle_auto.report import results_from_state, write_html_report
 from oracle_auto.state import NoopStateStore, StateStore
@@ -42,6 +47,8 @@ PhaseBuilder = Callable[[AutomationConfig], list[AutomationStep]]
 PHASE_BUILDERS: dict[str, PhaseBuilder] = {
     "prepare-os": prepare_os_steps,
     "verify-installer": verify_installer_steps,
+    "prepare-storage-rules": prepare_storage_rules_steps,
+    "configure-asm-storage": configure_asm_storage_steps,
     "prepare-storage": prepare_storage_steps,
     "install-grid": install_grid_steps,
     "install-db-software": install_db_software_steps,
@@ -52,7 +59,24 @@ PHASE_BUILDERS: dict[str, PhaseBuilder] = {
     "validate-deployment": validate_deployment_steps,
     "switchover": switchover_steps,
     "failover": failover_steps,
+    "collect-diagnostics": collect_diagnostics_steps,
+    "cleanup-lab": cleanup_lab_steps,
 }
+
+
+DEPLOYMENT_PHASE_ORDER = [
+    "prepare-os",
+    "verify-installer",
+    "prepare-storage-rules",
+    "install-grid",
+    "configure-asm-storage",
+    "install-db-software",
+    "apply-patch",
+    "create-database",
+    "setup-active-dataguard",
+    "setup-dataguard-broker",
+    "validate-deployment",
+]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -82,7 +106,9 @@ def build_parser() -> argparse.ArgumentParser:
     for command, help_text in {
         "prepare-os": "Prepare OS users, DNS, hosts, firewall, SELinux, and chrony.",
         "verify-installer": "Verify installer and patch ZIP files on target hosts.",
-        "prepare-storage": "Prepare ASM AFD labels and OCR/DATA/RECO disk groups.",
+        "prepare-storage-rules": "Prepare udev rules and /dev/oracleasm symlinks.",
+        "configure-asm-storage": "Configure ASMFD labels and OCR/DATA/RECO disk groups.",
+        "prepare-storage": "Compatibility wrapper for storage rules and ASM storage.",
         "install-grid": "Install Grid Infrastructure.",
         "install-db-software": "Install Oracle Database software.",
         "apply-patch": "Apply OPatch and configured patches.",
@@ -92,6 +118,8 @@ def build_parser() -> argparse.ArgumentParser:
         "validate-deployment": "Validate GI, ASM, Database, and Data Guard state.",
         "switchover": "Switchover to standby.",
         "failover": "Failover to standby.",
+        "collect-diagnostics": "Collect remote diagnostics for troubleshooting.",
+        "cleanup-lab": "Clean limited framework-generated lab artifacts.",
     }.items():
         subparser = subparsers.add_parser(command, help=help_text)
         _add_execution_args(subparser)
@@ -101,9 +129,36 @@ def build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="Confirm failover execution. Required unless --dry-run is used.",
             )
+        if command in {"prepare-storage", "prepare-storage-rules", "configure-asm-storage"}:
+            subparser.add_argument(
+                "--allow-storage-changes",
+                action="store_true",
+                help="Allow udev/ASM storage changes. Required unless --dry-run is used.",
+            )
+        if command == "apply-patch":
+            subparser.add_argument(
+                "--allow-patch-apply",
+                action="store_true",
+                help="Allow OPatch and patch apply. Required unless --dry-run is used.",
+            )
+        if command == "cleanup-lab":
+            subparser.add_argument(
+                "--yes",
+                action="store_true",
+                help="Confirm limited lab cleanup. Required unless --dry-run is used.",
+            )
 
     report = subparsers.add_parser("generate-report", help="Generate HTML report from current state.")
     report.add_argument("--config", required=True, help="Path to JSON/YAML config.")
+
+    plan = subparsers.add_parser("generate-plan", help="Generate an HTML execution plan without SSH.")
+    plan.add_argument("--config", required=True, help="Path to JSON/YAML config.")
+    plan.add_argument(
+        "--phases",
+        nargs="*",
+        default=DEPLOYMENT_PHASE_ORDER,
+        help="Optional phase command names to include. Defaults to all deployment phases.",
+    )
 
     return parser
 
@@ -130,6 +185,11 @@ def _add_execution_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Continue remaining steps after a failure.",
     )
+    parser.add_argument(
+        "--log-dir",
+        default=".oracle-auto/logs",
+        help="Directory for per-step stdout/stderr log artifacts.",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -154,8 +214,24 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Report written: {path}")
         return 0
 
+    if args.command == "generate-plan":
+        steps = _build_plan_steps(config, args.phases)
+        path = write_plan(config, steps, Path(args.report_dir))
+        print(f"Plan written: {path}")
+        return 0
+
     if args.command == "failover" and not args.dry_run and not getattr(args, "yes", False):
         print("Failover requires --yes unless --dry-run is used.", file=sys.stderr)
+        return 2
+    if args.command == "cleanup-lab" and not args.dry_run and not getattr(args, "yes", False):
+        print("cleanup-lab requires --yes unless --dry-run is used.", file=sys.stderr)
+        return 2
+    if args.command in {"prepare-storage", "prepare-storage-rules", "configure-asm-storage"} and not args.dry_run:
+        if not getattr(args, "allow_storage_changes", False):
+            print(f"{args.command} requires --allow-storage-changes unless --dry-run is used.", file=sys.stderr)
+            return 2
+    if args.command == "apply-patch" and not args.dry_run and not getattr(args, "allow_patch_apply", False):
+        print("apply-patch requires --allow-patch-apply unless --dry-run is used.", file=sys.stderr)
         return 2
 
     if args.command == "precheck":
@@ -187,6 +263,7 @@ def _run_precheck(args, config: AutomationConfig) -> int:
         )
         for item in results
     ]
+    step_results = _write_precheck_logs(config, step_results, Path(args.log_dir))
     _print_or_json(args, step_results)
     report = write_html_report(config, step_results, Path(args.report_dir), title=f"Oracle Precheck - {config.run_id}")
     print(f"\nReport written: {report}")
@@ -205,6 +282,7 @@ def _run_phase(args, config: AutomationConfig, steps: list[AutomationStep]) -> i
         state=state,
         resume=not args.no_resume,
         continue_on_fail=args.continue_on_fail,
+        log_dir=Path(args.log_dir) / config.run_id,
     )
     results = runner.run(steps)
     _print_or_json(args, results)
@@ -218,6 +296,61 @@ def _print_or_json(args, results: list[StepResult]) -> None:
         print(json.dumps([item.to_dict() for item in results], indent=2))
     else:
         print(render_results_text(results))
+
+
+def _write_precheck_logs(config: AutomationConfig, results: list[StepResult], log_dir: Path) -> list[StepResult]:
+    updated: list[StepResult] = []
+    for item in results:
+        host_dir = log_dir / config.run_id / "precheck" / _safe_filename(item.host)
+        host_dir.mkdir(parents=True, exist_ok=True)
+        path = host_dir / f"{_safe_filename(item.name)}.log"
+        path.write_text(
+            "\n".join(
+                [
+                    f"phase={item.phase}",
+                    f"host={item.host}",
+                    f"step={item.name}",
+                    f"status={item.status}",
+                    f"command={item.command}",
+                    "",
+                    "STDOUT:",
+                    item.stdout,
+                    "",
+                    "STDERR:",
+                    item.stderr,
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        updated.append(
+            StepResult(
+                phase=item.phase,
+                host=item.host,
+                name=item.name,
+                status=item.status,
+                message=item.message,
+                command=item.command,
+                stdout=item.stdout,
+                stderr=item.stderr,
+                log_path=str(path),
+            )
+        )
+    return updated
+
+
+def _safe_filename(value: str) -> str:
+    return "".join(char if char.isalnum() or char in {"-", "_", "."} else "_" for char in value)
+
+
+def _build_plan_steps(config: AutomationConfig, phase_names: list[str]) -> list[AutomationStep]:
+    steps: list[AutomationStep] = []
+    for name in phase_names:
+        builder = PHASE_BUILDERS.get(name)
+        if builder is None:
+            raise ConfigError(f"Unknown phase for plan: {name}")
+        steps.extend(builder(config))
+    return steps
 
 
 def _print_config_summary(config: AutomationConfig) -> None:

@@ -66,6 +66,8 @@ def render_html_report(
   {asm_table(config)}
   <h2>Installer And Patch</h2>
   {installer_table(config)}
+  <h2>Status Summary</h2>
+  {summary_table(results)}
   <h2>Execution Results</h2>
   <table>
     <thead>
@@ -142,6 +144,14 @@ def installer_table(config: AutomationConfig) -> str:
     return _kv_table(rows)
 
 
+def summary_table(results: list[StepResult]) -> str:
+    counts: dict[str, int] = {}
+    for item in results:
+        counts[item.status] = counts.get(item.status, 0) + 1
+    rows = [(status, str(counts.get(status, 0))) for status in ("PASS", "SKIP", "WARN", "FAIL")]
+    return _kv_table(rows)
+
+
 def results_from_state(data: dict[str, Any]) -> list[StepResult]:
     results: list[StepResult] = []
     for step_name, payload in data.get("steps", {}).items():
@@ -158,6 +168,7 @@ def results_from_state(data: dict[str, Any]) -> list[StepResult]:
                 command=str(details.get("command", "")),
                 stdout=str(details.get("stdout", "")),
                 stderr=str(details.get("stderr", "")),
+                log_path=str(details.get("log_path", "")),
             )
         )
     return results

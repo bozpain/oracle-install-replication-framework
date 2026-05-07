@@ -13,6 +13,7 @@ JSON/YAML. The intended operator workflow is:
 from __future__ import annotations
 
 import json
+import ipaddress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -161,6 +162,14 @@ class DataGuardConfig:
 
 
 @dataclass(frozen=True)
+class SecretsConfig:
+    sys_password_env: str = "ORACLE_AUTO_SYS_PASSWORD"
+    system_password_env: str = "ORACLE_AUTO_SYSTEM_PASSWORD"
+    asmsnmp_password_env: str = "ORACLE_AUTO_ASMSNMP_PASSWORD"
+    dg_password_env: str = "ORACLE_AUTO_DG_PASSWORD"
+
+
+@dataclass(frozen=True)
 class AutomationConfig:
     install_type: str
     primary_site: SiteConfig
@@ -169,6 +178,7 @@ class AutomationConfig:
     installer: InstallerConfig
     standby_site: SiteConfig | None = None
     dataguard: DataGuardConfig = field(default_factory=DataGuardConfig)
+    secrets: SecretsConfig = field(default_factory=SecretsConfig)
     version: VersionConfig = field(default_factory=VersionConfig)
     os: OSConfig = field(default_factory=OSConfig)
     ssh: SSHConfig = field(default_factory=SSHConfig)
@@ -249,6 +259,7 @@ def _parse_config(data: dict[str, Any], path: Path) -> AutomationConfig:
     os_config = _parse_os(data.get("os", {}), version)
     ssh = _parse_ssh(data.get("ssh", {}))
     dataguard = _parse_dataguard(data.get("dataguard", {}))
+    secrets = _parse_secrets(data.get("secrets", {}))
     run_id = str(data.get("run_id") or path.stem)
 
     return AutomationConfig(
@@ -259,6 +270,7 @@ def _parse_config(data: dict[str, Any], path: Path) -> AutomationConfig:
         dns=dns,
         installer=installer,
         dataguard=dataguard,
+        secrets=secrets,
         version=version,
         os=os_config,
         ssh=ssh,
@@ -368,6 +380,19 @@ def _parse_dataguard(data: Any) -> DataGuardConfig:
     )
 
 
+def _parse_secrets(data: Any) -> SecretsConfig:
+    if data is None:
+        return SecretsConfig()
+    if not isinstance(data, dict):
+        raise ConfigError("secrets must be an object/mapping.")
+    return SecretsConfig(
+        sys_password_env=str(data.get("sys_password_env", "ORACLE_AUTO_SYS_PASSWORD")),
+        system_password_env=str(data.get("system_password_env", "ORACLE_AUTO_SYSTEM_PASSWORD")),
+        asmsnmp_password_env=str(data.get("asmsnmp_password_env", "ORACLE_AUTO_ASMSNMP_PASSWORD")),
+        dg_password_env=str(data.get("dg_password_env", "ORACLE_AUTO_DG_PASSWORD")),
+    )
+
+
 def _parse_version(data: Any) -> VersionConfig:
     if data is None:
         return VersionConfig()
@@ -424,6 +449,14 @@ def _validate_config(config: AutomationConfig) -> None:
         raise ConfigError("SELinux baseline must be permissive.")
     if config.os.package_manager not in {"dnf", "yum"}:
         raise ConfigError("os.package_manager must be dnf or yum.")
+    for env_name in (
+        config.secrets.sys_password_env,
+        config.secrets.system_password_env,
+        config.secrets.asmsnmp_password_env,
+        config.secrets.dg_password_env,
+    ):
+        if not env_name or not env_name.replace("_", "").isalnum() or env_name[0].isdigit():
+            raise ConfigError(f"Invalid secret environment variable name: {env_name}")
     if not config.installer.grid_zip:
         raise ConfigError("installer.grid_zip is required.")
     if not config.installer.db_zip:
@@ -451,10 +484,14 @@ def _validate_config(config: AutomationConfig) -> None:
     duplicated_ips = _duplicates([node.public_ip for node in config.all_nodes])
     if duplicated_ips:
         raise ConfigError(f"Duplicate public IP(s) in config: {', '.join(duplicated_ips)}")
+    _validate_ip_values(config)
 
     duplicated_disks = _duplicates(config.asm.all_dm_uuids)
     if duplicated_disks:
         raise ConfigError(f"Duplicate ASM disk DM_UUID(s) in config: {', '.join(duplicated_disks)}")
+    duplicated_symlinks = _duplicates(_asm_symlink_names(config))
+    if duplicated_symlinks:
+        raise ConfigError(f"Duplicate ASM udev symlink name(s) in config: {', '.join(duplicated_symlinks)}")
 
 
 def _validate_rac_site(site: SiteConfig, label: str) -> None:
@@ -504,6 +541,37 @@ def _required_asm_disk_list(value: Any, name: str) -> list[ASMDiskConfig]:
 
         disks.append(ASMDiskConfig(uuid=uuid, name=disk_name))
     return disks
+
+
+def _validate_ip_values(config: AutomationConfig) -> None:
+    for node in config.all_nodes:
+        _validate_ip(node.public_ip, f"{node.host}.public_ip")
+        if node.private_ip:
+            _validate_ip(node.private_ip, f"{node.host}.private_ip")
+        if node.vip_ip:
+            _validate_ip(node.vip_ip, f"{node.host}.vip_ip")
+    for resolver in config.dns.resolvers:
+        _validate_ip(resolver, "dns.resolvers")
+    for server in config.os.ntp_servers:
+        _validate_ip(server, "os.ntp_servers")
+
+
+def _validate_ip(value: str, label: str) -> None:
+    try:
+        ipaddress.ip_address(value)
+    except ValueError as exc:
+        raise ConfigError(f"{label} must be a valid IP address: {value}") from exc
+
+
+def _asm_symlink_names(config: AutomationConfig) -> list[str]:
+    names: list[str] = []
+    for group, disks in (
+        ("OCR", config.asm.ocr_disks),
+        ("DATA", config.asm.data_disks),
+        ("RECO", config.asm.reco_disks),
+    ):
+        names.extend(disk.symlink_name(group, index) for index, disk in enumerate(disks, start=1))
+    return names
 
 
 def _duplicates(values: list[str]) -> list[str]:

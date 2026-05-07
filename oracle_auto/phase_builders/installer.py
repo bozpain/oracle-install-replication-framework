@@ -34,14 +34,17 @@ def _verify_installer_script(config: AutomationConfig) -> str:
         files.append(config.installer.opatch_zip)
     files.extend(patch.file for patch in config.installer.patches)
     checks = [f"test -s {sources}/{shlex.quote(file)}" for file in files]
+    integrity_checks = [f"unzip -t {sources}/{shlex.quote(file)} >/dev/null" for file in files]
     lines = [
         f"test -d {sources}",
         f"test -r {sources}",
         *checks,
+        *integrity_checks,
+        f"unzip -l {sources}/{shlex.quote(config.installer.grid_zip)} | grep -q 'gridSetup.sh'",
+        f"unzip -l {sources}/{shlex.quote(config.installer.db_zip)} | grep -q 'runInstaller'",
         f"sudo -iu grid test -r {sources}/{shlex.quote(config.installer.grid_zip)}",
         f"sudo -iu oracle test -r {sources}/{shlex.quote(config.installer.db_zip)}",
         f"mkdir -p {STAGE}/installer-checks",
         f"ls -lh {sources} > {STAGE}/installer-checks/files.txt",
     ]
     return shell_script("Verify installer ZIP files", lines)
-

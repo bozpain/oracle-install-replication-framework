@@ -63,9 +63,10 @@ def _primary_dataguard_script(config: AutomationConfig) -> str:
     primary_unique = config.primary_site.db_unique_name
     standby_unique = standby.db_unique_name
     lines = [
+        _dg_secret_export(config),
         f"sudo -iu oracle bash -lc \"export ORACLE_SID={primary_unique}; sqlplus -s / as sysdba <<'SQL'\nALTER SYSTEM SET LOG_ARCHIVE_CONFIG='DG_CONFIG=({primary_unique},{standby_unique})' SCOPE=BOTH;\nALTER SYSTEM SET LOG_ARCHIVE_DEST_1='LOCATION=USE_DB_RECOVERY_FILE_DEST VALID_FOR=(ALL_LOGFILES,ALL_ROLES) DB_UNIQUE_NAME={primary_unique}' SCOPE=BOTH;\nALTER SYSTEM SET LOG_ARCHIVE_DEST_2='SERVICE={standby_unique} ASYNC VALID_FOR=(ONLINE_LOGFILES,PRIMARY_ROLE) DB_UNIQUE_NAME={standby_unique}' SCOPE=BOTH;\nALTER SYSTEM SET FAL_SERVER='{standby_unique}' SCOPE=BOTH;\nALTER SYSTEM SET STANDBY_FILE_MANAGEMENT='AUTO' SCOPE=BOTH;\nALTER DATABASE FORCE LOGGING;\nSQL\"",
-        f"sudo -iu oracle {DB_HOME}/bin/orapwd file={DB_HOME}/dbs/orapw{primary_unique} force=y format=12 password=Oracle_Change_Me_1",
-        "echo 'Password file baseline created; replace generated password through secure secret flow before production.'",
+        f"sudo -iu oracle {DB_HOME}/bin/orapwd file={DB_HOME}/dbs/orapw{primary_unique} force=y format=12 password=\"$DG_PASSWORD\"",
+        "echo 'Password file baseline created from target environment secret.'",
     ]
     return shell_script("Configure primary for Active Data Guard", lines)
 
@@ -76,7 +77,8 @@ def _duplicate_standby_script(config: AutomationConfig) -> str:
     primary_unique = config.primary_site.db_unique_name
     standby_unique = standby.db_unique_name
     lines = [
-        f"sudo -iu oracle bash -lc \"export ORACLE_SID={standby_unique}; {DB_HOME}/bin/rman target sys/Oracle_Change_Me_1@{primary_unique} auxiliary sys/Oracle_Change_Me_1@{standby_unique} <<'RMAN'\nDUPLICATE TARGET DATABASE FOR STANDBY FROM ACTIVE DATABASE DORECOVER NOFILENAMECHECK;\nRMAN\"",
+        _dg_secret_export(config),
+        f"sudo -iu oracle bash -lc \"export ORACLE_SID={standby_unique}; {DB_HOME}/bin/rman target sys/\\\"$DG_PASSWORD\\\"@{primary_unique} auxiliary sys/\\\"$DG_PASSWORD\\\"@{standby_unique} <<'RMAN'\nDUPLICATE TARGET DATABASE FOR STANDBY FROM ACTIVE DATABASE DORECOVER NOFILENAMECHECK;\nRMAN\"",
     ]
     return shell_script("Duplicate standby from active primary", lines)
 
@@ -103,3 +105,9 @@ def _broker_script(config: AutomationConfig) -> str:
     ]
     return shell_script("Configure Data Guard Broker", lines)
 
+
+def _dg_secret_export(config: AutomationConfig) -> str:
+    return (
+        f'DG_PASSWORD="${{{config.secrets.dg_password_env}:?Set {config.secrets.dg_password_env} on target before running Data Guard steps}}"\n'
+        "export DG_PASSWORD"
+    )

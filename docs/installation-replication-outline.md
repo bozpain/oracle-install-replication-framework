@@ -10,16 +10,17 @@ Framework ini dibuat untuk mempercepat deployment Oracle yang biasanya panjang, 
 2. Precheck target host.
 3. Persiapan OS fresh install.
 4. Verifikasi installer dan patch yang sudah disalin manual.
-5. Persiapan ASM storage.
+5. Persiapan udev rules storage dari `DM_UUID`.
 6. Instalasi Grid Infrastructure.
-7. Instalasi Oracle Database software.
-8. Patching.
-9. Pembuatan database primary.
-10. Active Data Guard jika standby diisi.
-11. Data Guard Broker jika dipilih.
-12. Validasi deployment.
-13. Switchover/failover automation.
-14. HTML report.
+7. Konfigurasi ASMFD dan diskgroup.
+8. Instalasi Oracle Database software.
+9. Patching.
+10. Pembuatan database primary.
+11. Active Data Guard jika standby diisi.
+12. Data Guard Broker jika dipilih.
+13. Validasi deployment.
+14. Switchover/failover automation.
+15. HTML report, execution plan, dan diagnostics.
 
 ## 2. Deployment Scope
 
@@ -173,17 +174,21 @@ Status baseline: semua command roadmap sudah tersedia sebagai struktur Python, m
 2. `precheck`
 3. `prepare-os`
 4. `verify-installer`
-5. `prepare-storage`
+5. `prepare-storage-rules`
 6. `install-grid`
-7. `install-db-software`
-8. `apply-patch`
-9. `create-database`
-10. `setup-active-dataguard`
-11. `setup-dataguard-broker`
-12. `validate-deployment`
-13. `switchover`
-14. `failover`
-15. `generate-report`
+7. `configure-asm-storage`
+8. `install-db-software`
+9. `apply-patch`
+10. `create-database`
+11. `setup-active-dataguard`
+12. `setup-dataguard-broker`
+13. `validate-deployment`
+14. `switchover`
+15. `failover`
+16. `generate-plan`
+17. `generate-report`
+18. `collect-diagnostics`
+19. `cleanup-lab`
 
 ## 11. State and Reporting
 

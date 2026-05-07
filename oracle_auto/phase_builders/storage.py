@@ -1,8 +1,8 @@
 """ASM storage phase manual.
 
-Builds UUID-driven udev rules for `/dev/oracleasm/*`, reloads udev, validates
-stable symlinks, labels devices with ASMFD, and creates `OCR`, `DATA`, and
-`RECO` diskgroups.
+Builds UUID-driven udev rules first, then performs ASMFD labeling and diskgroup
+creation in a separate post-GI phase. The old `prepare-storage` command remains
+as a compatibility wrapper for dry-run review.
 """
 
 from __future__ import annotations
@@ -18,13 +18,31 @@ ASMEntry = tuple[str, str, str, ASMDiskConfig]
 
 
 def prepare_storage_steps(config: AutomationConfig) -> list[AutomationStep]:
+    return [*prepare_storage_rules_steps(config), *configure_asm_storage_steps(config)]
+
+
+def prepare_storage_rules_steps(config: AutomationConfig) -> list[AutomationStep]:
     return [
         make_step(
-            "prepare-storage",
-            "prepare_asm_storage",
+            "prepare-storage-rules",
+            "prepare_udev_rules",
             node,
-            "Prepare ASM Filter Driver labels and disk groups",
-            _prepare_storage_script(config),
+            "Prepare UUID-driven udev rules for Oracle ASM disks",
+            _prepare_storage_rules_script(config),
+            timeout=300,
+        )
+        for node in config.all_nodes
+    ]
+
+
+def configure_asm_storage_steps(config: AutomationConfig) -> list[AutomationStep]:
+    return [
+        make_step(
+            "configure-asm-storage",
+            "configure_asm_storage",
+            node,
+            "Configure ASM Filter Driver labels and disk groups",
+            _configure_asm_storage_script(config),
             timeout=1200,
         )
         for node in config.all_nodes
@@ -56,9 +74,35 @@ def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
     )
 
 
-def _prepare_storage_script(config: AutomationConfig) -> str:
+def _prepare_storage_rules_script(config: AutomationConfig) -> str:
     entries = asm_entries(config)
     rules = _udev_rules(config)
+    disk_checks = [f"test -b {shlex.quote(path)}" for _label, path, _group, _disk in entries]
+    uuid_checks = [
+        f"udevadm info --export-db | grep -q {shlex.quote('DM_UUID=' + disk.dm_uuid)}"
+        for _label, _path, _group, disk in entries
+    ]
+    collision_checks = [
+        f"test ! -e {shlex.quote(path)} || test -b {shlex.quote(path)}"
+        for _label, path, _group, _disk in entries
+    ]
+    lines = [
+        "command -v udevadm",
+        *uuid_checks,
+        "mkdir -p /dev/oracleasm",
+        *collision_checks,
+        "cat > /etc/udev/rules.d/99-oracleasm.rules <<'EOF'\n" + rules + "\nEOF",
+        "udevadm control --reload-rules",
+        "udevadm trigger --subsystem-match=block --action=change",
+        "udevadm settle",
+        *disk_checks,
+        "ls -l /dev/oracleasm",
+    ]
+    return shell_script("Prepare ASM udev rules", lines)
+
+
+def _configure_asm_storage_script(config: AutomationConfig) -> str:
+    entries = asm_entries(config)
     disk_checks = [f"test -b {shlex.quote(path)}" for _label, path, _group, _disk in entries]
     label_commands = [
         f"asmcmd afd_label {label} {shlex.quote(path)} --init || asmcmd afd_label {label} {shlex.quote(path)}"
@@ -70,13 +114,7 @@ def _prepare_storage_script(config: AutomationConfig) -> str:
         create_diskgroup_sql("RECO", [label for label, _path, group, _disk in entries if group == "RECO"], config.asm.redundancy),
     ]
     lines = [
-        "mkdir -p /dev/oracleasm",
-        "cat > /etc/udev/rules.d/99-oracleasm.rules <<'EOF'\n" + rules + "\nEOF",
-        "udevadm control --reload-rules",
-        "udevadm trigger --subsystem-match=block --action=change",
-        "udevadm settle",
         *disk_checks,
-        "ls -l /dev/oracleasm",
         "command -v asmcmd",
         "asmcmd afd_state || true",
         *label_commands,
@@ -84,7 +122,7 @@ def _prepare_storage_script(config: AutomationConfig) -> str:
         *diskgroup_commands,
         "sudo -iu grid asmcmd lsdg",
     ]
-    return shell_script("Prepare ASM AFD labels and diskgroups", lines)
+    return shell_script("Configure ASM AFD labels and diskgroups", lines)
 
 
 def _udev_rules(config: AutomationConfig) -> str:
@@ -96,4 +134,3 @@ def _udev_rules(config: AutomationConfig) -> str:
             f'SYMLINK+="oracleasm/{name}", GROUP="asmadmin", OWNER="grid", MODE="0660"'
         )
     return "\n".join(rules)
-

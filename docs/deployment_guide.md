@@ -57,6 +57,7 @@ Minimal review blok berikut:
 - `asm`
 - `installer`
 - `dataguard`
+- `secrets`
 
 ## 4. Network Configuration
 
@@ -184,6 +185,21 @@ Pilihan:
 
 Protection mode baseline selalu `max_performance`.
 
+## 7.1 Secrets Configuration
+
+Password tidak ditulis hardcoded di script. Config hanya menyimpan nama environment variable yang harus tersedia di target saat step terkait dijalankan:
+
+```json
+"secrets": {
+  "sys_password_env": "ORACLE_AUTO_SYS_PASSWORD",
+  "system_password_env": "ORACLE_AUTO_SYSTEM_PASSWORD",
+  "asmsnmp_password_env": "ORACLE_AUTO_ASMSNMP_PASSWORD",
+  "dg_password_env": "ORACLE_AUTO_DG_PASSWORD"
+}
+```
+
+Sebelum `create-database` dan Data Guard step, set secret di target sesuai mekanisme secure environment kamu. Untuk lab sementara, bisa export di session root target sebelum eksekusi.
+
 ## 8. Validate Config
 
 Jalankan:
@@ -244,8 +260,9 @@ Selalu mulai dengan dry-run penuh:
 ```bash
 python main.py prepare-os --config configs/my-deployment.json --dry-run
 python main.py verify-installer --config configs/my-deployment.json --dry-run
-python main.py prepare-storage --config configs/my-deployment.json --dry-run
+python main.py prepare-storage-rules --config configs/my-deployment.json --dry-run
 python main.py install-grid --config configs/my-deployment.json --dry-run
+python main.py configure-asm-storage --config configs/my-deployment.json --dry-run
 python main.py install-db-software --config configs/my-deployment.json --dry-run
 python main.py apply-patch --config configs/my-deployment.json --dry-run
 python main.py create-database --config configs/my-deployment.json --dry-run
@@ -262,7 +279,7 @@ Implementation trace:
 
 - `prepare-os`: `oracle_auto/phase_builders/os.py`
 - `verify-installer`: `oracle_auto/phase_builders/installer.py`
-- `prepare-storage`: `oracle_auto/phase_builders/storage.py`
+- `prepare-storage-rules`, `configure-asm-storage`, dan compatibility `prepare-storage`: `oracle_auto/phase_builders/storage.py`
 - `install-grid`: `oracle_auto/phase_builders/grid.py`
 - `install-db-software` dan `create-database`: `oracle_auto/phase_builders/database.py`
 - `apply-patch`: `oracle_auto/phase_builders/patching.py`
@@ -306,13 +323,25 @@ Command:
 python main.py verify-installer --config configs/my-deployment.json
 ```
 
-### prepare-storage
+### prepare-storage-rules
 
-Menyiapkan ASM storage:
+Menyiapkan storage rules sebelum GI/ASM bergantung pada device:
 
-- Validasi block device.
 - Generate udev rule dari `DM_UUID`.
 - Reload dan trigger udev.
+- Validasi symlink `/dev/oracleasm/...`.
+- Cek collision symlink.
+
+Command:
+
+```bash
+python main.py prepare-storage-rules --config configs/my-deployment.json --allow-storage-changes
+```
+
+### configure-asm-storage
+
+Menyiapkan ASM storage setelah GI tooling tersedia:
+
 - Validasi symlink `/dev/oracleasm/...`.
 - Label AFD dari symlink `/dev/oracleasm/...`.
 - Create diskgroup `OCR`, `DATA`, `RECO`.
@@ -321,7 +350,7 @@ Menyiapkan ASM storage:
 Command:
 
 ```bash
-python main.py prepare-storage --config configs/my-deployment.json
+python main.py configure-asm-storage --config configs/my-deployment.json --allow-storage-changes
 ```
 
 ### install-grid
@@ -455,6 +484,28 @@ Contoh:
 python main.py verify-installer --config configs/my-deployment.json --no-resume
 ```
 
+## 14.1 Execution Plan
+
+Generate plan untuk review DBA sebelum SSH execution:
+
+```bash
+python main.py generate-plan --config configs/my-deployment.json
+```
+
+Output:
+
+```text
+.oracle-auto/reports/<run_id>-plan.html
+```
+
+## 14.2 Step Logs
+
+Setiap step menyimpan stdout/stderr lokal:
+
+```text
+.oracle-auto/logs/<run_id>/<phase>/<host>/<step>.log
+```
+
 ## 15. JSON Output
 
 Gunakan `--json` untuk integrasi pipeline:
@@ -545,6 +596,20 @@ Data Guard gagal:
 - Cek `tnsnames.ora`.
 - Cek archive log mode dan force logging.
 - Cek network primary ke standby dan sebaliknya.
+
+Collect diagnostics:
+
+```bash
+python main.py collect-diagnostics --config configs/my-deployment.json
+```
+
+Cleanup lab terbatas:
+
+```bash
+python main.py cleanup-lab --config configs/my-deployment.json --yes
+```
+
+Cleanup ini tidak menghapus Oracle home, database, ASM label, atau diskgroup.
 
 ## 19. Production Readiness Checklist
 

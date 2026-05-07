@@ -66,8 +66,9 @@ python main.py validate-config --config configs/sample-rac-dg.json
 python main.py precheck --config configs/sample-rac-dg.json --dry-run
 python main.py prepare-os --config configs/sample-rac-dg.json --dry-run
 python main.py verify-installer --config configs/sample-rac-dg.json --dry-run
-python main.py prepare-storage --config configs/sample-rac-dg.json --dry-run
+python main.py prepare-storage-rules --config configs/sample-rac-dg.json --dry-run
 python main.py install-grid --config configs/sample-rac-dg.json --dry-run
+python main.py configure-asm-storage --config configs/sample-rac-dg.json --dry-run
 python main.py install-db-software --config configs/sample-rac-dg.json --dry-run
 python main.py apply-patch --config configs/sample-rac-dg.json --dry-run
 python main.py create-database --config configs/sample-rac-dg.json --dry-run
@@ -88,7 +89,19 @@ Semua command deployment utama mendukung:
 - `--json`: output machine-readable.
 - `--continue-on-fail`: lanjutkan step lain meski ada failure.
 
-Failover memiliki guardrail tambahan:
+Destructive guardrails:
+
+- `prepare-storage-rules`, `configure-asm-storage`, dan compatibility command `prepare-storage` membutuhkan `--allow-storage-changes` saat real execution.
+- `apply-patch` membutuhkan `--allow-patch-apply` saat real execution.
+- `failover` dan `cleanup-lab` membutuhkan `--yes` saat real execution.
+
+Review plan sebelum eksekusi:
+
+```bash
+python main.py generate-plan --config configs/sample-rac-dg.json
+```
+
+Failover execution:
 
 ```bash
 python main.py failover --config configs/sample-rac-dg.json --yes
@@ -106,6 +119,12 @@ HTML report default:
 
 ```text
 .oracle-auto/reports/<run_id>.html
+```
+
+Per-step log default:
+
+```text
+.oracle-auto/logs/<run_id>/<phase>/<host>/<step>.log
 ```
 
 Report tetap dibuat walaupun ada step gagal, sehingga hasil eksekusi bisa direview setelah troubleshooting.

@@ -14,6 +14,7 @@ from __future__ import annotations
 import html
 import shlex
 from dataclasses import dataclass
+from pathlib import Path
 
 from oracle_auto.config import NodeConfig
 from oracle_auto.executor import CommandResult, SSHExecutor
@@ -45,6 +46,7 @@ class StepResult:
     command: str
     stdout: str = ""
     stderr: str = ""
+    log_path: str = ""
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -56,6 +58,7 @@ class StepResult:
             "command": self.command,
             "stdout": self.stdout,
             "stderr": self.stderr,
+            "log_path": self.log_path,
         }
 
 
@@ -66,11 +69,13 @@ class AutomationRunner:
         state: StateStore,
         resume: bool = True,
         continue_on_fail: bool = False,
+        log_dir: Path | None = None,
     ):
         self.executor = executor
         self.state = state
         self.resume = resume
         self.continue_on_fail = continue_on_fail
+        self.log_dir = log_dir
 
     def run(self, steps: list[AutomationStep]) -> list[StepResult]:
         results: list[StepResult] = []
@@ -90,6 +95,7 @@ class AutomationRunner:
             self.state.mark_running(step.state_key)
             command_result = self.executor.run(step.node, step.command, timeout=step.timeout)
             result = self._to_step_result(step, command_result)
+            result = self._with_log_path(step, result)
             results.append(result)
 
             if result.status == "FAIL":
@@ -100,6 +106,43 @@ class AutomationRunner:
                 self.state.mark_done(step.state_key, result.to_dict())
 
         return results
+
+    def _with_log_path(self, step: AutomationStep, result: StepResult) -> StepResult:
+        if self.log_dir is None:
+            return result
+        host_dir = self.log_dir / step.phase / _safe_filename(step.node.host)
+        host_dir.mkdir(parents=True, exist_ok=True)
+        path = host_dir / f"{_safe_filename(step.name)}.log"
+        path.write_text(
+            "\n".join(
+                [
+                    f"phase={result.phase}",
+                    f"host={result.host}",
+                    f"step={result.name}",
+                    f"status={result.status}",
+                    f"command={result.command}",
+                    "",
+                    "STDOUT:",
+                    result.stdout,
+                    "",
+                    "STDERR:",
+                    result.stderr,
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return StepResult(
+            phase=result.phase,
+            host=result.host,
+            name=result.name,
+            status=result.status,
+            message=result.message,
+            command=result.command,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            log_path=str(path),
+        )
 
     @staticmethod
     def _to_step_result(step: AutomationStep, result: CommandResult) -> StepResult:
@@ -166,7 +209,7 @@ def results_to_html_rows(results: list[StepResult]) -> str:
             f"<td>{html.escape(item.host)}</td>"
             f"<td>{html.escape(item.name)}</td>"
             f"<td class=\"status-{html.escape(item.status.lower())}\">{html.escape(item.status)}</td>"
-            f"<td>{html.escape(item.message)}</td>"
+            f"<td>{html.escape(item.message)}{_log_suffix(item)}</td>"
             "</tr>"
         )
     return "\n".join(rows)
@@ -177,3 +220,13 @@ def _compact(value: str, limit: int = 180) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 3] + "..."
+
+
+def _log_suffix(item: StepResult) -> str:
+    if not item.log_path:
+        return ""
+    return f"<br><code>{html.escape(item.log_path)}</code>"
+
+
+def _safe_filename(value: str) -> str:
+    return "".join(char if char.isalnum() or char in {"-", "_", "."} else "_" for char in value)
