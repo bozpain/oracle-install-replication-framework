@@ -46,8 +46,12 @@ Status framework saat ini: **Phase 1 foundation**. Yang sudah tersedia di kode a
    - Public hostname/FQDN.
    - Public IP.
    - Private interconnect IP.
-   - VIP hostname dan VIP IP untuk RAC.
-   - SCAN hostname dan SCAN IP untuk RAC.
+   - Private hostname otomatis dari public hostname dengan suffix `-priv`.
+   - VIP hostname otomatis dari public hostname dengan suffix `-vip` untuk RAC.
+   - VIP IP untuk RAC.
+   - SCAN DNS name untuk RAC.
+   - DNS resolver yang akan dipakai target server.
+   - Contoh naming otomatis: `db1.example.com` menjadi `db1-vip.example.com` dan `db1-priv.example.com`.
 4. Standby site, optional:
    - Jika standby IP/host diisi, Active Data Guard otomatis aktif.
    - Input standby harus mengikuti bentuk primary: single ke single, RAC ke RAC.
@@ -83,22 +87,26 @@ Status framework saat ini: **Phase 1 foundation**. Yang sudah tersedia di kode a
 6. Isi blok `standby_site` hanya jika ingin Active Data Guard.
 7. Isi seluruh detail IP untuk `/etc/hosts`:
    - Public hostname dan public IP.
-   - Private hostname/IP jika dipakai.
-   - VIP hostname/IP.
-   - SCAN hostname/IP.
-   - Standby public/private/VIP/SCAN jika standby ada.
-8. Isi blok `asm`:
+   - Private IP; private hostname dibuat otomatis dari public hostname.
+   - VIP IP; VIP hostname dibuat otomatis dari public hostname.
+   - Standby public/private/VIP jika standby ada.
+   - SCAN tidak ditulis ke `/etc/hosts`; SCAN wajib resolve dari DNS.
+8. Isi blok DNS:
+   - Resolver DNS target untuk `/etc/resolv.conf`.
+   - SCAN DNS name.
+   - Automation harus mengatur resolver lalu memvalidasi SCAN resolve.
+9. Isi blok `asm`:
    - `ocr_disks`
    - `data_disks`
    - `reco_disks`
    - redundancy.
-9. Isi blok `installer`:
+10. Isi blok `installer`:
    - `sources_path`
    - `grid_zip`
    - `db_zip`
    - `opatch_zip`
    - `patches`
-10. Isi blok `dataguard` hanya untuk pilihan konfigurasi lanjutan:
+11. Isi blok `dataguard` hanya untuk pilihan konfigurasi lanjutan:
    - `configuration_method`: `manual` atau `broker`.
    - Protection mode tetap default `max_performance`.
 
@@ -118,6 +126,10 @@ Status framework saat ini: **Phase 1 foundation**. Yang sudah tersedia di kode a
    - Jika primary single, standby juga single.
    - Jika primary RAC, standby juga RAC.
    - Detail IP untuk `/etc/hosts` lengkap.
+   - Private hostname bisa diturunkan otomatis dari public hostname.
+   - VIP hostname bisa diturunkan otomatis dari public hostname.
+   - SCAN DNS name tidak punya IP di config dan harus resolve via DNS.
+   - DNS resolver tersedia dan bisa dipakai target server.
    - Disk tidak duplikat antar diskgroup.
    - Installer ZIP yang disebut di config ada di `sources_path`.
    - Patch list valid dan berurutan.
@@ -169,6 +181,8 @@ Status framework saat ini: **Phase 1 foundation**. Yang sudah tersedia di kode a
 3. Target precheck berikutnya:
    - Validasi OS fresh install.
    - Validasi semua IP/hostname resolve.
+   - Validasi DNS resolver target.
+   - Validasi SCAN DNS resolve; jika tidak resolve, precheck gagal.
    - Validasi disk ASM terlihat di semua node.
    - Validasi disk size konsisten per diskgroup.
    - Validasi installer ZIP dan patch ZIP ada.
@@ -211,14 +225,23 @@ Automation harus menjalankan OS preparation otomatis pada semua node.
    - DB home milik `oracle:oinstall`.
 7. Set kernel parameters, limits, dan profile.
 8. Set environment profile untuk `grid` dan `oracle`.
-9. Update `/etc/hosts` otomatis dari detail IP di config.
-10. Disable firewall otomatis:
+9. Set DNS resolver sesuai config.
+10. Update `/etc/hosts` otomatis dari detail IP di config:
+    - Public hostname.
+    - Private hostname hasil suffix `-priv`.
+    - VIP hostname hasil suffix `-vip`.
+    - Primary dan standby jika standby ada.
+    - SCAN tidak dimasukkan ke `/etc/hosts`.
+11. Disable firewall otomatis:
     - `firewalld`
     - `iptables`
     - service firewall lain yang aktif jika ditemukan.
-11. Set SELinux sesuai standar deployment.
-12. Validasi chrony/time sync aktif.
-13. Jalankan reboot jika diperlukan dan lanjut via resume state.
+12. Set SELinux ke `permissive`.
+13. Konfigurasi chrony otomatis ke NTP server:
+    - `192.168.113.41`
+    - `192.168.115.41`
+14. Validasi chrony/time sync aktif setelah konfigurasi.
+15. Jalankan reboot jika diperlukan dan lanjut via resume state.
 
 ## 9. Verifikasi Installer Otomatis
 
@@ -267,9 +290,9 @@ Langkah ini otomatis untuk `single-gi` dan `rac`.
 2. Jalankan prerequisite check Grid.
 3. Untuk RAC:
    - Validasi cluster node list.
-   - Validasi SCAN hostname/IP.
-   - Validasi VIP hostname/IP per node.
-   - Validasi private interconnect.
+   - Validasi SCAN DNS name resolve via DNS.
+   - Validasi VIP hostname otomatis dan VIP IP per node.
+   - Validasi private hostname otomatis dan private interconnect IP.
    - Validasi shared ASM disk `OCR`, `DATA`, dan `RECO`.
 4. Jalankan silent install Grid Infrastructure.
 5. Jalankan root script otomatis pada node yang diminta Oracle installer.
@@ -333,7 +356,7 @@ Automation langsung memakai metode terbaik untuk unattended install. Baseline: D
 Bagian ini berjalan otomatis jika standby host/IP diisi di config.
 
 1. Jalankan OS preparation di standby.
-2. Update `/etc/hosts` standby dengan semua IP primary dan standby.
+2. Update resolver DNS dan `/etc/hosts` standby dengan semua IP primary dan standby, kecuali SCAN tetap DNS-only.
 3. Jalankan storage ASM preparation di standby.
 4. Install Grid Infrastructure di standby.
 5. Install Oracle Database software di standby.
@@ -434,7 +457,7 @@ Output akhir automation berupa HTML report.
    - Tanggal eksekusi.
    - Versi OS, GI, DB, OPatch, dan patch.
    - Topologi primary dan standby.
-   - Mapping hostname/IP dan `/etc/hosts`.
+   - Mapping hostname/IP, generated private/VIP hostname, DNS resolver, SCAN DNS check, dan `/etc/hosts`.
    - Mapping disk ke AFD label dan diskgroup.
    - Status OS preparation.
    - Status installer verification.
@@ -480,7 +503,7 @@ Output akhir automation berupa HTML report.
 ## 20. Roadmap Implementasi Framework
 
 1. Update config schema untuk `single-gi` dan `rac`.
-2. Tambah struktur config untuk IP, `/etc/hosts`, ASM disk, installer, patch list, dan Data Guard method.
+2. Tambah struktur config untuk IP, generated private/VIP hostname, DNS resolver, SCAN DNS name, `/etc/hosts`, ASM disk, installer, patch list, dan Data Guard method.
 3. Tambah command `prepare-os`.
 4. Tambah command `verify-installer`.
 5. Tambah command `prepare-storage`.
@@ -496,4 +519,3 @@ Output akhir automation berupa HTML report.
 15. Tambah command `generate-report`.
 16. Tambah mode `--dry-run` untuk semua command.
 17. Tambah HTML report untuk semua hasil eksekusi.
-
