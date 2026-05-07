@@ -94,7 +94,7 @@ Automation mengelola:
 
 ## 6. Storage Model
 
-Storage selalu ASM. User memberikan disk secara manual di config:
+Storage selalu ASM. User memberikan disk `DM_UUID` secara manual di config, bukan `/dev/mapper/mpathX` atau `/dev/sdX`, karena nama device tersebut bisa berubah setelah reboot atau rediscovery.
 
 - `ocr_disks` untuk diskgroup `OCR`.
 - `data_disks` untuk diskgroup `DATA`.
@@ -103,12 +103,15 @@ Storage selalu ASM. User memberikan disk secara manual di config:
 
 Automation melakukan:
 
-- Validasi block device.
-- Validasi disk tidak duplikat.
-- Label ASM Filter Driver.
+- Normalisasi input UUID menjadi `DM_UUID=mpath-<uuid>` jika prefix `mpath-` belum ada.
+- Membuat udev rules di `/etc/udev/rules.d/99-oracleasm.rules`.
+- Membuat symlink stabil `/dev/oracleasm/ocr01`, `/dev/oracleasm/data01`, dan `/dev/oracleasm/reco01`.
+- Set owner `grid`, group `asmadmin`, dan mode `0660` pada symlink hasil rule.
+- Validasi symlink `/dev/oracleasm/...` sudah menjadi block device.
+- Label ASM Filter Driver dari symlink `/dev/oracleasm/...`.
 - Create diskgroup `OCR`, `DATA`, dan `RECO`.
 - Validasi diskgroup terlihat pada target.
-- Report mapping disk ke AFD label dan diskgroup.
+- Report mapping `DM_UUID`, symlink `/dev/oracleasm/...`, AFD label, dan diskgroup.
 
 ## 7. Installer and Patch Model
 
@@ -203,12 +206,11 @@ Report berisi:
 - Topology.
 - Generated hostname.
 - DNS resolver dan SCAN validation.
-- ASM disk mapping.
+- ASM DM_UUID, udev symlink, and diskgroup mapping.
 - Installer and patch list.
 - Execution result.
 - Error and warning summary.
 
 ## 12. Validation Note
 
-Framework sudah membangun automation skeleton yang serius: schema, runner, command phases, dry-run, state, report, dan tests. Bagian yang menyentuh Oracle installer, GI response file, ASM/AFD, OPatch/opatchauto, DBCA, RMAN duplicate, Broker, switchover, dan failover tetap harus divalidasi di lab target sebelum production.
-
+Framework sudah membangun automation skeleton yang serius: schema, runner, command phases, dry-run, state, report, dan tests. Bagian yang menyentuh Oracle installer, GI response file, udev storage rules, ASM/AFD, OPatch/opatchauto, DBCA, RMAN duplicate, Broker, switchover, dan failover tetap harus divalidasi di lab target sebelum production.

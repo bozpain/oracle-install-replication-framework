@@ -74,17 +74,17 @@
   "asm": {
     "redundancy": "EXTERNAL",
     "ocr_disks": [
-      "/dev/mapper/ocr01",
-      "/dev/mapper/ocr02",
-      "/dev/mapper/ocr03"
+      "360060e8008a3cf000050a3cf00000101",
+      "360060e8008a3cf000050a3cf00000102",
+      "360060e8008a3cf000050a3cf00000103"
     ],
     "data_disks": [
-      "/dev/mapper/data01",
-      "/dev/mapper/data02"
+      "360060e8008a3cf000050a3cf00000104",
+      "360060e8008a3cf000050a3cf00000105"
     ],
     "reco_disks": [
-      "/dev/mapper/reco01",
-      "/dev/mapper/reco02"
+      "360060e8008a3cf000050a3cf00000106",
+      "360060e8008a3cf000050a3cf00000107"
     ]
   },
   "installer": {

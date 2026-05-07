@@ -21,13 +21,13 @@
   },
   "asm": {
     "ocr_disks": [
-      "/dev/mapper/ocr01"
+      "360060e8008a3cf000050a3cf00000101"
     ],
     "data_disks": [
-      "/dev/mapper/data01"
+      "360060e8008a3cf000050a3cf00000102"
     ],
     "reco_disks": [
-      "/dev/mapper/reco01"
+      "360060e8008a3cf000050a3cf00000103"
     ]
   },
   "installer": {

@@ -122,9 +122,9 @@ def topology_table(config: AutomationConfig) -> str:
 
 def asm_table(config: AutomationConfig) -> str:
     rows = [
-        ("OCR", ", ".join(config.asm.ocr_disks)),
-        ("DATA", ", ".join(config.asm.data_disks)),
-        ("RECO", ", ".join(config.asm.reco_disks)),
+        ("OCR", _asm_disk_text("OCR", config.asm.ocr_disks)),
+        ("DATA", _asm_disk_text("DATA", config.asm.data_disks)),
+        ("RECO", _asm_disk_text("RECO", config.asm.reco_disks)),
         ("Redundancy", config.asm.redundancy),
     ]
     return _kv_table(rows)
@@ -180,6 +180,13 @@ def _vip_cell(node: NodeConfig) -> str:
     if not node.vip_ip:
         return ""
     return f"{node.vip_hostname} / {node.vip_ip}"
+
+
+def _asm_disk_text(group: str, disks) -> str:
+    values = []
+    for index, disk in enumerate(disks, start=1):
+        values.append(f"{disk.dm_uuid} -> {disk.symlink_path(group, index)}")
+    return ", ".join(values)
 
 
 def _safe_run_id(value: str) -> str:

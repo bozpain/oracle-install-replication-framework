@@ -2,7 +2,7 @@
 
 Precheck is the non-destructive gate before OS preparation. It validates SSH,
 OS baseline, DNS resolver/SCAN behavior, installer source visibility, and ASM
-disk visibility. It should fail early when the target cannot support the later
+disk DM_UUID visibility. It should fail early when the target cannot support the later
 automation phases.
 """
 
@@ -182,9 +182,9 @@ class PrecheckRunner:
                 warn_only=True,
             ),
             Check(
-                name="asm_disks_visible",
+                name="asm_disk_uuids_visible",
                 command=_disk_check(self.config),
-                fail_message="One or more configured ASM disks are not visible as block devices.",
+                fail_message="One or more configured ASM disk DM_UUID values are not visible to udev.",
             ),
         ]
 
@@ -255,7 +255,10 @@ def _installer_check(config: AutomationConfig) -> str:
 
 
 def _disk_check(config: AutomationConfig) -> str:
-    return " && ".join(f"test -b {shlex.quote(disk)}" for disk in config.asm.all_disks)
+    return " && ".join(
+        f"udevadm info --export-db | grep -q {shlex.quote('DM_UUID=' + dm_uuid)}"
+        for dm_uuid in config.asm.all_dm_uuids
+    )
 
 
 def _scan_check(config: AutomationConfig) -> str:

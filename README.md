@@ -2,7 +2,7 @@
 
 Professional automation framework untuk provisioning Oracle Grid Infrastructure, ASM storage, Oracle Database, patching, dan Active Data Guard pada Oracle Linux.
 
-Framework ini dirancang untuk environment fresh install dengan standar operasi yang konsisten: user `grid` dan `oracle` terpisah, semua deployment memakai Grid Infrastructure dan ASM, storage didefinisikan sebagai diskgroup `OCR`, `DATA`, dan `RECO`, serta Active Data Guard aktif otomatis ketika `standby_site` diisi di config.
+Framework ini dirancang untuk environment fresh install dengan standar operasi yang konsisten: user `grid` dan `oracle` terpisah, semua deployment memakai Grid Infrastructure dan ASM, storage didefinisikan dari disk `DM_UUID` ke udev symlink `/dev/oracleasm/...`, diskgroup standar `OCR`, `DATA`, dan `RECO`, serta Active Data Guard aktif otomatis ketika `standby_site` diisi di config.
 
 ## Current Baseline
 
@@ -29,7 +29,7 @@ Mulai dari dokumen ini untuk overview. Detail teknis dan runbook operator dipisa
 
 Framework dibagi menjadi beberapa layer:
 
-- `oracle_auto.config`: schema config, validasi topology, ASM disk, DNS resolver, installer, patch, dan Data Guard method.
+- `oracle_auto.config`: schema config, validasi topology, ASM disk DM_UUID, DNS resolver, installer, patch, dan Data Guard method.
 - `oracle_auto.precheck`: precheck remote non-destruktif sebelum deployment.
 - `oracle_auto.phases`: generator step automation untuk OS, installer, storage, Grid, DB home, patching, database, Active Data Guard, Broker, validation, switchover, dan failover.
 - `oracle_auto.automation`: runner generik untuk SSH execution, dry-run, state/resume, dan result normalization.
@@ -76,7 +76,7 @@ python main.py validate-deployment --config configs/sample-rac-dg.json --dry-run
 python main.py generate-report --config configs/sample-rac-dg.json
 ```
 
-Hapus `--dry-run` hanya setelah config, DNS, disk, installer ZIP, patch ZIP, dan target host sudah siap.
+Hapus `--dry-run` hanya setelah config, DNS, disk DM_UUID, installer ZIP, patch ZIP, dan target host sudah siap.
 
 ## Operator Controls
 
@@ -111,5 +111,4 @@ Report tetap dibuat walaupun ada step gagal, sehingga hasil eksekusi bisa direvi
 
 ## Validation Status
 
-Baseline saat ini sudah memiliki command structure, dry-run support, state/resume, dan HTML reporting. Command Oracle yang menyentuh installer, GI, ASM/AFD, OPatch, RMAN duplicate, Broker, switchover, dan failover tetap harus divalidasi di lab target karena detail behavior dapat berubah mengikuti layout installer, patch bundle, storage, dan standar environment.
-
+Baseline saat ini sudah memiliki command structure, dry-run support, state/resume, dan HTML reporting. Command Oracle yang menyentuh installer, GI, udev storage rules, ASM/AFD, OPatch, RMAN duplicate, Broker, switchover, dan failover tetap harus divalidasi di lab target karena detail behavior dapat berubah mengikuti layout installer, patch bundle, storage, dan standar environment.

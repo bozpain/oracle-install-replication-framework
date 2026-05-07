@@ -328,19 +328,26 @@ def _verify_installer_script(config: AutomationConfig) -> str:
 
 
 def _prepare_storage_script(config: AutomationConfig) -> str:
-    labels = _afd_labels(config)
-    disk_checks = [f"test -b {shlex.quote(disk)}" for disk in config.asm.all_disks]
+    entries = _asm_entries(config)
+    rules = _udev_rules(config)
+    disk_checks = [f"test -b {shlex.quote(path)}" for _label, path, _group, _disk in entries]
     label_commands = [
-        f"asmcmd afd_label {label} {shlex.quote(disk)} --init || asmcmd afd_label {label} {shlex.quote(disk)}"
-        for label, disk, _group in labels
+        f"asmcmd afd_label {label} {shlex.quote(path)} --init || asmcmd afd_label {label} {shlex.quote(path)}"
+        for label, path, _group, _disk in entries
     ]
     diskgroup_commands = [
-        _create_diskgroup_sql("OCR", [label for label, _disk, group in labels if group == "OCR"], config.asm.redundancy),
-        _create_diskgroup_sql("DATA", [label for label, _disk, group in labels if group == "DATA"], config.asm.redundancy),
-        _create_diskgroup_sql("RECO", [label for label, _disk, group in labels if group == "RECO"], config.asm.redundancy),
+        _create_diskgroup_sql("OCR", [label for label, _path, group, _disk in entries if group == "OCR"], config.asm.redundancy),
+        _create_diskgroup_sql("DATA", [label for label, _path, group, _disk in entries if group == "DATA"], config.asm.redundancy),
+        _create_diskgroup_sql("RECO", [label for label, _path, group, _disk in entries if group == "RECO"], config.asm.redundancy),
     ]
     lines = [
+        "mkdir -p /dev/oracleasm",
+        "cat > /etc/udev/rules.d/99-oracleasm.rules <<'EOF'\n" + rules + "\nEOF",
+        "udevadm control --reload-rules",
+        "udevadm trigger --subsystem-match=block --action=change",
+        "udevadm settle",
         *disk_checks,
+        "ls -l /dev/oracleasm",
         "command -v asmcmd",
         "asmcmd afd_state || true",
         *label_commands,
@@ -568,7 +575,7 @@ oracle.install.crs.config.configureAsExtendedCluster=false
 oracle.install.crs.config.clusterNodeVIPs={vip_names}
 oracle.install.asm.diskGroup.name=OCR
 oracle.install.asm.diskGroup.redundancy={config.asm.redundancy}
-oracle.install.asm.diskGroup.disks={','.join('AFD:' + label for label, _disk, group in _afd_labels(config) if group == 'OCR')}
+oracle.install.asm.diskGroup.disks={','.join('AFD:' + label for label, _path, group, _disk in _asm_entries(config) if group == 'OCR')}
 oracle.install.asm.configureAFD=true
 oracle.install.crs.rootconfig.executeRootScript=false
 """
@@ -660,16 +667,28 @@ def _resolv_conf(config: AutomationConfig) -> str:
     return "\n".join(lines)
 
 
-def _afd_labels(config: AutomationConfig) -> list[tuple[str, str, str]]:
-    labels: list[tuple[str, str, str]] = []
+def _udev_rules(config: AutomationConfig) -> str:
+    rules: list[str] = []
+    for _label, _path, _group, disk in _asm_entries(config):
+        name = _path.rsplit("/", 1)[-1]
+        rules.append(
+            f'ACTION=="add|change", ENV{{DM_UUID}}=="{disk.dm_uuid}", '
+            f'SYMLINK+="oracleasm/{name}", GROUP="asmadmin", OWNER="grid", MODE="0660"'
+        )
+    return "\n".join(rules)
+
+
+def _asm_entries(config: AutomationConfig) -> list[tuple[str, str, str, object]]:
+    entries: list[tuple[str, str, str, object]] = []
     for group, disks in (
         ("OCR", config.asm.ocr_disks),
         ("DATA", config.asm.data_disks),
         ("RECO", config.asm.reco_disks),
     ):
         for index, disk in enumerate(disks, start=1):
-            labels.append((f"{group}{index:02d}", disk, group))
-    return labels
+            label = disk.symlink_name(group, index).upper()
+            entries.append((label, disk.symlink_path(group, index), group, disk))
+    return entries
 
 
 def _step(

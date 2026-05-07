@@ -18,7 +18,7 @@ Target servers:
 - DNS record public hostname tersedia.
 - Untuk RAC, SCAN DNS record tersedia dan resolve dari resolver yang akan dikonfigurasi.
 - Installer dan patch ZIP sudah disalin manual ke target, default `/u01/sources`.
-- Disk ASM untuk `OCR`, `DATA`, dan `RECO` sudah terlihat sebagai block device.
+- Disk ASM untuk `OCR`, `DATA`, dan `RECO` sudah terlihat oleh udev dengan `DM_UUID`.
 
 ## 2. Choose Deployment Type
 
@@ -93,21 +93,51 @@ DNS resolver:
 
 ## 5. ASM Disk Configuration
 
-Isi disk berdasarkan diskgroup:
+Isi disk berdasarkan `DM_UUID`, bukan `/dev/mapper/mpathX` atau `/dev/sdX`. Nama device seperti itu bisa berubah, sedangkan `DM_UUID` multipath stabil untuk rule matching.
 
 ```json
 "asm": {
   "redundancy": "EXTERNAL",
-  "ocr_disks": ["/dev/mapper/ocr01", "/dev/mapper/ocr02", "/dev/mapper/ocr03"],
-  "data_disks": ["/dev/mapper/data01", "/dev/mapper/data02"],
-  "reco_disks": ["/dev/mapper/reco01", "/dev/mapper/reco02"]
+  "ocr_disks": [
+    "360060e8008a3cf000050a3cf00000101",
+    "360060e8008a3cf000050a3cf00000102",
+    "360060e8008a3cf000050a3cf00000103"
+  ],
+  "data_disks": [
+    "360060e8008a3cf000050a3cf00000104",
+    "360060e8008a3cf000050a3cf00000105"
+  ],
+  "reco_disks": [
+    "360060e8008a3cf000050a3cf00000106",
+    "360060e8008a3cf000050a3cf00000107"
+  ]
 }
 ```
 
 Rule:
 
 - Disk tidak boleh duplikat antar diskgroup.
-- Disk harus terlihat di target sebagai block device.
+- UUID boleh ditulis dengan atau tanpa prefix `mpath-`; framework akan menormalisasi menjadi `DM_UUID=mpath-<uuid>`.
+- Framework membuat udev rule dan symlink `/dev/oracleasm/...`.
+- Default symlink dibuat otomatis: `ocr01`, `data01`, `reco01`, dan seterusnya.
+- Jika suatu environment butuh nama khusus seperti `data102`, gunakan object optional:
+
+  ```json
+  "data_disks": [
+    {
+      "uuid": "360060e8008a3cf000050a3cf00000175",
+      "name": "data102"
+    }
+  ]
+  ```
+
+- Rule yang dihasilkan kira-kira seperti:
+
+  ```text
+  ACTION=="add|change", ENV{DM_UUID}=="mpath-360060e8008a3cf000050a3cf00000175", SYMLINK+="oracleasm/data102", GROUP="asmadmin", OWNER="grid", MODE="0660"
+  ```
+
+- Disk harus terlihat oleh `udevadm info --export-db`.
 - Untuk RAC, disk shared harus konsisten di semua node.
 
 ## 6. Installer and Patch Configuration
@@ -202,7 +232,7 @@ Precheck memvalidasi:
 - User `oracle` dan `grid`.
 - Chrony/time sync.
 - SELinux.
-- ASM disk visibility.
+- ASM disk DM_UUID visibility.
 - RAC hostname FQDN.
 - SCAN DNS resolution.
 - Private interconnect hint.
@@ -269,7 +299,10 @@ python main.py verify-installer --config configs/my-deployment.json
 Menyiapkan ASM storage:
 
 - Validasi block device.
-- Label AFD.
+- Generate udev rule dari `DM_UUID`.
+- Reload dan trigger udev.
+- Validasi symlink `/dev/oracleasm/...`.
+- Label AFD dari symlink `/dev/oracleasm/...`.
 - Create diskgroup `OCR`, `DATA`, `RECO`.
 - Validasi ASM diskgroup.
 
@@ -450,7 +483,7 @@ Report berisi:
 - Generated private/VIP hostnames.
 - DNS resolver.
 - SCAN status.
-- ASM disk mapping.
+- ASM DM_UUID, udev symlink, AFD label, dan diskgroup mapping.
 - Installer and patch list.
 - Execution results.
 
@@ -478,7 +511,10 @@ Installer verification gagal:
 
 ASM disk gagal:
 
-- Cek disk path.
+- Cek `DM_UUID` benar.
+- Cek `udevadm info --export-db | grep DM_UUID`.
+- Cek file rule `/etc/udev/rules.d/99-oracleasm.rules`.
+- Cek symlink `/dev/oracleasm/...`.
 - Cek multipath.
 - Cek disk sudah dipakai filesystem atau belum.
 - Cek konsistensi disk antar node RAC.
@@ -510,4 +546,3 @@ Sebelum production:
 - Precheck remote bersih dari `FAIL`.
 - Backup atau rollback plan tersedia.
 - Switchover/failover hanya dijalankan dengan window dan approval.
-

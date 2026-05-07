@@ -5,7 +5,7 @@ decisions here first, then let runners consume typed dataclasses instead of raw
 JSON/YAML. The intended operator workflow is:
 
 1. Fill one deployment config for `single-gi` or `rac`.
-2. Provide public IPs, RAC VIP IPs, SCAN DNS names, ASM disks, and installer ZIPs.
+2. Provide public IPs, RAC VIP IPs, SCAN DNS names, ASM disk DM_UUIDs, and installer ZIPs.
 3. Let the framework derive `-priv` and `-vip` hostnames, validate topology, and
    drive all later commands from this normalized model.
 """
@@ -102,15 +102,35 @@ class SiteConfig:
 
 
 @dataclass(frozen=True)
+class ASMDiskConfig:
+    uuid: str
+    name: str | None = None
+
+    @property
+    def dm_uuid(self) -> str:
+        return self.uuid if self.uuid.startswith("mpath-") else f"mpath-{self.uuid}"
+
+    def symlink_name(self, group: str, index: int) -> str:
+        return self.name or f"{group.lower()}{index:02d}"
+
+    def symlink_path(self, group: str, index: int) -> str:
+        return f"/dev/oracleasm/{self.symlink_name(group, index)}"
+
+
+@dataclass(frozen=True)
 class ASMConfig:
-    ocr_disks: list[str]
-    data_disks: list[str]
-    reco_disks: list[str]
+    ocr_disks: list[ASMDiskConfig]
+    data_disks: list[ASMDiskConfig]
+    reco_disks: list[ASMDiskConfig]
     redundancy: str = "EXTERNAL"
 
     @property
-    def all_disks(self) -> list[str]:
+    def all_disks(self) -> list[ASMDiskConfig]:
         return [*self.ocr_disks, *self.data_disks, *self.reco_disks]
+
+    @property
+    def all_dm_uuids(self) -> list[str]:
+        return [disk.dm_uuid for disk in self.all_disks]
 
 
 @dataclass(frozen=True)
@@ -291,9 +311,9 @@ def _parse_asm(data: Any) -> ASMConfig:
     if not isinstance(data, dict):
         raise ConfigError("asm must be an object/mapping.")
     return ASMConfig(
-        ocr_disks=_required_str_list(data.get("ocr_disks"), "asm.ocr_disks"),
-        data_disks=_required_str_list(data.get("data_disks"), "asm.data_disks"),
-        reco_disks=_required_str_list(data.get("reco_disks"), "asm.reco_disks"),
+        ocr_disks=_required_asm_disk_list(data.get("ocr_disks"), "asm.ocr_disks"),
+        data_disks=_required_asm_disk_list(data.get("data_disks"), "asm.data_disks"),
+        reco_disks=_required_asm_disk_list(data.get("reco_disks"), "asm.reco_disks"),
         redundancy=str(data.get("redundancy", "EXTERNAL")).upper(),
     )
 
@@ -432,9 +452,9 @@ def _validate_config(config: AutomationConfig) -> None:
     if duplicated_ips:
         raise ConfigError(f"Duplicate public IP(s) in config: {', '.join(duplicated_ips)}")
 
-    duplicated_disks = _duplicates(config.asm.all_disks)
+    duplicated_disks = _duplicates(config.asm.all_dm_uuids)
     if duplicated_disks:
-        raise ConfigError(f"Duplicate ASM disk(s) in config: {', '.join(duplicated_disks)}")
+        raise ConfigError(f"Duplicate ASM disk DM_UUID(s) in config: {', '.join(duplicated_disks)}")
 
 
 def _validate_rac_site(site: SiteConfig, label: str) -> None:
@@ -457,6 +477,33 @@ def _required_str_list(value: Any, name: str) -> list[str]:
     if any(not item for item in items):
         raise ConfigError(f"{name} cannot contain empty values.")
     return items
+
+
+def _required_asm_disk_list(value: Any, name: str) -> list[ASMDiskConfig]:
+    if not isinstance(value, list) or not value:
+        raise ConfigError(f"{name} must be a non-empty list.")
+
+    disks: list[ASMDiskConfig] = []
+    for index, item in enumerate(value):
+        location = f"{name}[{index}]"
+        if isinstance(item, str):
+            uuid = item
+            disk_name = None
+        elif isinstance(item, dict):
+            uuid = str(item.get("uuid") or "")
+            disk_name = _optional_str(item.get("name"))
+        else:
+            raise ConfigError(f"{location} must be a DM_UUID string or object.")
+
+        if not uuid:
+            raise ConfigError(f"{location}.uuid is required.")
+        if uuid.startswith("/dev/"):
+            raise ConfigError(f"{location} must contain DM_UUID only, not a device path.")
+        if disk_name and ("/" in disk_name or disk_name.startswith(".")):
+            raise ConfigError(f"{location}.name must be a simple symlink name.")
+
+        disks.append(ASMDiskConfig(uuid=uuid, name=disk_name))
+    return disks
 
 
 def _duplicates(values: list[str]) -> list[str]:
