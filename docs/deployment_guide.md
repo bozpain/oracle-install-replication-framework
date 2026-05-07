@@ -258,6 +258,18 @@ Jika dry-run sudah sesuai, jalankan tanpa `--dry-run` sesuai urutan yang sama.
 
 ## 11. Command Details
 
+Implementation trace:
+
+- `prepare-os`: `oracle_auto/phase_builders/os.py`
+- `verify-installer`: `oracle_auto/phase_builders/installer.py`
+- `prepare-storage`: `oracle_auto/phase_builders/storage.py`
+- `install-grid`: `oracle_auto/phase_builders/grid.py`
+- `install-db-software` dan `create-database`: `oracle_auto/phase_builders/database.py`
+- `apply-patch`: `oracle_auto/phase_builders/patching.py`
+- `setup-active-dataguard` dan `setup-dataguard-broker`: `oracle_auto/phase_builders/dataguard.py`
+- `validate-deployment`: `oracle_auto/phase_builders/validation.py`
+- `switchover` dan `failover`: `oracle_auto/phase_builders/role.py`
+
 ### prepare-os
 
 Menjalankan OS bootstrap:

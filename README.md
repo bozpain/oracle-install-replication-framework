@@ -31,7 +31,8 @@ Framework dibagi menjadi beberapa layer:
 
 - `oracle_auto.config`: schema config, validasi topology, ASM disk DM_UUID, DNS resolver, installer, patch, dan Data Guard method.
 - `oracle_auto.precheck`: precheck remote non-destruktif sebelum deployment.
-- `oracle_auto.phases`: generator step automation untuk OS, installer, storage, Grid, DB home, patching, database, Active Data Guard, Broker, validation, switchover, dan failover.
+- `oracle_auto.phases`: facade kecil yang diekspos ke CLI.
+- `oracle_auto.phase_builders`: generator step automation yang dipisah per domain: OS, installer, storage, Grid, database, patching, Data Guard, validation, dan role operation.
 - `oracle_auto.automation`: runner generik untuk SSH execution, dry-run, state/resume, dan result normalization.
 - `oracle_auto.report`: HTML report generator.
 - `oracle_auto.cli`: command-line interface untuk semua workflow.
