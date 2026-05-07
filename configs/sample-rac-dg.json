@@ -1,13 +1,21 @@
 {
-  "run_id": "rac-dg-demo",
-  "install_type": "rac-db",
-  "sources_path": "/u01/sources",
-  "patch_version": "19.30",
+  "run_id": "rac-adg-demo",
+  "install_type": "rac",
+  "version": {
+    "os_distribution": "oracle_linux",
+    "os_version": "8.10",
+    "oracle_version": "19c",
+    "oracle_home_version": "19.0.0",
+    "patch_set": "19.30"
+  },
   "os": {
-    "distribution": "oracle_linux",
-    "version": "8.10",
     "package_manager": "dnf",
-    "preinstall_package": "oracle-database-preinstall-19c"
+    "preinstall_package": "oracle-database-preinstall-19c",
+    "selinux_mode": "permissive",
+    "ntp_servers": [
+      "192.168.113.41",
+      "192.168.115.41"
+    ]
   },
   "ssh": {
     "user": "root",
@@ -15,52 +23,85 @@
     "connect_timeout": 10,
     "strict_host_key_checking": "accept-new"
   },
+  "dns": {
+    "resolvers": [
+      "192.168.113.10",
+      "192.168.115.10"
+    ],
+    "search_domains": [
+      "example.com"
+    ]
+  },
   "primary_site": {
     "name": "site-a",
-    "nodes": [
-      {
-        "host": "db1-site-a.example.com"
-      },
-      {
-        "host": "db2-site-a.example.com"
-      }
-    ],
     "db_name": "ORCL",
     "db_unique_name": "ORCL_A",
     "scan_name": "scan-site-a.example.com",
-    "vip_names": [
-      "db1-site-a-vip.example.com",
-      "db2-site-a-vip.example.com"
-    ],
-    "private_interconnects": [
-      "192.168.10.11",
-      "192.168.10.12"
+    "nodes": [
+      {
+        "host": "db1-site-a.example.com",
+        "public_ip": "192.168.113.101",
+        "private_ip": "10.10.10.11",
+        "vip_ip": "192.168.113.111"
+      },
+      {
+        "host": "db2-site-a.example.com",
+        "public_ip": "192.168.113.102",
+        "private_ip": "10.10.10.12",
+        "vip_ip": "192.168.113.112"
+      }
     ]
   },
   "standby_site": {
     "name": "site-b",
-    "nodes": [
-      {
-        "host": "db1-site-b.example.com"
-      },
-      {
-        "host": "db2-site-b.example.com"
-      }
-    ],
     "db_unique_name": "ORCL_B",
     "scan_name": "scan-site-b.example.com",
-    "vip_names": [
-      "db1-site-b-vip.example.com",
-      "db2-site-b-vip.example.com"
-    ],
-    "private_interconnects": [
-      "192.168.20.11",
-      "192.168.20.12"
+    "nodes": [
+      {
+        "host": "db1-site-b.example.com",
+        "public_ip": "192.168.115.101",
+        "private_ip": "10.20.10.11",
+        "vip_ip": "192.168.115.111"
+      },
+      {
+        "host": "db2-site-b.example.com",
+        "public_ip": "192.168.115.102",
+        "private_ip": "10.20.10.12",
+        "vip_ip": "192.168.115.112"
+      }
     ]
   },
-  "replication": {
-    "enabled": true,
-    "mode": "dataguard",
+  "asm": {
+    "redundancy": "EXTERNAL",
+    "ocr_disks": [
+      "/dev/mapper/ocr01",
+      "/dev/mapper/ocr02",
+      "/dev/mapper/ocr03"
+    ],
+    "data_disks": [
+      "/dev/mapper/data01",
+      "/dev/mapper/data02"
+    ],
+    "reco_disks": [
+      "/dev/mapper/reco01",
+      "/dev/mapper/reco02"
+    ]
+  },
+  "installer": {
+    "sources_path": "/u01/sources",
+    "grid_zip": "LINUX.X64_193000_grid_home.zip",
+    "db_zip": "LINUX.X64_193000_db_home.zip",
+    "opatch_zip": "p6880880_190000_Linux-x86-64.zip",
+    "patches": [
+      {
+        "name": "19.30 RU",
+        "type": "ru",
+        "file": "p19_30_ru_Linux-x86-64.zip"
+      }
+    ]
+  },
+  "dataguard": {
+    "configuration_method": "broker",
     "protection_mode": "max_performance"
   }
 }

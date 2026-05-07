@@ -1,11 +1,44 @@
 {
-  "install_type": "single-db",
+  "install_type": "single-gi",
   "primary_site": {
+    "name": "site-a",
+    "db_name": "ORCL",
+    "db_unique_name": "ORCL_A",
     "nodes": [
-      "db1"
+      {
+        "host": "db1.example.com",
+        "public_ip": "192.168.113.101"
+      }
     ]
   },
-  "replication": {
-    "enabled": true
+  "standby_site": {
+    "name": "site-b",
+    "db_unique_name": "ORCL_B",
+    "nodes": [
+      {
+        "host": "db1-standby.example.com",
+        "public_ip": "192.168.113.101"
+      }
+    ]
+  },
+  "dns": {
+    "resolvers": [
+      "192.168.113.10"
+    ]
+  },
+  "asm": {
+    "ocr_disks": [
+      "/dev/mapper/ocr01"
+    ],
+    "data_disks": [
+      "/dev/mapper/data01"
+    ],
+    "reco_disks": [
+      "/dev/mapper/reco01"
+    ]
+  },
+  "installer": {
+    "grid_zip": "grid.zip",
+    "db_zip": "db.zip"
   }
 }

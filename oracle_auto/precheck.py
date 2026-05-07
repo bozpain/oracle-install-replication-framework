@@ -1,5 +1,14 @@
+"""Precheck runner manual.
+
+Precheck is the non-destructive gate before OS preparation. It validates SSH,
+OS baseline, DNS resolver/SCAN behavior, installer source visibility, and ASM
+disk visibility. It should fail early when the target cannot support the later
+automation phases.
+"""
+
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass
 
 from oracle_auto.config import AutomationConfig, NodeConfig
@@ -81,7 +90,7 @@ class PrecheckRunner:
         return results
 
     def _checks_for(self, node: NodeConfig) -> list[Check]:
-        sources = self.config.sources_path
+        sources = self.config.installer.sources_path
         package_manager = self.config.os.package_manager
         preinstall_package = self.config.os.preinstall_package
         checks = [
@@ -122,9 +131,26 @@ class PrecheckRunner:
                 fail_message=f"Cannot find package from enabled repo: {preinstall_package}",
             ),
             Check(
+                name="dns_resolver_config",
+                command=_resolver_check(self.config.dns.resolvers),
+                fail_message="Target resolver config does not contain the configured DNS resolver yet.",
+                warn_only=True,
+            ),
+            Check(
+                name="public_hostname_resolve",
+                command=f"getent hosts {shlex.quote(node.host)}",
+                fail_message=f"Public hostname does not resolve: {node.host}",
+                warn_only=True,
+            ),
+            Check(
                 name="sources_path",
-                command=f"test -d {sources} && test -r {sources} && ls -1 {sources} | head",
+                command=f"test -d {shlex.quote(sources)} && test -r {shlex.quote(sources)} && ls -1 {shlex.quote(sources)} | head",
                 fail_message=f"Installer source path is missing or unreadable: {sources}",
+            ),
+            Check(
+                name="installer_zip_files",
+                command=_installer_check(self.config),
+                fail_message="One or more configured installer/patch ZIP files are missing or empty.",
             ),
             Check(
                 name="u01_capacity",
@@ -134,13 +160,13 @@ class PrecheckRunner:
             Check(
                 name="oracle_user",
                 command="id oracle",
-                fail_message="OS user oracle does not exist yet.",
+                fail_message="OS user oracle does not exist yet; prepare-os will create it.",
                 warn_only=True,
             ),
             Check(
                 name="grid_user",
                 command="id grid",
-                fail_message="OS user grid does not exist yet.",
+                fail_message="OS user grid does not exist yet; prepare-os will create it.",
                 warn_only=True,
             ),
             Check(
@@ -155,15 +181,25 @@ class PrecheckRunner:
                 fail_message="Cannot read SELinux status.",
                 warn_only=True,
             ),
+            Check(
+                name="asm_disks_visible",
+                command=_disk_check(self.config),
+                fail_message="One or more configured ASM disks are not visible as block devices.",
+            ),
         ]
 
-        if self.config.install_type.startswith("rac"):
+        if self.config.install_type == "rac":
             checks.extend(
                 [
                     Check(
                         name="hostname_fqdn",
                         command="hostname -f",
                         fail_message="Cannot resolve FQDN hostname.",
+                    ),
+                    Check(
+                        name="scan_dns_resolve",
+                        command=_scan_check(self.config),
+                        fail_message="SCAN DNS name does not resolve from target DNS.",
                     ),
                     Check(
                         name="private_interconnect_hint",
@@ -201,6 +237,30 @@ class PrecheckRunner:
             stdout=result.stdout,
             stderr=result.stderr,
         )
+
+
+def _resolver_check(resolvers: list[str]) -> str:
+    parts = [f"grep -q '^nameserver[[:space:]]\\+{shlex.quote(resolver)}' /etc/resolv.conf" for resolver in resolvers]
+    return " || ".join(parts)
+
+
+def _installer_check(config: AutomationConfig) -> str:
+    files = [config.installer.grid_zip, config.installer.db_zip]
+    if config.installer.opatch_zip:
+        files.append(config.installer.opatch_zip)
+    files.extend(patch.file for patch in config.installer.patches)
+    return " && ".join(
+        f"test -s {shlex.quote(config.installer.sources_path + '/' + file)}" for file in files
+    )
+
+
+def _disk_check(config: AutomationConfig) -> str:
+    return " && ".join(f"test -b {shlex.quote(disk)}" for disk in config.asm.all_disks)
+
+
+def _scan_check(config: AutomationConfig) -> str:
+    scans = [site.scan_name for site in config.sites if site.scan_name]
+    return " && ".join(f"getent hosts {shlex.quote(scan)}" for scan in scans)
 
 
 def _compact(value: str, limit: int = 140) -> str:

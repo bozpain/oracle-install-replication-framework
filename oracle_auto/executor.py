@@ -1,3 +1,10 @@
+"""SSH executor manual.
+
+This module is the only place that opens SSH sessions. Runners pass a target
+node and shell command here; dry-run mode returns the exact SSH command without
+touching remote servers.
+"""
+
 from __future__ import annotations
 
 import subprocess

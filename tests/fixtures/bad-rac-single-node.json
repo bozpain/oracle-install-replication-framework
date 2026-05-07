@@ -1,8 +1,37 @@
 {
-  "install_type": "rac-db",
+  "install_type": "rac",
   "primary_site": {
+    "name": "site-a",
+    "db_name": "ORCL",
+    "db_unique_name": "ORCL_A",
+    "scan_name": "scan-site-a.example.com",
     "nodes": [
-      "db1"
+      {
+        "host": "db1.example.com",
+        "public_ip": "192.168.113.101",
+        "private_ip": "10.10.10.11",
+        "vip_ip": "192.168.113.111"
+      }
     ]
+  },
+  "dns": {
+    "resolvers": [
+      "192.168.113.10"
+    ]
+  },
+  "asm": {
+    "ocr_disks": [
+      "/dev/mapper/ocr01"
+    ],
+    "data_disks": [
+      "/dev/mapper/data01"
+    ],
+    "reco_disks": [
+      "/dev/mapper/reco01"
+    ]
+  },
+  "installer": {
+    "grid_zip": "grid.zip",
+    "db_zip": "db.zip"
   }
 }

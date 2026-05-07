@@ -502,6 +502,8 @@ Output akhir automation berupa HTML report.
 
 ## 20. Roadmap Implementasi Framework
 
+Status baseline: roadmap ini sudah dibuatkan struktur command dan scripting Python awal di framework. Setiap command sudah mendukung `--dry-run`, state/resume, dan HTML report. Detail command Oracle tetap perlu divalidasi di target lab karena installer, patch layout, ASM/AFD behavior, dan Data Guard flow bisa berbeda antar environment.
+
 1. Update config schema untuk `single-gi` dan `rac`.
 2. Tambah struktur config untuk IP, generated private/VIP hostname, DNS resolver, SCAN DNS name, `/etc/hosts`, ASM disk, installer, patch list, dan Data Guard method.
 3. Tambah command `prepare-os`.

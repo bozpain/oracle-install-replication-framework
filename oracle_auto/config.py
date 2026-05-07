@@ -1,3 +1,15 @@
+"""Configuration schema and validation manual.
+
+This module is the contract for every automation phase. Keep all deployment
+decisions here first, then let runners consume typed dataclasses instead of raw
+JSON/YAML. The intended operator workflow is:
+
+1. Fill one deployment config for `single-gi` or `rac`.
+2. Provide public IPs, RAC VIP IPs, SCAN DNS names, ASM disks, and installer ZIPs.
+3. Let the framework derive `-priv` and `-vip` hostnames, validate topology, and
+   drive all later commands from this normalized model.
+"""
+
 from __future__ import annotations
 
 import json
@@ -6,8 +18,9 @@ from pathlib import Path
 from typing import Any
 
 
-VALID_INSTALL_TYPES = {"single-db", "single-gi", "rac-gi", "rac-db"}
-RAC_INSTALL_TYPES = {"rac-gi", "rac-db"}
+VALID_INSTALL_TYPES = {"single-gi", "rac"}
+VALID_DATAGUARD_METHODS = {"manual", "broker"}
+DEFAULT_NTP_SERVERS = ["192.168.113.41", "192.168.115.41"]
 
 
 class ConfigError(ValueError):
@@ -24,32 +37,12 @@ class SSHConfig:
 
 
 @dataclass(frozen=True)
-class NodeConfig:
-    host: str
-    user: str | None = None
-    role: str | None = None
-
-    @property
-    def ssh_user(self) -> str | None:
-        return self.user
-
-
-@dataclass(frozen=True)
-class SiteConfig:
-    name: str
-    nodes: list[NodeConfig]
-    db_name: str | None = None
-    db_unique_name: str | None = None
-    scan_name: str | None = None
-    vip_names: list[str] = field(default_factory=list)
-    private_interconnects: list[str] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class ReplicationConfig:
-    enabled: bool = False
-    mode: str = "dataguard"
-    protection_mode: str = "max_performance"
+class VersionConfig:
+    os_distribution: str = "oracle_linux"
+    os_version: str = "8.10"
+    oracle_version: str = "19c"
+    oracle_home_version: str = "19.0.0"
+    patch_set: str = "19.30"
 
 
 @dataclass(frozen=True)
@@ -58,19 +51,120 @@ class OSConfig:
     version: str = "8.10"
     package_manager: str = "dnf"
     preinstall_package: str = "oracle-database-preinstall-19c"
+    selinux_mode: str = "permissive"
+    ntp_servers: list[str] = field(default_factory=lambda: list(DEFAULT_NTP_SERVERS))
+
+
+@dataclass(frozen=True)
+class DNSConfig:
+    resolvers: list[str]
+    search_domains: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class NodeConfig:
+    host: str
+    public_ip: str
+    private_ip: str | None = None
+    vip_ip: str | None = None
+    user: str | None = None
+    role: str | None = None
+
+    @property
+    def ssh_user(self) -> str | None:
+        return self.user
+
+    @property
+    def short_name(self) -> str:
+        return self.host.split(".", 1)[0]
+
+    @property
+    def domain(self) -> str:
+        parts = self.host.split(".", 1)
+        return parts[1] if len(parts) == 2 else ""
+
+    @property
+    def private_hostname(self) -> str:
+        return _derived_hostname(self.host, "priv")
+
+    @property
+    def vip_hostname(self) -> str:
+        return _derived_hostname(self.host, "vip")
+
+
+@dataclass(frozen=True)
+class SiteConfig:
+    name: str
+    nodes: list[NodeConfig]
+    db_unique_name: str
+    db_name: str | None = None
+    scan_name: str | None = None
+
+
+@dataclass(frozen=True)
+class ASMConfig:
+    ocr_disks: list[str]
+    data_disks: list[str]
+    reco_disks: list[str]
+    redundancy: str = "EXTERNAL"
+
+    @property
+    def all_disks(self) -> list[str]:
+        return [*self.ocr_disks, *self.data_disks, *self.reco_disks]
+
+
+@dataclass(frozen=True)
+class PatchConfig:
+    file: str
+    name: str | None = None
+    type: str = "ru"
+    description: str | None = None
+
+    @property
+    def label(self) -> str:
+        return self.name or self.file
+
+
+@dataclass(frozen=True)
+class InstallerConfig:
+    sources_path: str = "/u01/sources"
+    grid_zip: str = ""
+    db_zip: str = ""
+    opatch_zip: str | None = None
+    patches: list[PatchConfig] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class DataGuardConfig:
+    configuration_method: str = "broker"
+    protection_mode: str = "max_performance"
 
 
 @dataclass(frozen=True)
 class AutomationConfig:
     install_type: str
-    sources_path: str
-    patch_version: str
     primary_site: SiteConfig
+    asm: ASMConfig
+    dns: DNSConfig
+    installer: InstallerConfig
     standby_site: SiteConfig | None = None
-    replication: ReplicationConfig = field(default_factory=ReplicationConfig)
+    dataguard: DataGuardConfig = field(default_factory=DataGuardConfig)
+    version: VersionConfig = field(default_factory=VersionConfig)
     os: OSConfig = field(default_factory=OSConfig)
     ssh: SSHConfig = field(default_factory=SSHConfig)
     run_id: str = "default"
+
+    @property
+    def sources_path(self) -> str:
+        return self.installer.sources_path
+
+    @property
+    def patch_version(self) -> str:
+        return self.version.patch_set
+
+    @property
+    def active_dataguard_enabled(self) -> bool:
+        return self.standby_site is not None
 
     @property
     def all_nodes(self) -> list[NodeConfig]:
@@ -78,6 +172,13 @@ class AutomationConfig:
         if self.standby_site:
             nodes.extend(self.standby_site.nodes)
         return nodes
+
+    @property
+    def sites(self) -> list[SiteConfig]:
+        sites = [self.primary_site]
+        if self.standby_site:
+            sites.append(self.standby_site)
+        return sites
 
 
 def load_config(path: Path) -> AutomationConfig:
@@ -113,9 +214,10 @@ def _load_mapping(path: Path) -> dict[str, Any]:
 def _parse_config(data: dict[str, Any], path: Path) -> AutomationConfig:
     try:
         install_type = str(data["install_type"])
-        sources_path = str(data.get("sources_path", "/u01/sources"))
-        patch_version = str(data.get("patch_version", "19.30"))
         primary_site = _parse_site("primary_site", data["primary_site"])
+        asm = _parse_asm(data["asm"])
+        dns = _parse_dns(data["dns"])
+        installer = _parse_installer(data["installer"])
     except KeyError as exc:
         raise ConfigError(f"Missing required config key: {exc.args[0]}") from exc
 
@@ -123,18 +225,21 @@ def _parse_config(data: dict[str, Any], path: Path) -> AutomationConfig:
     if data.get("standby_site") is not None:
         standby_site = _parse_site("standby_site", data["standby_site"])
 
-    replication = _parse_replication(data.get("replication", {}))
-    os_config = _parse_os(data.get("os", {}))
+    version = _parse_version(data.get("version", {}))
+    os_config = _parse_os(data.get("os", {}), version)
     ssh = _parse_ssh(data.get("ssh", {}))
+    dataguard = _parse_dataguard(data.get("dataguard", {}))
     run_id = str(data.get("run_id") or path.stem)
 
     return AutomationConfig(
         install_type=install_type,
-        sources_path=sources_path,
-        patch_version=patch_version,
         primary_site=primary_site,
         standby_site=standby_site,
-        replication=replication,
+        asm=asm,
+        dns=dns,
+        installer=installer,
+        dataguard=dataguard,
+        version=version,
         os=os_config,
         ssh=ssh,
         run_id=run_id,
@@ -151,40 +256,124 @@ def _parse_site(name: str, data: Any) -> SiteConfig:
 
     nodes = [_parse_node(node, f"{name}.nodes[{index}]") for index, node in enumerate(nodes_raw)]
 
+    db_unique_name = _optional_str(data.get("db_unique_name"))
+    if not db_unique_name:
+        raise ConfigError(f"{name}.db_unique_name is required.")
+
     return SiteConfig(
         name=str(data.get("name", name)),
         nodes=nodes,
         db_name=_optional_str(data.get("db_name")),
-        db_unique_name=_optional_str(data.get("db_unique_name")),
+        db_unique_name=db_unique_name,
         scan_name=_optional_str(data.get("scan_name")),
-        vip_names=[str(item) for item in data.get("vip_names", [])],
-        private_interconnects=[str(item) for item in data.get("private_interconnects", [])],
     )
 
 
 def _parse_node(data: Any, location: str) -> NodeConfig:
-    if isinstance(data, str):
-        return NodeConfig(host=data)
     if not isinstance(data, dict):
-        raise ConfigError(f"{location} must be a hostname string or object.")
+        raise ConfigError(f"{location} must be an object with host and public_ip.")
     if not data.get("host"):
         raise ConfigError(f"{location}.host is required.")
+    public_ip = _optional_str(data.get("public_ip") or data.get("ip"))
+    if not public_ip:
+        raise ConfigError(f"{location}.public_ip is required.")
     return NodeConfig(
         host=str(data["host"]),
+        public_ip=public_ip,
+        private_ip=_optional_str(data.get("private_ip")),
+        vip_ip=_optional_str(data.get("vip_ip")),
         user=_optional_str(data.get("user")),
         role=_optional_str(data.get("role")),
     )
 
 
-def _parse_replication(data: Any) -> ReplicationConfig:
-    if data is None:
-        return ReplicationConfig()
+def _parse_asm(data: Any) -> ASMConfig:
     if not isinstance(data, dict):
-        raise ConfigError("replication must be an object/mapping.")
-    return ReplicationConfig(
-        enabled=bool(data.get("enabled", False)),
-        mode=str(data.get("mode", "dataguard")),
+        raise ConfigError("asm must be an object/mapping.")
+    return ASMConfig(
+        ocr_disks=_required_str_list(data.get("ocr_disks"), "asm.ocr_disks"),
+        data_disks=_required_str_list(data.get("data_disks"), "asm.data_disks"),
+        reco_disks=_required_str_list(data.get("reco_disks"), "asm.reco_disks"),
+        redundancy=str(data.get("redundancy", "EXTERNAL")).upper(),
+    )
+
+
+def _parse_dns(data: Any) -> DNSConfig:
+    if not isinstance(data, dict):
+        raise ConfigError("dns must be an object/mapping.")
+    return DNSConfig(
+        resolvers=_required_str_list(data.get("resolvers"), "dns.resolvers"),
+        search_domains=[str(item) for item in data.get("search_domains", [])],
+    )
+
+
+def _parse_installer(data: Any) -> InstallerConfig:
+    if not isinstance(data, dict):
+        raise ConfigError("installer must be an object/mapping.")
+    patches_raw = data.get("patches", [])
+    if not isinstance(patches_raw, list):
+        raise ConfigError("installer.patches must be a list.")
+    return InstallerConfig(
+        sources_path=str(data.get("sources_path", "/u01/sources")),
+        grid_zip=str(data.get("grid_zip", "")),
+        db_zip=str(data.get("db_zip", "")),
+        opatch_zip=_optional_str(data.get("opatch_zip")),
+        patches=[_parse_patch(item, index) for index, item in enumerate(patches_raw)],
+    )
+
+
+def _parse_patch(data: Any, index: int) -> PatchConfig:
+    if isinstance(data, str):
+        return PatchConfig(file=data)
+    if not isinstance(data, dict):
+        raise ConfigError(f"installer.patches[{index}] must be a filename string or object.")
+    if not data.get("file"):
+        raise ConfigError(f"installer.patches[{index}].file is required.")
+    return PatchConfig(
+        file=str(data["file"]),
+        name=_optional_str(data.get("name")),
+        type=str(data.get("type", "ru")),
+        description=_optional_str(data.get("description")),
+    )
+
+
+def _parse_dataguard(data: Any) -> DataGuardConfig:
+    if data is None:
+        return DataGuardConfig()
+    if not isinstance(data, dict):
+        raise ConfigError("dataguard must be an object/mapping.")
+    return DataGuardConfig(
+        configuration_method=str(data.get("configuration_method", "broker")),
         protection_mode=str(data.get("protection_mode", "max_performance")),
+    )
+
+
+def _parse_version(data: Any) -> VersionConfig:
+    if data is None:
+        return VersionConfig()
+    if not isinstance(data, dict):
+        raise ConfigError("version must be an object/mapping.")
+    return VersionConfig(
+        os_distribution=str(data.get("os_distribution", "oracle_linux")),
+        os_version=str(data.get("os_version", "8.10")),
+        oracle_version=str(data.get("oracle_version", "19c")),
+        oracle_home_version=str(data.get("oracle_home_version", "19.0.0")),
+        patch_set=str(data.get("patch_set", "19.30")),
+    )
+
+
+def _parse_os(data: Any, version: VersionConfig) -> OSConfig:
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        raise ConfigError("os must be an object/mapping.")
+    return OSConfig(
+        distribution=str(data.get("distribution", version.os_distribution)),
+        version=str(data.get("version", version.os_version)),
+        package_manager=str(data.get("package_manager", "dnf")),
+        preinstall_package=str(data.get("preinstall_package", "oracle-database-preinstall-19c")),
+        selinux_mode=str(data.get("selinux_mode", "permissive")),
+        ntp_servers=[str(item) for item in data.get("ntp_servers", DEFAULT_NTP_SERVERS)],
     )
 
 
@@ -202,46 +391,85 @@ def _parse_ssh(data: Any) -> SSHConfig:
     )
 
 
-def _parse_os(data: Any) -> OSConfig:
-    if data is None:
-        return OSConfig()
-    if not isinstance(data, dict):
-        raise ConfigError("os must be an object/mapping.")
-    return OSConfig(
-        distribution=str(data.get("distribution", "oracle_linux")),
-        version=str(data.get("version", "8.10")),
-        package_manager=str(data.get("package_manager", "dnf")),
-        preinstall_package=str(data.get("preinstall_package", "oracle-database-preinstall-19c")),
-    )
-
-
 def _validate_config(config: AutomationConfig) -> None:
     if config.install_type not in VALID_INSTALL_TYPES:
         raise ConfigError(f"install_type must be one of: {', '.join(sorted(VALID_INSTALL_TYPES))}")
-    if not config.sources_path.startswith("/"):
-        raise ConfigError("sources_path must be an absolute path on the target server.")
-    if config.replication.enabled and not config.standby_site:
-        raise ConfigError("standby_site is required when replication.enabled is true.")
-    if config.replication.enabled and config.replication.mode != "dataguard":
-        raise ConfigError("Only replication.mode=dataguard is supported in this phase.")
-    if config.install_type in RAC_INSTALL_TYPES and len(config.primary_site.nodes) < 2:
-        raise ConfigError(f"{config.install_type} requires at least two primary_site nodes.")
-    if config.standby_site and config.install_type in RAC_INSTALL_TYPES and len(config.standby_site.nodes) < 2:
-        raise ConfigError(f"{config.install_type} with standby_site requires at least two standby nodes.")
-    if config.os.distribution != "oracle_linux":
-        raise ConfigError("Only os.distribution=oracle_linux is supported in this framework baseline.")
-    if config.os.version != "8.10":
-        raise ConfigError("Only os.version=8.10 is supported in this framework baseline.")
+    if not config.installer.sources_path.startswith("/"):
+        raise ConfigError("installer.sources_path must be an absolute path on the target server.")
+    if config.dataguard.configuration_method not in VALID_DATAGUARD_METHODS:
+        raise ConfigError("dataguard.configuration_method must be manual or broker.")
+    if config.dataguard.protection_mode != "max_performance":
+        raise ConfigError("Only dataguard.protection_mode=max_performance is supported by default.")
+    if config.os.selinux_mode.lower() != "permissive":
+        raise ConfigError("SELinux baseline must be permissive.")
     if config.os.package_manager not in {"dnf", "yum"}:
         raise ConfigError("os.package_manager must be dnf or yum.")
+    if not config.installer.grid_zip:
+        raise ConfigError("installer.grid_zip is required.")
+    if not config.installer.db_zip:
+        raise ConfigError("installer.db_zip is required.")
 
-    hosts = [node.host for node in config.all_nodes]
-    duplicates = sorted({host for host in hosts if hosts.count(host) > 1})
+    if config.install_type == "rac":
+        _validate_rac_site(config.primary_site, "primary_site")
+        if config.standby_site:
+            _validate_rac_site(config.standby_site, "standby_site")
+    elif len(config.primary_site.nodes) != 1:
+        raise ConfigError("single-gi requires exactly one primary_site node.")
+
+    if config.standby_site:
+        if len(config.standby_site.nodes) != len(config.primary_site.nodes):
+            raise ConfigError("standby_site must have the same node count as primary_site.")
+        if config.install_type == "single-gi" and len(config.standby_site.nodes) != 1:
+            raise ConfigError("single-gi standby must also be single node.")
+        if not config.standby_site.db_unique_name:
+            raise ConfigError("standby_site.db_unique_name is required when standby_site is set.")
+
+    duplicates = _duplicates([node.host for node in config.all_nodes])
     if duplicates:
         raise ConfigError(f"Duplicate host(s) in config: {', '.join(duplicates)}")
+
+    duplicated_ips = _duplicates([node.public_ip for node in config.all_nodes])
+    if duplicated_ips:
+        raise ConfigError(f"Duplicate public IP(s) in config: {', '.join(duplicated_ips)}")
+
+    duplicated_disks = _duplicates(config.asm.all_disks)
+    if duplicated_disks:
+        raise ConfigError(f"Duplicate ASM disk(s) in config: {', '.join(duplicated_disks)}")
+
+
+def _validate_rac_site(site: SiteConfig, label: str) -> None:
+    if len(site.nodes) < 2:
+        raise ConfigError(f"{label} requires at least two nodes for install_type=rac.")
+    if not site.scan_name:
+        raise ConfigError(f"{label}.scan_name is required for install_type=rac.")
+    for index, node in enumerate(site.nodes):
+        location = f"{label}.nodes[{index}]"
+        if not node.private_ip:
+            raise ConfigError(f"{location}.private_ip is required for RAC.")
+        if not node.vip_ip:
+            raise ConfigError(f"{location}.vip_ip is required for RAC.")
+
+
+def _required_str_list(value: Any, name: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ConfigError(f"{name} must be a non-empty list.")
+    items = [str(item) for item in value]
+    if any(not item for item in items):
+        raise ConfigError(f"{name} cannot contain empty values.")
+    return items
+
+
+def _duplicates(values: list[str]) -> list[str]:
+    return sorted({value for value in values if values.count(value) > 1})
 
 
 def _optional_str(value: Any) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _derived_hostname(host: str, suffix: str) -> str:
+    short, separator, domain = host.partition(".")
+    derived = f"{short}-{suffix}"
+    return f"{derived}.{domain}" if separator else derived

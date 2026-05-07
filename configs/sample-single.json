@@ -1,13 +1,21 @@
 {
-  "run_id": "single-primary-demo",
-  "install_type": "single-db",
-  "sources_path": "/u01/sources",
-  "patch_version": "19.30",
+  "run_id": "single-gi-demo",
+  "install_type": "single-gi",
+  "version": {
+    "os_distribution": "oracle_linux",
+    "os_version": "8.10",
+    "oracle_version": "19c",
+    "oracle_home_version": "19.0.0",
+    "patch_set": "19.30"
+  },
   "os": {
-    "distribution": "oracle_linux",
-    "version": "8.10",
     "package_manager": "dnf",
-    "preinstall_package": "oracle-database-preinstall-19c"
+    "preinstall_package": "oracle-database-preinstall-19c",
+    "selinux_mode": "permissive",
+    "ntp_servers": [
+      "192.168.113.41",
+      "192.168.115.41"
+    ]
   },
   "ssh": {
     "user": "root",
@@ -15,17 +23,62 @@
     "connect_timeout": 10,
     "strict_host_key_checking": "accept-new"
   },
+  "dns": {
+    "resolvers": [
+      "192.168.113.10"
+    ],
+    "search_domains": [
+      "example.com"
+    ]
+  },
   "primary_site": {
     "name": "site-a",
+    "db_name": "ORCL",
+    "db_unique_name": "ORCL_A",
     "nodes": [
       {
-        "host": "db1-site-a.example.com"
+        "host": "db1-site-a.example.com",
+        "public_ip": "192.168.113.101"
       }
-    ],
-    "db_name": "ORCL",
-    "db_unique_name": "ORCL_A"
+    ]
   },
-  "replication": {
-    "enabled": false
+  "standby_site": {
+    "name": "site-b",
+    "db_unique_name": "ORCL_B",
+    "nodes": [
+      {
+        "host": "db1-site-b.example.com",
+        "public_ip": "192.168.115.101"
+      }
+    ]
+  },
+  "asm": {
+    "redundancy": "EXTERNAL",
+    "ocr_disks": [
+      "/dev/mapper/ocr01"
+    ],
+    "data_disks": [
+      "/dev/mapper/data01"
+    ],
+    "reco_disks": [
+      "/dev/mapper/reco01"
+    ]
+  },
+  "installer": {
+    "sources_path": "/u01/sources",
+    "grid_zip": "LINUX.X64_193000_grid_home.zip",
+    "db_zip": "LINUX.X64_193000_db_home.zip",
+    "opatch_zip": "p6880880_190000_Linux-x86-64.zip",
+    "patches": [
+      {
+        "name": "19.30 RU",
+        "type": "ru",
+        "file": "p19_30_ru_Linux-x86-64.zip"
+      }
+    ]
+  },
+  "dataguard": {
+    "configuration_method": "broker",
+    "protection_mode": "max_performance"
   }
 }

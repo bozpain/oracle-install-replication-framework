@@ -1,3 +1,10 @@
+"""State store manual.
+
+State files make long Oracle automation resumable. Each step writes running,
+done, or failed status under `.oracle-auto/state/<run_id>.json`, and operators
+can re-run with `--no-resume` when a phase must be forced.
+"""
+
 from __future__ import annotations
 
 import json
