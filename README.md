@@ -1,160 +1,163 @@
-# Oracle Install Replication Framework
+<div align="center">
 
-Professional automation framework untuk provisioning Oracle Grid Infrastructure, ASM storage, Oracle Database, patching, dan Active Data Guard pada Oracle Linux.
+# 🟥 Oracle Install Replication Framework
 
-Framework ini dirancang untuk environment fresh install dengan standar operasi yang konsisten: user `grid` dan `oracle` terpisah, semua deployment memakai Grid Infrastructure dan ASM, storage didefinisikan dari disk `DM_UUID` ke udev symlink `/dev/oracleasm/...`, diskgroup standar `OCR`, `DATA`, dan `RECO`, serta Active Data Guard aktif otomatis ketika `standby_site` diisi di config.
+**Premium automation cockpit for Oracle Grid Infrastructure, ASM, Database, RAC, patching, and Active Data Guard.**
 
-Network baseline sengaja dibuat eksplisit: hanya SCAN yang wajib ada di DNS. Public, private `-priv`, dan VIP `-vip` dikelola sebagai informasi config dan ditulis otomatis ke `/etc/hosts` pada target.
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Oracle Linux](https://img.shields.io/badge/Oracle%20Linux-8.10-F80000?style=for-the-badge&logo=oracle&logoColor=white)
+![Oracle Database](https://img.shields.io/badge/Oracle%20Database-19c-C74634?style=for-the-badge&logo=oracle&logoColor=white)
+![Active Data Guard](https://img.shields.io/badge/Active%20Data%20Guard-Ready-00A86B?style=for-the-badge)
+![Runbook](https://img.shields.io/badge/Operator%20Runbook-Included-7C3AED?style=for-the-badge)
 
-## Current Baseline
+</div>
 
-- Python `3.12`.
-- Oracle Linux `8.10`.
-- Oracle Grid Infrastructure dan Oracle Database `19c`.
-- Patch baseline `19.30`, dengan struktur config yang bisa berkembang untuk `19.31`, one-off patch, OJVM, dan patch berikutnya.
-- Install type hanya `single-gi` dan `rac`.
-- Active Data Guard default `max_performance`.
-- Data Guard configuration method: `manual` atau `broker`.
-- SELinux otomatis `permissive`.
-- Chrony otomatis memakai NTP `192.168.113.41` dan `192.168.115.41`.
-- Firewall service seperti `firewalld`, `iptables`, dan `nftables` otomatis dinonaktifkan.
-- Installer dan patch ZIP disalin manual ke target server, lalu diverifikasi automation.
+---
 
-## Documentation
+## ✨ Overview
 
-Mulai dari dokumen ini untuk overview. Detail teknis dan runbook operator dipisahkan supaya README tetap bersih.
+Oracle Install Replication Framework adalah framework otomasi untuk membangun environment Oracle yang rapi, konsisten, dan bisa diaudit dari awal sampai siap operasi.
 
-- [Installation and Replication Outline](docs/installation-replication-outline.md): blueprint desain, scope, default, dan roadmap framework.
-- [Deployment Guide](docs/deployment_guide.md): panduan deployment paling detail, termasuk config, precheck, dry-run, urutan command, report, switchover, failover, dan troubleshooting.
+Framework ini fokus pada deployment fresh install dengan standar enterprise:
 
-## Architecture
+| Layer | Fokus |
+|---|---|
+| 🧭 Planning | Validasi config, topology, execution plan, dan runbook per phase |
+| 🖥️ Platform | Oracle Linux baseline, user `grid`/`oracle`, DNS, hosts, chrony, SELinux, firewall |
+| 💽 Storage | ASM berbasis `DM_UUID`, udev symlink stabil, ASMFD label, diskgroup `OCR`, `DATA`, `RECO` |
+| 🧱 Database | Grid Infrastructure, ASM, Oracle Database software, DBCA primary database |
+| 🟢 Replication | Active Data Guard dan optional Data Guard Broker |
+| 🛡️ Operations | Dry-run, resume state, guardrail flag, diagnostics, role operation, HTML report |
 
-Framework dibagi menjadi beberapa layer:
+> README ini sengaja dibuat sebagai landing page. Detail teknis, command sequence, config schema, guardrail, troubleshooting, dan checklist production ada di [Deployment Guide](docs/deployment_guide.md).
 
-- `oracle_auto.config`: schema config, validasi topology, ASM disk DM_UUID, DNS resolver, installer, patch, dan Data Guard method.
-- `oracle_auto.precheck`: precheck remote non-destruktif sebelum deployment.
-- `oracle_auto.phases`: facade kecil yang diekspos ke CLI.
-- `oracle_auto.phase_builders`: generator step automation yang dipisah per domain: OS, installer, storage, Grid, database, patching, Data Guard, validation, dan role operation.
-- `oracle_auto.automation`: runner generik untuk SSH execution, dry-run, state/resume, dan result normalization.
-- `oracle_auto.report`: HTML report generator.
-- `oracle_auto.cli`: command-line interface untuk semua workflow.
+---
 
-## Quick Start
+## 🏗️ Architecture
 
-Validasi sample RAC + Active Data Guard config:
+![Oracle Auto Architecture](docs/assets/oracle-auto-architecture.svg)
+
+```mermaid
+flowchart LR
+    operator["👤 Operator / DBA"]
+    cli["🧭 CLI<br/>main.py"]
+    config["📘 Config<br/>JSON / YAML"]
+    plan["🗺️ Plan & Runbook<br/>HTML / JSON / SH"]
+    runner["⚙️ Automation Runner<br/>SSH + state/resume"]
+    report["📊 HTML Report<br/>logs + results"]
+
+    subgraph framework["🟥 Oracle Auto Core"]
+        validate["✅ Config Validation"]
+        precheck["🔎 Precheck"]
+        phases["🧩 Phase Builders"]
+        secrets["🔐 Secret Env Mapping"]
+    end
+
+    subgraph targets["🎯 Target Oracle Estate"]
+        os["🖥️ Oracle Linux"]
+        gi["🧱 Grid Infrastructure"]
+        asm["💽 ASM / ASMFD"]
+        db["🗄️ Oracle Database"]
+        dg["🟢 Active Data Guard"]
+    end
+
+    operator --> cli
+    cli --> config
+    config --> validate
+    validate --> plan
+    cli --> precheck
+    cli --> phases
+    phases --> runner
+    secrets --> runner
+    runner --> os
+    runner --> gi
+    runner --> asm
+    runner --> db
+    runner --> dg
+    runner --> report
+    plan --> report
+
+    classDef red fill:#FEE2E2,stroke:#DC2626,color:#7F1D1D
+    classDef amber fill:#FEF3C7,stroke:#D97706,color:#78350F
+    classDef green fill:#DCFCE7,stroke:#16A34A,color:#14532D
+    classDef blue fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
+    classDef purple fill:#F3E8FF,stroke:#7C3AED,color:#4C1D95
+    classDef dark fill:#E5E7EB,stroke:#374151,color:#111827
+
+    class operator,cli blue
+    class config,plan,report purple
+    class validate,precheck,phases,secrets amber
+    class os,gi,asm,db dark
+    class dg green
+    class runner red
+```
+
+---
+
+## 🚀 What You Get
+
+| Capability | Output |
+|---|---|
+| 🧪 Dry-run first workflow | Semua phase bisa direview sebelum SSH execution |
+| 🧾 Execution plan | `.oracle-auto/reports/<run_id>-plan.html` dan runbook shell per phase |
+| 🔁 Resume state | Step yang sudah `done` tidak diulang kecuali memakai `--no-resume` |
+| 📦 Patch pipeline | OPatch update, analyze, Grid patch, DB patch, datapatch, inventory |
+| 🟢 Data Guard path | Manual physical standby atau Broker-managed configuration |
+| 📊 Audit trail | HTML report, state JSON, dan per-step log |
+| 🧯 Recovery aids | Diagnostics, limited cleanup lab, limited framework rollback |
+
+---
+
+## 🧭 Deployment Modes
+
+| Mode | Topology | Standby |
+|---|---|---|
+| 🔹 `single-gi` | Single node Grid Infrastructure + ASM + Database | `single-gi` standby |
+| 🔶 `rac` | RAC Grid Infrastructure + ASM + Database | RAC standby dengan jumlah node sama |
+
+Jika `standby_site` diisi, Active Data Guard dianggap aktif otomatis.
+
+---
+
+## 📚 Documentation Map
+
+| Document | Purpose |
+|---|---|
+| 📕 [Deployment Guide](docs/deployment_guide.md) | Runbook teknis premium: prerequisites, config, command sequence, guardrails, reports, troubleshooting |
+| 📘 [Installation and Replication Outline](docs/installation-replication-outline.md) | Blueprint desain, scope, default, dan roadmap framework |
+| 🧪 [Sample RAC + Data Guard Config](configs/sample-rac-dg.json) | Contoh config RAC dengan standby |
+| 🧪 [Sample Single GI Config](configs/sample-single.json) | Contoh config single-node GI |
+
+---
+
+## 🟢 Operator Entry Point
+
+Mulai dari guide teknis:
 
 ```bash
 python main.py validate-config --config configs/sample-rac-dg.json
-```
-
-Local control-machine readiness:
-
-```bash
-python main.py doctor --config configs/sample-rac-dg.json
-```
-
-Lihat precheck tanpa SSH execution:
-
-```bash
-python main.py precheck --config configs/sample-rac-dg.json --dry-run
-```
-
-Collect read-only remote inventory:
-
-```bash
-python main.py inventory --config configs/sample-rac-dg.json --dry-run
-```
-
-Generate report dari state saat ini:
-
-```bash
-python main.py generate-report --config configs/sample-rac-dg.json
-```
-
-## Deployment Flow
-
-Urutan baseline deployment:
-
-```bash
-python main.py validate-config --config configs/sample-rac-dg.json
-python main.py precheck --config configs/sample-rac-dg.json --dry-run
-python main.py prepare-os --config configs/sample-rac-dg.json --dry-run
-python main.py verify-installer --config configs/sample-rac-dg.json --dry-run
-python main.py prepare-storage-rules --config configs/sample-rac-dg.json --dry-run
-python main.py install-grid --config configs/sample-rac-dg.json --dry-run
-python main.py configure-asm-storage --config configs/sample-rac-dg.json --dry-run
-python main.py install-db-software --config configs/sample-rac-dg.json --dry-run
-python main.py update-opatch --config configs/sample-rac-dg.json --dry-run
-python main.py analyze-patch --config configs/sample-rac-dg.json --dry-run
-python main.py apply-grid-patch --config configs/sample-rac-dg.json --dry-run
-python main.py apply-db-patch --config configs/sample-rac-dg.json --dry-run
-python main.py datapatch --config configs/sample-rac-dg.json --dry-run
-python main.py patch-inventory --config configs/sample-rac-dg.json --dry-run
-python main.py create-database --config configs/sample-rac-dg.json --dry-run
-python main.py setup-active-dataguard --config configs/sample-rac-dg.json --dry-run
-python main.py setup-dataguard-broker --config configs/sample-rac-dg.json --dry-run
-python main.py validate-deployment --config configs/sample-rac-dg.json --dry-run
-python main.py generate-report --config configs/sample-rac-dg.json
-```
-
-Hapus `--dry-run` hanya setelah config, DNS, disk DM_UUID, installer ZIP, patch ZIP, dan target host sudah siap.
-
-## Operator Controls
-
-Semua command deployment utama mendukung:
-
-- `--dry-run`: tampilkan command tanpa membuka SSH session.
-- `--no-resume`: paksa step berjalan ulang walaupun state sudah `done`.
-- `--json`: output machine-readable.
-- `--continue-on-fail`: lanjutkan step lain meski ada failure.
-
-Destructive guardrails:
-
-- `prepare-storage-rules`, `configure-asm-storage`, dan compatibility command `prepare-storage` membutuhkan `--allow-storage-changes` saat real execution.
-- `apply-patch`, patch granular, dan `datapatch` membutuhkan `--allow-patch-apply` saat real execution.
-- `failover`, `cleanup-lab`, dan `rollback-framework` membutuhkan `--yes` saat real execution.
-
-Review plan sebelum eksekusi:
-
-```bash
 python main.py generate-plan --config configs/sample-rac-dg.json
+python main.py precheck --config configs/sample-rac-dg.json --dry-run
 ```
 
-Artifact plan:
+Seluruh urutan deployment, flag destructive guardrail, dry-run penuh, dan production checklist ada di [Deployment Guide](docs/deployment_guide.md).
 
-- `.oracle-auto/reports/<run_id>-plan.html`
-- `.oracle-auto/reports/<run_id>-plan.json`
-- `.oracle-auto/reports/<run_id>-runbook.sh`
-- `.oracle-auto/reports/<run_id>-phase-runbooks/<phase>.sh`
+---
 
-Failover execution:
+## 🛡️ Current Baseline
 
-```bash
-python main.py failover --config configs/sample-rac-dg.json --yes
-```
+| Area | Baseline |
+|---|---|
+| 🐍 Control runtime | Python `3.12` |
+| 🐧 Target OS | Oracle Linux `8.10` |
+| 🟥 Oracle stack | Grid Infrastructure + Database `19c` |
+| 🧩 Patch baseline | `19.30`, expandable untuk RU/OJVM/one-off berikutnya |
+| 💽 Storage model | ASM only, `OCR`, `DATA`, `RECO` |
+| 🟢 Data Guard | Active Data Guard, `max_performance` |
+| 📡 DNS model | SCAN via DNS, public/private/VIP managed through `/etc/hosts` |
 
-## State and Reports
+---
 
-State default:
+## ⚠️ Validation Note
 
-```text
-.oracle-auto/state/<run_id>.json
-```
-
-HTML report default:
-
-```text
-.oracle-auto/reports/<run_id>.html
-```
-
-Per-step log default:
-
-```text
-.oracle-auto/logs/<run_id>/<phase>/<host>/<step>.log
-```
-
-Report tetap dibuat walaupun ada step gagal, sehingga hasil eksekusi bisa direview setelah troubleshooting.
-
-## Validation Status
-
-Baseline saat ini sudah memiliki command structure, dry-run support, state/resume, dan HTML reporting. Command Oracle yang menyentuh installer, GI, udev storage rules, ASM/AFD, OPatch, RMAN duplicate, Broker, switchover, dan failover tetap harus divalidasi di lab target karena detail behavior dapat berubah mengikuti layout installer, patch bundle, storage, dan standar environment.
+Framework sudah memiliki command structure, dry-run, state/resume, execution plan, runbook generation, dan HTML reporting. Phase yang menyentuh Oracle installer, GI, ASM/AFD, OPatch, RMAN duplicate, Broker, switchover, dan failover tetap wajib divalidasi di lab target sebelum production.
