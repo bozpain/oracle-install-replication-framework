@@ -22,6 +22,7 @@ from oracle_auto.phases import (
     analyze_patch_steps,
     apply_db_patch_steps,
     apply_grid_patch_steps,
+    apply_ojvm_patch_steps,
     apply_patch_steps,
     cleanup_lab_steps,
     collect_diagnostics_steps,
@@ -64,6 +65,7 @@ PHASE_BUILDERS: dict[str, PhaseBuilder] = {
     "analyze-patch": analyze_patch_steps,
     "apply-grid-patch": apply_grid_patch_steps,
     "apply-db-patch": apply_db_patch_steps,
+    "apply-ojvm-patch": apply_ojvm_patch_steps,
     "datapatch": datapatch_steps,
     "patch-inventory": patch_inventory_steps,
     "apply-patch": apply_patch_steps,
@@ -88,12 +90,9 @@ DEPLOYMENT_PHASE_ORDER = [
     "configure-asm-storage",
     "install-db-software",
     "update-opatch",
-    "analyze-patch",
-    "apply-grid-patch",
-    "apply-db-patch",
-    "datapatch",
-    "patch-inventory",
+    "apply-ojvm-patch",
     "create-database",
+    "patch-inventory",
     "setup-active-dataguard",
     "setup-dataguard-broker",
     "validate-deployment",
@@ -133,9 +132,10 @@ def build_parser() -> argparse.ArgumentParser:
         "install-grid": "Install Grid Infrastructure.",
         "install-db-software": "Install Oracle Database software.",
         "update-opatch": "Update OPatch in Grid and Database homes.",
-        "analyze-patch": "Analyze configured patches before apply.",
-        "apply-grid-patch": "Apply configured patches to Grid home.",
-        "apply-db-patch": "Apply configured patches to Database home.",
+        "analyze-patch": "Analyze configured Grid and Database patches.",
+        "apply-grid-patch": "Apply the configured Grid patch to Grid home.",
+        "apply-db-patch": "Apply the configured Database patch to Database home.",
+        "apply-ojvm-patch": "Apply the configured OJVM patch to Database home before database creation.",
         "datapatch": "Run datapatch on the primary database home.",
         "patch-inventory": "Collect OPatch inventory.",
         "apply-patch": "Apply OPatch and configured patches.",
@@ -164,7 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="Allow udev/ASM storage changes. Required unless --dry-run is used.",
             )
-        if command in {"apply-patch", "update-opatch", "analyze-patch", "apply-grid-patch", "apply-db-patch", "datapatch"}:
+        if command in {"apply-patch", "update-opatch", "analyze-patch", "apply-grid-patch", "apply-db-patch", "apply-ojvm-patch", "datapatch"}:
             subparser.add_argument(
                 "--allow-patch-apply",
                 action="store_true",
@@ -272,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
         if not getattr(args, "allow_storage_changes", False):
             print(f"{args.command} requires --allow-storage-changes unless --dry-run is used.", file=sys.stderr)
             return 2
-    if args.command in {"apply-patch", "update-opatch", "analyze-patch", "apply-grid-patch", "apply-db-patch", "datapatch"} and not args.dry_run and not getattr(args, "allow_patch_apply", False):
+    if args.command in {"apply-patch", "update-opatch", "analyze-patch", "apply-grid-patch", "apply-db-patch", "apply-ojvm-patch", "datapatch"} and not args.dry_run and not getattr(args, "allow_patch_apply", False):
         print(f"{args.command} requires --allow-patch-apply unless --dry-run is used.", file=sys.stderr)
         return 2
 

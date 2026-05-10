@@ -101,7 +101,7 @@ flowchart LR
 | 🧪 Dry-run first workflow | Semua phase bisa direview sebelum SSH execution |
 | 🧾 Execution plan | `.oracle-auto/reports/<run_id>-plan.html` dan runbook shell per phase |
 | 🔁 Resume state | Step yang sudah `done` tidak diulang kecuali memakai `--no-resume` |
-| 📦 Patch pipeline | OPatch update, analyze, Grid patch, DB patch, datapatch, inventory |
+| 📦 Patch pipeline | Grid/DB RU during initial install, OJVM before DB creation, OPatch update, inventory |
 | 🟢 Data Guard path | Manual physical standby atau Broker-managed configuration |
 | 📊 Audit trail | HTML report, state JSON, dan per-step log |
 | 🧯 Recovery aids | Diagnostics, limited cleanup lab, limited framework rollback |

@@ -69,13 +69,21 @@
     "grid_zip": "LINUX.X64_193000_grid_home.zip",
     "db_zip": "LINUX.X64_193000_db_home.zip",
     "opatch_zip": "p6880880_190000_Linux-x86-64.zip",
-    "patches": [
-      {
-        "name": "19.30 RU",
-        "type": "ru",
-        "file": "p19_30_ru_Linux-x86-64.zip"
-      }
-    ]
+    "grid_patch": {
+      "name": "19.30 Grid RU",
+      "type": "ru",
+      "file": "p19_30_grid_ru_Linux-x86-64.zip"
+    },
+    "db_patch": {
+      "name": "19.30 Database RU",
+      "type": "ru",
+      "file": "p19_30_db_ru_Linux-x86-64.zip"
+    },
+    "ojvm_patch": {
+      "name": "19.30 OJVM RU",
+      "type": "ojvm",
+      "file": "p19_30_ojvm_ru_Linux-x86-64.zip"
+    }
   },
   "dataguard": {
     "configuration_method": "broker",

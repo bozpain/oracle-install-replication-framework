@@ -6,6 +6,9 @@ from oracle_auto.cli import main
 from oracle_auto.config import load_config
 from oracle_auto.secrets import redact
 from oracle_auto.phase_builders.storage import prepare_storage_rules_steps
+from oracle_auto.phase_builders.grid import install_grid_steps
+from oracle_auto.phase_builders.database import install_db_software_steps
+from oracle_auto.phase_builders.patching import apply_ojvm_patch_steps
 
 
 class CliTest(unittest.TestCase):
@@ -29,6 +32,8 @@ class CliTest(unittest.TestCase):
         self.assertTrue((tmp / "rac-adg-demo-plan.json").exists())
         self.assertTrue((tmp / "rac-adg-demo-runbook.sh").exists())
         self.assertTrue((tmp / "rac-adg-demo-phase-runbooks" / "prepare-os.sh").exists())
+        self.assertTrue((tmp / "rac-adg-demo-phase-runbooks" / "apply-ojvm-patch.sh").exists())
+        self.assertFalse((tmp / "rac-adg-demo-phase-runbooks" / "datapatch.sh").exists())
 
     def test_storage_guardrail_blocks_real_execution(self):
         code = main([
@@ -45,6 +50,24 @@ class CliTest(unittest.TestCase):
 
         self.assertIn('ENV{DM_UUID}=="mpath-360060e8008a3cf000050a3cf00000101"', command)
         self.assertIn('SYMLINK+="oracleasm/ocr01"', command)
+
+    def test_install_steps_apply_targeted_ru_patches(self):
+        config = load_config(Path("configs/sample-single.json"))
+        grid_command = install_grid_steps(config)[0].command
+        db_command = install_db_software_steps(config)[0].command
+
+        self.assertIn("p19_30_grid_ru_Linux-x86-64.zip", grid_command)
+        self.assertIn('-applyRU "$GRID_PATCH_TOP"', grid_command)
+        self.assertIn("p19_30_db_ru_Linux-x86-64.zip", db_command)
+        self.assertIn('-applyRU "$DB_PATCH_TOP"', db_command)
+
+    def test_ojvm_patch_runs_before_database_creation_phase(self):
+        config = load_config(Path("configs/sample-single.json"))
+        steps = apply_ojvm_patch_steps(config)
+
+        self.assertEqual(len(steps), 2)
+        self.assertIn("p19_30_ojvm_ru_Linux-x86-64.zip", steps[0].command)
+        self.assertIn('OPatch/opatch apply -silent "$PATCH_TOP"', steps[0].command)
 
     def test_doctor_command_runs(self):
         tmp = self._test_dir("doctor")

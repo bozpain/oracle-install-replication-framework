@@ -335,7 +335,7 @@ ACTION=="add|change", ENV{DM_UUID}=="mpath-360060e8008a3cf000050a3cf00000175", S
 
 ## 6. Installer and Patch
 
-Operator menyalin file ZIP manual ke target server. Framework memverifikasi file, mengekstrak, mengupdate OPatch, menjalankan patch list, dan menyimpan inventory.
+Operator menyalin file ZIP manual ke target server. Framework memverifikasi file, mengekstrak base home, menerapkan Grid RU saat `install-grid`, menerapkan DB RU saat `install-db-software`, mengupdate OPatch, menerapkan OJVM ke DB home sebelum `create-database`, dan menyimpan inventory.
 
 ```json
 "installer": {
@@ -343,17 +343,25 @@ Operator menyalin file ZIP manual ke target server. Framework memverifikasi file
   "grid_zip": "LINUX.X64_193000_grid_home.zip",
   "db_zip": "LINUX.X64_193000_db_home.zip",
   "opatch_zip": "p6880880_190000_Linux-x86-64.zip",
-  "patches": [
-    {
-      "name": "19.30 RU",
-      "type": "ru",
-      "file": "p19_30_ru_Linux-x86-64.zip"
-    }
-  ]
+  "grid_patch": {
+    "name": "19.30 Grid RU",
+    "type": "ru",
+    "file": "p19_30_grid_ru_Linux-x86-64.zip"
+  },
+  "db_patch": {
+    "name": "19.30 Database RU",
+    "type": "ru",
+    "file": "p19_30_db_ru_Linux-x86-64.zip"
+  },
+  "ojvm_patch": {
+    "name": "19.30 OJVM RU",
+    "type": "ojvm",
+    "file": "p19_30_ojvm_ru_Linux-x86-64.zip"
+  }
 }
 ```
 
-Patch list dijalankan sesuai urutan config. Untuk RU/OJVM/one-off berikutnya, tambahkan item baru di `patches`.
+`grid_patch` dipakai oleh `gridSetup.sh -applyRU` saat install Grid. `db_patch` dipakai oleh `runInstaller -applyRU` saat install Database home. `ojvm_patch` dipasang dengan OPatch setelah DB home selesai dan sebelum DBCA membuat database baru.
 
 ---
 
@@ -472,10 +480,7 @@ flowchart TB
     asm["🛡️ configure-asm-storage"]
     dbsw["🗄️ install-db-software"]
     opatch["📦 update-opatch"]
-    analyze["🔍 analyze-patch"]
-    gridPatch["🧱 apply-grid-patch"]
-    dbPatch["🗄️ apply-db-patch"]
-    datapatch["📦 datapatch"]
+    ojvm["apply-ojvm-patch"]
     inventory["📋 patch-inventory"]
     createDb["🗄️ create-database"]
     dg["🟢 setup-active-dataguard"]
@@ -483,7 +488,7 @@ flowchart TB
     validateDeploy["✅ validate-deployment"]
     report["📊 generate-report"]
 
-    validate --> doctor --> plan --> precheck --> os --> installer --> storageRules --> grid --> asm --> dbsw --> opatch --> analyze --> gridPatch --> dbPatch --> datapatch --> inventory --> createDb --> dg --> broker --> validateDeploy --> report
+    validate --> doctor --> plan --> precheck --> os --> installer --> storageRules --> grid --> asm --> dbsw --> opatch --> ojvm --> createDb --> inventory --> dg --> broker --> validateDeploy --> report
 
     classDef green fill:#DCFCE7,stroke:#16A34A,color:#14532D
     classDef blue fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
@@ -492,7 +497,7 @@ flowchart TB
     classDef purple fill:#F3E8FF,stroke:#7C3AED,color:#4C1D95
     class validate,doctor,plan,precheck,validateDeploy green
     class os,storageRules,grid,asm,dbsw,createDb blue
-    class installer,opatch,analyze,gridPatch,dbPatch,datapatch,inventory amber
+    class installer,opatch,ojvm,inventory amber
     class dg,broker purple
     class report red
 ```
@@ -509,12 +514,9 @@ python main.py install-grid --config configs/my-deployment.json --dry-run
 python main.py configure-asm-storage --config configs/my-deployment.json --dry-run
 python main.py install-db-software --config configs/my-deployment.json --dry-run
 python main.py update-opatch --config configs/my-deployment.json --dry-run
-python main.py analyze-patch --config configs/my-deployment.json --dry-run
-python main.py apply-grid-patch --config configs/my-deployment.json --dry-run
-python main.py apply-db-patch --config configs/my-deployment.json --dry-run
-python main.py datapatch --config configs/my-deployment.json --dry-run
-python main.py patch-inventory --config configs/my-deployment.json --dry-run
+python main.py apply-ojvm-patch --config configs/my-deployment.json --dry-run
 python main.py create-database --config configs/my-deployment.json --dry-run
+python main.py patch-inventory --config configs/my-deployment.json --dry-run
 python main.py setup-active-dataguard --config configs/my-deployment.json --dry-run
 python main.py setup-dataguard-broker --config configs/my-deployment.json --dry-run
 python main.py validate-deployment --config configs/my-deployment.json --dry-run
@@ -527,7 +529,7 @@ Jika dry-run sudah sesuai, jalankan command yang sama tanpa `--dry-run` dan tamb
 | Command Group | Required Flag for Real Execution |
 |---|---|
 | `prepare-storage-rules`, `configure-asm-storage`, `prepare-storage` | `--allow-storage-changes` |
-| `update-opatch`, `analyze-patch`, `apply-grid-patch`, `apply-db-patch`, `datapatch`, `apply-patch` | `--allow-patch-apply` |
+| `update-opatch`, `analyze-patch`, `apply-grid-patch`, `apply-db-patch`, `apply-ojvm-patch`, `datapatch`, `apply-patch` | `--allow-patch-apply` |
 | `failover`, `cleanup-lab`, `rollback-framework` | `--yes` |
 
 ---
@@ -615,10 +617,11 @@ python main.py install-db-software --config configs/my-deployment.json
 | Command | Purpose |
 |---|---|
 | `update-opatch` | Replace/update OPatch in Grid and DB homes |
-| `analyze-patch` | Analyze configured patch conflicts/readiness |
-| `apply-grid-patch` | Apply configured patches to Grid home |
-| `apply-db-patch` | Apply configured patches to DB home |
-| `datapatch` | Run datapatch on primary database home |
+| `analyze-patch` | Analyze configured Grid and DB patch conflicts/readiness |
+| `apply-grid-patch` | Apply configured Grid patch to Grid home |
+| `apply-db-patch` | Apply configured DB patch to DB home |
+| `apply-ojvm-patch` | Apply configured OJVM patch to DB home before DB creation |
+| `datapatch` | Run datapatch on an already-created primary database home |
 | `patch-inventory` | Collect OPatch inventory |
 | `apply-patch` | Compatibility wrapper for patch flow |
 
@@ -627,6 +630,7 @@ python main.py update-opatch --config configs/my-deployment.json --allow-patch-a
 python main.py analyze-patch --config configs/my-deployment.json --allow-patch-apply
 python main.py apply-grid-patch --config configs/my-deployment.json --allow-patch-apply
 python main.py apply-db-patch --config configs/my-deployment.json --allow-patch-apply
+python main.py apply-ojvm-patch --config configs/my-deployment.json --allow-patch-apply
 python main.py datapatch --config configs/my-deployment.json --allow-patch-apply
 python main.py patch-inventory --config configs/my-deployment.json
 ```

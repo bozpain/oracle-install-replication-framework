@@ -172,13 +172,14 @@ def dataguard_table(config: AutomationConfig) -> str:
 
 
 def installer_table(config: AutomationConfig) -> str:
-    patch_text = ", ".join(patch.label for patch in config.installer.patches) or "none"
     rows = [
         ("Sources Path", config.installer.sources_path),
         ("Grid ZIP", config.installer.grid_zip),
         ("Database ZIP", config.installer.db_zip),
         ("OPatch ZIP", config.installer.opatch_zip or ""),
-        ("Patch List", patch_text),
+        ("Grid Patch", _patch_text(config.installer.grid_patch)),
+        ("Database Patch", _patch_text(config.installer.db_patch)),
+        ("OJVM Patch", _patch_text(config.installer.ojvm_patch)),
     ]
     return _kv_table(rows)
 
@@ -250,6 +251,12 @@ def _vip_cell(node: NodeConfig) -> str:
     if not node.vip_ip:
         return ""
     return f"{node.vip_hostname} / {node.vip_ip}"
+
+
+def _patch_text(patch: Any) -> str:
+    if patch is None:
+        return "none"
+    return f"{patch.label} ({patch.file})"
 
 
 def _safe_run_id(value: str) -> str:

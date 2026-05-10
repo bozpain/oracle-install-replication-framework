@@ -44,6 +44,27 @@ def safe_name(value: str) -> str:
     return "".join(char if char.isalnum() else "_" for char in value).strip("_").lower()
 
 
+def stage_patch_lines(sources_path: str, patch_file: str, variable: str = "PATCH_TOP") -> list[str]:
+    patch_zip = f"{sources_path}/{patch_file}"
+    patch_dir = f"{STAGE}/patches/{safe_name(patch_file)}"
+    return [
+        f"test -s {shlex.quote(patch_zip)}",
+        f"mkdir -p {patch_dir}",
+        f"unzip -oq {shlex.quote(patch_zip)} -d {patch_dir}",
+        patch_top_assignment(patch_dir, variable),
+        f'echo "Detected patch top: ${variable}"',
+    ]
+
+
+def patch_top_assignment(patch_dir: str, variable: str = "PATCH_TOP") -> str:
+    return (
+        f"{variable}=$(find {patch_dir} -path '*/etc/config/inventory.xml' -type f "
+        "-print | sed 's#/etc/config/inventory.xml##' | sort | head -1)\n"
+        f"if test -z \"${variable}\"; then {variable}=$(find {patch_dir} -mindepth 1 -maxdepth 1 -type d | sort | head -1); fi\n"
+        f"test -n \"${variable}\""
+    )
+
+
 def _with_remote_marker(phase: str, name: str, command: str) -> str:
     marker_dir = f"{STAGE}/oracle-auto/state/{safe_name(phase)}"
     marker = f"{marker_dir}/{safe_name(name)}.done"

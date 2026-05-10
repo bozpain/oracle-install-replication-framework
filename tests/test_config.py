@@ -26,6 +26,15 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.os.ntp_servers, ["192.168.113.41", "192.168.115.41"])
         self.assertEqual(config.asm.data_disks[0].dm_uuid, "mpath-360060e8008a3cf000050a3cf00000102")
         self.assertEqual(config.asm.data_disks[0].symlink_path("DATA", 1), "/dev/oracleasm/data01")
+        self.assertIsNotNone(config.installer.grid_patch)
+        self.assertIsNotNone(config.installer.db_patch)
+        self.assertIsNotNone(config.installer.ojvm_patch)
+        assert config.installer.grid_patch is not None
+        assert config.installer.db_patch is not None
+        assert config.installer.ojvm_patch is not None
+        self.assertEqual(config.installer.grid_patch.file, "p19_30_grid_ru_Linux-x86-64.zip")
+        self.assertEqual(config.installer.db_patch.file, "p19_30_db_ru_Linux-x86-64.zip")
+        self.assertEqual(config.installer.ojvm_patch.file, "p19_30_ojvm_ru_Linux-x86-64.zip")
 
     def test_duplicate_public_ip_rejected(self):
         with self.assertRaises(ConfigError):

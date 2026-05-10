@@ -10,7 +10,7 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
-from oracle_auto.phase_builders.common import DB_HOME, STAGE, make_step
+from oracle_auto.phase_builders.common import DB_HOME, STAGE, make_step, stage_patch_lines
 from oracle_auto.response_files.database import db_home_response, dbca_response
 
 
@@ -60,11 +60,24 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
     lines = [
         f"mkdir -p {STAGE}/responses",
         f"test -x {DB_HOME}/runInstaller || sudo -iu oracle unzip -oq {shlex.quote(config.installer.sources_path)}/{shlex.quote(config.installer.db_zip)} -d {DB_HOME}",
+        *_db_patch_stage_lines(config),
         f"cat > {STAGE}/responses/dbhome-{site.name}.rsp <<'EOF'\n{response}\nEOF",
         f"chown oracle:oinstall {STAGE}/responses/dbhome-{site.name}.rsp",
-        f"sudo -iu oracle {DB_HOME}/runInstaller -silent -waitforcompletion -responseFile {STAGE}/responses/dbhome-{site.name}.rsp -ignorePrereqFailure",
+        f"sudo -iu oracle {DB_HOME}/runInstaller -silent -waitforcompletion -responseFile {STAGE}/responses/dbhome-{site.name}.rsp{_db_patch_arg(config)} -ignorePrereqFailure",
     ]
     return shell_script(f"Install Database home for {site.name}", lines)
+
+
+def _db_patch_stage_lines(config: AutomationConfig) -> list[str]:
+    if config.installer.db_patch is None:
+        return []
+    return stage_patch_lines(config.installer.sources_path, config.installer.db_patch.file, "DB_PATCH_TOP")
+
+
+def _db_patch_arg(config: AutomationConfig) -> str:
+    if config.installer.db_patch is None:
+        return ""
+    return ' -applyRU "$DB_PATCH_TOP"'
 
 
 def _db_root_script() -> str:

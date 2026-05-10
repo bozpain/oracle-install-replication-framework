@@ -156,7 +156,13 @@ class InstallerConfig:
     grid_zip: str = ""
     db_zip: str = ""
     opatch_zip: str | None = None
-    patches: list[PatchConfig] = field(default_factory=list)
+    grid_patch: PatchConfig | None = None
+    db_patch: PatchConfig | None = None
+    ojvm_patch: PatchConfig | None = None
+
+    @property
+    def patches(self) -> list[PatchConfig]:
+        return [patch for patch in (self.grid_patch, self.db_patch, self.ojvm_patch) if patch is not None]
 
 
 @dataclass(frozen=True)
@@ -346,25 +352,49 @@ def _parse_dns(data: Any) -> DNSConfig:
 def _parse_installer(data: Any) -> InstallerConfig:
     if not isinstance(data, dict):
         raise ConfigError("installer must be an object/mapping.")
-    patches_raw = data.get("patches", [])
-    if not isinstance(patches_raw, list):
-        raise ConfigError("installer.patches must be a list.")
+    legacy_patches = _parse_legacy_patches(data.get("patches", []))
+    grid_patch = _parse_optional_patch(data.get("grid_patch"), "installer.grid_patch")
+    db_patch = _parse_optional_patch(data.get("db_patch"), "installer.db_patch")
+    ojvm_patch = _parse_optional_patch(data.get("ojvm_patch"), "installer.ojvm_patch")
+    if legacy_patches:
+        if grid_patch is None:
+            grid_patch = legacy_patches[0]
+        if db_patch is None:
+            db_patch = legacy_patches[1] if len(legacy_patches) > 1 else legacy_patches[0]
+        if ojvm_patch is None and len(legacy_patches) > 2:
+            ojvm_patch = legacy_patches[2]
     return InstallerConfig(
         sources_path=str(data.get("sources_path", "/u01/sources")),
         grid_zip=str(data.get("grid_zip", "")),
         db_zip=str(data.get("db_zip", "")),
         opatch_zip=_optional_str(data.get("opatch_zip")),
-        patches=[_parse_patch(item, index) for index, item in enumerate(patches_raw)],
+        grid_patch=grid_patch,
+        db_patch=db_patch,
+        ojvm_patch=ojvm_patch,
     )
 
 
-def _parse_patch(data: Any, index: int) -> PatchConfig:
+def _parse_legacy_patches(data: Any) -> list[PatchConfig]:
+    if data is None:
+        return []
+    if not isinstance(data, list):
+        raise ConfigError("installer.patches must be a list.")
+    return [_parse_patch(item, f"installer.patches[{index}]") for index, item in enumerate(data)]
+
+
+def _parse_optional_patch(data: Any, location: str) -> PatchConfig | None:
+    if data is None:
+        return None
+    return _parse_patch(data, location)
+
+
+def _parse_patch(data: Any, location: str) -> PatchConfig:
     if isinstance(data, str):
         return PatchConfig(file=data)
     if not isinstance(data, dict):
-        raise ConfigError(f"installer.patches[{index}] must be a filename string or object.")
+        raise ConfigError(f"{location} must be a filename string or object.")
     if not data.get("file"):
-        raise ConfigError(f"installer.patches[{index}].file is required.")
+        raise ConfigError(f"{location}.file is required.")
     return PatchConfig(
         file=str(data["file"]),
         name=_optional_str(data.get("name")),

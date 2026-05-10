@@ -10,7 +10,7 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, PatchConfig
-from oracle_auto.phase_builders.common import DB_HOME, GRID_BASE, STAGE, make_step, safe_name
+from oracle_auto.phase_builders.common import DB_HOME, GRID_BASE, make_step, patch_top_assignment, safe_name, stage_patch_lines
 
 
 def apply_patch_steps(config: AutomationConfig) -> list[AutomationStep]:
@@ -19,6 +19,7 @@ def apply_patch_steps(config: AutomationConfig) -> list[AutomationStep]:
         *analyze_patch_steps(config),
         *apply_grid_patch_steps(config),
         *apply_db_patch_steps(config),
+        *apply_ojvm_patch_steps(config),
         *datapatch_steps(config),
         *patch_inventory_steps(config),
     ]
@@ -43,14 +44,14 @@ def update_opatch_steps(config: AutomationConfig) -> list[AutomationStep]:
 def analyze_patch_steps(config: AutomationConfig) -> list[AutomationStep]:
     steps: list[AutomationStep] = []
     for node in config.all_nodes:
-        for index, patch in enumerate(config.installer.patches, start=1):
+        for target, patch in _configured_patches(config):
             steps.append(
                 make_step(
                     "analyze-patch",
-                    f"analyze_patch_{index}_{safe_name(patch.label)}",
+                    f"analyze_{target}_patch_{safe_name(patch.label)}",
                     node,
-                    f"Analyze patch {patch.label}",
-                    _analyze_patch_script(config, patch),
+                    f"Analyze {target} patch {patch.label}",
+                    _analyze_patch_script(config, target, patch),
                     timeout=1800,
                 )
             )
@@ -58,36 +59,59 @@ def analyze_patch_steps(config: AutomationConfig) -> list[AutomationStep]:
 
 
 def apply_grid_patch_steps(config: AutomationConfig) -> list[AutomationStep]:
+    patch = config.installer.grid_patch
+    if patch is None:
+        return []
     steps: list[AutomationStep] = []
     for node in config.all_nodes:
-        for index, patch in enumerate(config.installer.patches, start=1):
-            steps.append(
-                make_step(
-                    "apply-grid-patch",
-                    f"apply_grid_patch_{index}_{safe_name(patch.label)}",
-                    node,
-                    f"Apply Grid patch {patch.label}",
-                    _apply_grid_patch_script(config, patch),
-                    timeout=7200,
-                )
+        steps.append(
+            make_step(
+                "apply-grid-patch",
+                f"apply_grid_patch_{safe_name(patch.label)}",
+                node,
+                f"Apply Grid patch {patch.label}",
+                _apply_grid_patch_script(config, patch),
+                timeout=7200,
             )
+        )
     return steps
 
 
 def apply_db_patch_steps(config: AutomationConfig) -> list[AutomationStep]:
+    patch = config.installer.db_patch
+    if patch is None:
+        return []
     steps: list[AutomationStep] = []
     for node in config.all_nodes:
-        for index, patch in enumerate(config.installer.patches, start=1):
-            steps.append(
-                make_step(
-                    "apply-db-patch",
-                    f"apply_db_patch_{index}_{safe_name(patch.label)}",
-                    node,
-                    f"Apply Database patch {patch.label}",
-                    _apply_db_patch_script(config, patch),
-                    timeout=7200,
-                )
+        steps.append(
+            make_step(
+                "apply-db-patch",
+                f"apply_db_patch_{safe_name(patch.label)}",
+                node,
+                f"Apply Database patch {patch.label}",
+                _apply_db_patch_script(config, patch),
+                timeout=7200,
             )
+        )
+    return steps
+
+
+def apply_ojvm_patch_steps(config: AutomationConfig) -> list[AutomationStep]:
+    patch = config.installer.ojvm_patch
+    if patch is None:
+        return []
+    steps: list[AutomationStep] = []
+    for node in config.all_nodes:
+        steps.append(
+            make_step(
+                "apply-ojvm-patch",
+                f"apply_ojvm_patch_{safe_name(patch.label)}",
+                node,
+                f"Apply OJVM patch {patch.label}",
+                _apply_ojvm_patch_script(config, patch),
+                timeout=7200,
+            )
+        )
     return steps
 
 
@@ -137,48 +161,49 @@ def _update_opatch_script(config: AutomationConfig) -> str:
 
 
 def _apply_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
-    patch_zip = f"{config.installer.sources_path}/{patch.file}"
-    patch_dir = f"{STAGE}/patches/{safe_name(patch.file)}"
     lines = [
-        f"test -s {shlex.quote(patch_zip)}",
-        f"mkdir -p {patch_dir}",
-        f"unzip -oq {shlex.quote(patch_zip)} -d {patch_dir}",
-        _patch_top_assignment(patch_dir),
+        *stage_patch_lines(config.installer.sources_path, patch.file),
         f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" || sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
     ]
     return shell_script(f"Apply patch {patch.label}", lines)
 
 
-def _analyze_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
-    patch_zip = f"{config.installer.sources_path}/{patch.file}"
-    patch_dir = f"{STAGE}/patches/{safe_name(patch.file)}"
+def _analyze_patch_script(config: AutomationConfig, target: str, patch: PatchConfig) -> str:
+    if target == "grid":
+        prereq = f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" -analyze"
+    else:
+        prereq = f"sudo -iu oracle {DB_HOME}/OPatch/opatch prereq CheckConflictAgainstOHWithDetail -phBaseDir \"$PATCH_TOP\""
     lines = [
-        f"test -s {shlex.quote(patch_zip)}",
-        f"mkdir -p {patch_dir}",
-        f"unzip -oq {shlex.quote(patch_zip)} -d {patch_dir}",
-        _patch_top_assignment(patch_dir),
-        'echo "Detected patch top: $PATCH_TOP"',
-        f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" -analyze || sudo -iu oracle {DB_HOME}/OPatch/opatch prereq CheckConflictAgainstOHWithDetail -phBaseDir \"$PATCH_TOP\"",
+        *stage_patch_lines(config.installer.sources_path, patch.file),
+        prereq,
     ]
-    return shell_script(f"Analyze patch {patch.label}", lines)
+    return shell_script(f"Analyze {target} patch {patch.label}", lines)
 
 
 def _apply_grid_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
-    patch_dir = f"{STAGE}/patches/{safe_name(patch.file)}"
+    patch_dir = _patch_dir(patch)
     lines = [
-        _patch_top_assignment(patch_dir),
+        patch_top_assignment(patch_dir),
         f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" -oh {GRID_BASE}",
     ]
     return shell_script(f"Apply Grid patch {patch.label}", lines)
 
 
 def _apply_db_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
-    patch_dir = f"{STAGE}/patches/{safe_name(patch.file)}"
+    patch_dir = _patch_dir(patch)
     lines = [
-        _patch_top_assignment(patch_dir),
+        patch_top_assignment(patch_dir),
         f"sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
     ]
     return shell_script(f"Apply Database patch {patch.label}", lines)
+
+
+def _apply_ojvm_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
+    lines = [
+        *stage_patch_lines(config.installer.sources_path, patch.file),
+        f"sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
+    ]
+    return shell_script(f"Apply OJVM patch {patch.label}", lines)
 
 
 def _datapatch_script() -> str:
@@ -196,10 +221,16 @@ def _patch_inventory_script() -> str:
     return shell_script("Collect patch inventory", lines)
 
 
-def _patch_top_assignment(patch_dir: str) -> str:
-    return (
-        f"PATCH_TOP=$(find {patch_dir} -path '*/etc/config/inventory.xml' -type f "
-        "-print | sed 's#/etc/config/inventory.xml##' | sort | head -1)\n"
-        f"if test -z \"$PATCH_TOP\"; then PATCH_TOP=$(find {patch_dir} -mindepth 1 -maxdepth 1 -type d | sort | head -1); fi\n"
-        "test -n \"$PATCH_TOP\""
-    )
+def _configured_patches(config: AutomationConfig) -> list[tuple[str, PatchConfig]]:
+    patches: list[tuple[str, PatchConfig]] = []
+    if config.installer.grid_patch is not None:
+        patches.append(("grid", config.installer.grid_patch))
+    if config.installer.db_patch is not None:
+        patches.append(("db", config.installer.db_patch))
+    if config.installer.ojvm_patch is not None:
+        patches.append(("ojvm", config.installer.ojvm_patch))
+    return patches
+
+
+def _patch_dir(patch: PatchConfig) -> str:
+    return f"/u01/stage/patches/{safe_name(patch.file)}"
