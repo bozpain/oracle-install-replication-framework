@@ -19,7 +19,7 @@ from pathlib import Path
 from oracle_auto.config import NodeConfig
 from oracle_auto.executor import CommandResult, SSHExecutor
 from oracle_auto.secrets import redact
-from oracle_auto.state import StateStore
+from oracle_auto.state import StateBackend
 
 
 @dataclass(frozen=True)
@@ -67,7 +67,7 @@ class AutomationRunner:
     def __init__(
         self,
         executor: SSHExecutor,
-        state: StateStore,
+        state: StateBackend,
         resume: bool = True,
         continue_on_fail: bool = False,
         log_dir: Path | None = None,

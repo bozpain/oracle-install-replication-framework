@@ -10,7 +10,21 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
+
+
+class StateBackend(Protocol):
+    def is_done(self, step: str) -> bool:
+        ...
+
+    def mark_running(self, step: str) -> None:
+        ...
+
+    def mark_done(self, step: str, details: dict[str, Any] | None = None) -> None:
+        ...
+
+    def mark_failed(self, step: str, details: dict[str, Any] | None = None) -> None:
+        ...
 
 
 class StateStore:

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from oracle_auto.config import AutomationConfig, NodeConfig
 from oracle_auto.executor import CommandResult, SSHExecutor
 from oracle_auto.secrets import redact
-from oracle_auto.state import StateStore
+from oracle_auto.state import StateBackend
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ class PrecheckRunner:
         self,
         config: AutomationConfig,
         executor: SSHExecutor,
-        state: StateStore,
+        state: StateBackend,
         resume: bool = True,
     ):
         self.config = config
