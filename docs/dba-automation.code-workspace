@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../oracle-replication-framework"
+		},
+		{
+			"path": "../../oracle-patch-framework"
+		},
+		{
+			"path": "../../dba-automation-portal"
+		}
+	],
+	"settings": {}
+}
