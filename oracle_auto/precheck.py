@@ -383,10 +383,10 @@ def _disk_signature_check(config: AutomationConfig) -> str:
             commands.append(
                 "device=$(udevadm info --export-db | awk "
                 f"{shlex.quote('/DM_UUID=' + disk.dm_uuid + '/{found=1} found && /^N: /{print \"/dev/\"$2; exit}')} ); "
-                "test -n \"$device\" && test -z \"$(wipefs -n \"$device\" 2>/dev/null | awk 'NR>1')\""
+                "test -n \"$device\" && test -z \"$(sudo -n wipefs -n \"$device\" 2>/dev/null | awk 'NR>1')\""
             )
         elif disk.path:
-            commands.append(f"test -z \"$(wipefs -n {shlex.quote(disk.path)} 2>/dev/null | awk 'NR>1')\"")
+            commands.append(f"test -z \"$(sudo -n wipefs -n {shlex.quote(disk.path)} 2>/dev/null | awk 'NR>1')\"")
     return " && ".join(commands)
 
 
@@ -408,10 +408,10 @@ def _disk_size_check(config: AutomationConfig) -> str:
             commands.append(
                 "device=$(udevadm info --export-db | awk "
                 f"{shlex.quote('/DM_UUID=' + disk.dm_uuid + '/{found=1} found && /^N: /{print \"/dev/\"$2; exit}')} ); "
-                f"test -n \"$device\" && printf '{disk.dm_uuid} ' && blockdev --getsize64 \"$device\""
+                f"test -n \"$device\" && printf '{disk.dm_uuid} ' && sudo -n blockdev --getsize64 \"$device\""
             )
         elif disk.path:
-            commands.append(f"printf '{shlex.quote(disk.path)} ' && blockdev --getsize64 {shlex.quote(disk.path)}")
+            commands.append(f"printf '{shlex.quote(disk.path)} ' && sudo -n blockdev --getsize64 {shlex.quote(disk.path)}")
     return " && ".join(commands)
 
 

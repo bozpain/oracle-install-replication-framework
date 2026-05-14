@@ -79,6 +79,14 @@ class CliTest(unittest.TestCase):
         self.assertIn('ENV{DM_UUID}=="mpath-360060e8008a3cf000050a3cf00000101"', command)
         self.assertIn('SYMLINK+="oracleasm/ocr01"', command)
 
+    def test_precheck_storage_inspection_uses_sudo(self):
+        from oracle_auto.precheck import _disk_signature_check, _disk_size_check
+
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+
+        self.assertIn("sudo -n wipefs", _disk_signature_check(config))
+        self.assertIn("sudo -n blockdev", _disk_size_check(config))
+
     def test_install_steps_apply_targeted_ru_patches(self):
         config = load_config(Path("configs/sample-single.json"))
         grid_command = install_grid_steps(config)[0].command
