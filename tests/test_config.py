@@ -1,5 +1,6 @@
 import unittest
 import json
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from oracle_auto.config import ConfigError, load_config
 
 class ConfigTest(unittest.TestCase):
     def _write_config(self, name: str, data: dict) -> Path:
-        path = Path(".test-tmp") / f"{name}-{uuid.uuid4().hex}.json"
+        path = Path(tempfile.gettempdir()) / "oracle-auto-tests" / f"{name}-{uuid.uuid4().hex}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data), encoding="utf-8")
         return path

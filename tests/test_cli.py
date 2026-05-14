@@ -1,4 +1,5 @@
 import unittest
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from oracle_auto.phase_builders.patching import apply_ojvm_patch_steps
 
 class CliTest(unittest.TestCase):
     def _test_dir(self, name: str) -> Path:
-        path = Path(".test-tmp") / f"{name}-{uuid.uuid4().hex}"
+        path = Path(tempfile.gettempdir()) / "oracle-auto-tests" / f"{name}-{uuid.uuid4().hex}"
         path.mkdir(parents=True, exist_ok=False)
         return path
 
