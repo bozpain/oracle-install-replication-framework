@@ -65,7 +65,8 @@ def asm_entries(config: AutomationConfig) -> list[ASMEntry]:
 def storage_mapping_text(config: AutomationConfig) -> str:
     rows = []
     for label, path, group, disk in asm_entries(config):
-        rows.append(f"{group:4} {label:16} {disk.dm_uuid} -> {path}")
+        source = disk.dm_uuid if disk.uuid else disk.path
+        rows.append(f"{group:4} {label:16} {source} -> {path}")
     return "\n".join(rows)
 
 
@@ -85,9 +86,20 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
     entries = asm_entries(config)
     rules = _udev_rules(config)
     disk_checks = [f"test -b {shlex.quote(path)}" for _label, path, _group, _disk in entries]
+    path_entries = [(path, disk.path) for _label, path, _group, disk in entries if disk.path]
+    path_checks = [f"test -b {shlex.quote(source)}" for _path, source in path_entries]
+    path_symlinks = [
+        (
+            f"ln -sfn \"$(readlink -f {shlex.quote(source)})\" {shlex.quote(path)} && "
+            f"chown -h grid:asmadmin {shlex.quote(path)} && "
+            f"chmod 0660 \"$(readlink -f {shlex.quote(source)})\""
+        )
+        for path, source in path_entries
+    ]
     uuid_checks = [
         f"udevadm info --export-db | grep -q {shlex.quote('DM_UUID=' + disk.dm_uuid)}"
         for _label, _path, _group, disk in entries
+        if disk.uuid
     ]
     collision_checks = [
         f"test ! -e {shlex.quote(path)} || test -b {shlex.quote(path)}"
@@ -98,12 +110,20 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
         "echo 'Planned ASM disk mapping:'",
         "cat <<'MAP'\n" + storage_mapping_text(config) + "\nMAP",
         *uuid_checks,
+        *path_checks,
         "mkdir -p /dev/oracleasm",
         *collision_checks,
-        "cat > /etc/udev/rules.d/99-oracleasm.rules <<'EOF'\n" + rules + "\nEOF",
-        "udevadm control --reload-rules",
-        "udevadm trigger --subsystem-match=block --action=change",
-        "udevadm settle",
+        *(
+            [
+                "cat > /etc/udev/rules.d/99-oracleasm.rules <<'EOF'\n" + rules + "\nEOF",
+                "udevadm control --reload-rules",
+                "udevadm trigger --subsystem-match=block --action=change",
+                "udevadm settle",
+            ]
+            if rules
+            else []
+        ),
+        *path_symlinks,
         *disk_checks,
         "ls -l /dev/oracleasm",
     ]
@@ -125,11 +145,11 @@ def _configure_asm_storage_script(config: AutomationConfig) -> str:
         f"{GRID_BASE}/bin/asmcmd afd_label {label} {shlex.quote(path)} --init || {GRID_BASE}/bin/asmcmd afd_label {label} {shlex.quote(path)}"
         for label, path, _group, _disk in entries
     ]
-    diskgroup_commands = [
-        create_diskgroup_sql("OCR", [label for label, _path, group, _disk in entries if group == "OCR"], config.asm.redundancy),
-        create_diskgroup_sql("DATA", [label for label, _path, group, _disk in entries if group == "DATA"], config.asm.redundancy),
-        create_diskgroup_sql("RECO", [label for label, _path, group, _disk in entries if group == "RECO"], config.asm.redundancy),
-    ]
+    diskgroup_commands = []
+    for diskgroup_name in ("OCR", "DATA", "RECO"):
+        labels = [label for label, _path, group, _disk in entries if group == diskgroup_name]
+        if labels:
+            diskgroup_commands.append(create_diskgroup_sql(diskgroup_name, labels, config.asm.redundancy))
     lines = [
         "echo 'Resolved ASM disk mapping before AFD label:'",
         "for path in " + " ".join(shlex.quote(path) for _label, path, _group, _disk in entries) + "; do printf '%s -> ' \"$path\"; readlink -f \"$path\"; done",
@@ -151,6 +171,8 @@ def _configure_asm_storage_script(config: AutomationConfig) -> str:
 def _udev_rules(config: AutomationConfig) -> str:
     rules: list[str] = []
     for _label, path, _group, disk in asm_entries(config):
+        if not disk.uuid:
+            continue
         name = path.rsplit("/", 1)[-1]
         rules.append(
             f'ACTION=="add|change", ENV{{DM_UUID}}=="{disk.dm_uuid}", '

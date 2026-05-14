@@ -212,7 +212,7 @@ class PrecheckRunner:
             Check(
                 name="asm_disk_uuids_visible",
                 command=_disk_check(self.config),
-                fail_message="One or more configured ASM disk DM_UUID values are not visible to udev.",
+                fail_message="One or more configured ASM disk UUID/path values are not visible to udev.",
             ),
             Check(
                 name="multipath_health",
@@ -347,14 +347,19 @@ def _secret_env_check(config: AutomationConfig) -> str:
     ]
     if config.standby_site:
         env_names.append(config.secrets.dg_password_env)
-    return " && ".join(f"test -n \"${{{name}:-}}\"" for name in env_names)
+    source_profile = "set -a; . /etc/profile >/dev/null 2>&1 || true; for f in /etc/profile.d/*.sh; do . \"$f\" >/dev/null 2>&1 || true; done; set +a"
+    checks = " && ".join(f"test -n \"${{{name}:-}}\"" for name in env_names)
+    return f"{source_profile}; {checks}"
 
 
 def _disk_check(config: AutomationConfig) -> str:
-    return " && ".join(
-        f"udevadm info --export-db | grep -q {shlex.quote('DM_UUID=' + dm_uuid)}"
-        for dm_uuid in config.asm.all_dm_uuids
-    )
+    commands: list[str] = []
+    for disk in config.asm.all_disks:
+        if disk.uuid:
+            commands.append(f"udevadm info --export-db | grep -q {shlex.quote('DM_UUID=' + disk.dm_uuid)}")
+        elif disk.path:
+            commands.append(f"test -b {shlex.quote(disk.path)}")
+    return " && ".join(commands)
 
 
 def _hosts_file_check(config: AutomationConfig) -> str:
@@ -366,12 +371,15 @@ def _hosts_file_check(config: AutomationConfig) -> str:
 
 def _disk_signature_check(config: AutomationConfig) -> str:
     commands = []
-    for dm_uuid in config.asm.all_dm_uuids:
-        commands.append(
-            "device=$(udevadm info --export-db | awk "
-            f"{shlex.quote('/DM_UUID=' + dm_uuid + '/{found=1} found && /^N: /{print \"/dev/\"$2; exit}')} ); "
-            "test -n \"$device\" && test -z \"$(wipefs -n \"$device\" 2>/dev/null | awk 'NR>1')\""
-        )
+    for disk in config.asm.all_disks:
+        if disk.uuid:
+            commands.append(
+                "device=$(udevadm info --export-db | awk "
+                f"{shlex.quote('/DM_UUID=' + disk.dm_uuid + '/{found=1} found && /^N: /{print \"/dev/\"$2; exit}')} ); "
+                "test -n \"$device\" && test -z \"$(wipefs -n \"$device\" 2>/dev/null | awk 'NR>1')\""
+            )
+        elif disk.path:
+            commands.append(f"test -z \"$(wipefs -n {shlex.quote(disk.path)} 2>/dev/null | awk 'NR>1')\"")
     return " && ".join(commands)
 
 
@@ -388,12 +396,15 @@ def _symlink_collision_check(config: AutomationConfig) -> str:
 
 def _disk_size_check(config: AutomationConfig) -> str:
     commands = []
-    for dm_uuid in config.asm.all_dm_uuids:
-        commands.append(
-            "device=$(udevadm info --export-db | awk "
-            f"{shlex.quote('/DM_UUID=' + dm_uuid + '/{found=1} found && /^N: /{print \"/dev/\"$2; exit}')} ); "
-            f"test -n \"$device\" && printf '{dm_uuid} ' && blockdev --getsize64 \"$device\""
-        )
+    for disk in config.asm.all_disks:
+        if disk.uuid:
+            commands.append(
+                "device=$(udevadm info --export-db | awk "
+                f"{shlex.quote('/DM_UUID=' + disk.dm_uuid + '/{found=1} found && /^N: /{print \"/dev/\"$2; exit}')} ); "
+                f"test -n \"$device\" && printf '{disk.dm_uuid} ' && blockdev --getsize64 \"$device\""
+            )
+        elif disk.path:
+            commands.append(f"printf '{shlex.quote(disk.path)} ' && blockdev --getsize64 {shlex.quote(disk.path)}")
     return " && ".join(commands)
 
 

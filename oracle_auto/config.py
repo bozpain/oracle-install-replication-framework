@@ -108,12 +108,21 @@ class SiteConfig:
 
 @dataclass(frozen=True)
 class ASMDiskConfig:
-    uuid: str
+    uuid: str | None = None
+    path: str | None = None
     name: str | None = None
 
     @property
     def dm_uuid(self) -> str:
+        if not self.uuid:
+            raise ConfigError("ASM disk does not define a DM_UUID.")
         return self.uuid if self.uuid.startswith("mpath-") else f"mpath-{self.uuid}"
+
+    @property
+    def source_path(self) -> str:
+        if self.path:
+            return self.path
+        return self.symlink_path("asm", 1)
 
     def symlink_name(self, group: str, index: int) -> str:
         return self.name or f"{group.lower()}{index:02d}"
@@ -124,9 +133,9 @@ class ASMDiskConfig:
 
 @dataclass(frozen=True)
 class ASMConfig:
-    ocr_disks: list[ASMDiskConfig]
     data_disks: list[ASMDiskConfig]
     reco_disks: list[ASMDiskConfig]
+    ocr_disks: list[ASMDiskConfig] = field(default_factory=list)
     redundancy: str = "EXTERNAL"
 
     @property
@@ -135,7 +144,7 @@ class ASMConfig:
 
     @property
     def all_dm_uuids(self) -> list[str]:
-        return [disk.dm_uuid for disk in self.all_disks]
+        return [disk.dm_uuid for disk in self.all_disks if disk.uuid]
 
 
 @dataclass(frozen=True)
@@ -333,9 +342,9 @@ def _parse_asm(data: Any) -> ASMConfig:
     if not isinstance(data, dict):
         raise ConfigError("asm must be an object/mapping.")
     return ASMConfig(
-        ocr_disks=_required_asm_disk_list(data.get("ocr_disks"), "asm.ocr_disks"),
         data_disks=_required_asm_disk_list(data.get("data_disks"), "asm.data_disks"),
         reco_disks=_required_asm_disk_list(data.get("reco_disks"), "asm.reco_disks"),
+        ocr_disks=_optional_asm_disk_list(data.get("ocr_disks"), "asm.ocr_disks"),
         redundancy=str(data.get("redundancy", "EXTERNAL")).upper(),
     )
 
@@ -600,11 +609,16 @@ def _validate_asm_disk_counts(config: AutomationConfig) -> None:
     min_count = {"EXTERNAL": 1, "NORMAL": 2, "HIGH": 3}.get(config.asm.redundancy)
     if min_count is None:
         raise ConfigError("asm.redundancy must be EXTERNAL, NORMAL, or HIGH.")
-    for group, disks in (
-        ("OCR", config.asm.ocr_disks),
+    groups = [
         ("DATA", config.asm.data_disks),
         ("RECO", config.asm.reco_disks),
-    ):
+    ]
+    if config.install_type == "rac":
+        groups.insert(0, ("OCR", config.asm.ocr_disks))
+    elif config.asm.ocr_disks:
+        raise ConfigError("asm.ocr_disks is only used for install_type=rac; omit it for single-gi.")
+
+    for group, disks in groups:
         if len(disks) < min_count:
             raise ConfigError(f"asm.{group.lower()}_disks requires at least {min_count} disk(s) for {config.asm.redundancy} redundancy.")
 
@@ -621,27 +635,44 @@ def _required_str_list(value: Any, name: str) -> list[str]:
 def _required_asm_disk_list(value: Any, name: str) -> list[ASMDiskConfig]:
     if not isinstance(value, list) or not value:
         raise ConfigError(f"{name} must be a non-empty list.")
+    return _parse_asm_disk_list(value, name)
 
+
+def _optional_asm_disk_list(value: Any, name: str) -> list[ASMDiskConfig]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ConfigError(f"{name} must be a list.")
+    if not value:
+        return []
+    return _parse_asm_disk_list(value, name)
+
+
+def _parse_asm_disk_list(value: list[Any], name: str) -> list[ASMDiskConfig]:
     disks: list[ASMDiskConfig] = []
     for index, item in enumerate(value):
         location = f"{name}[{index}]"
         if isinstance(item, str):
             uuid = item
+            path = None
             disk_name = None
         elif isinstance(item, dict):
-            uuid = str(item.get("uuid") or "")
+            uuid = _optional_str(item.get("uuid"))
+            path = _optional_str(item.get("path"))
             disk_name = _optional_str(item.get("name"))
         else:
             raise ConfigError(f"{location} must be a DM_UUID string or object.")
 
-        if not uuid:
-            raise ConfigError(f"{location}.uuid is required.")
-        if uuid.startswith("/dev/"):
-            raise ConfigError(f"{location} must contain DM_UUID only, not a device path.")
+        if not uuid and not path:
+            raise ConfigError(f"{location}.uuid or {location}.path is required.")
+        if uuid and uuid.startswith("/dev/"):
+            raise ConfigError(f"{location}.uuid must contain DM_UUID only, not a device path.")
+        if path and not path.startswith("/dev/"):
+            raise ConfigError(f"{location}.path must be an absolute /dev path.")
         if disk_name and ("/" in disk_name or disk_name.startswith(".")):
             raise ConfigError(f"{location}.name must be a simple symlink name.")
 
-        disks.append(ASMDiskConfig(uuid=uuid, name=disk_name))
+        disks.append(ASMDiskConfig(uuid=uuid, path=path, name=disk_name))
     return disks
 
 

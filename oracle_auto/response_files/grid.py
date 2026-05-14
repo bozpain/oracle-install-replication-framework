@@ -12,7 +12,12 @@ def grid_response(config: AutomationConfig, site: SiteConfig) -> str:
     vip_names = ",".join(f"{node.vip_hostname}:{node.vip_ip}" for node in site.nodes if node.vip_ip)
     install_option = "CRS_CONFIG" if config.install_type == "rac" else "HA_CONFIG"
     scan = site.scan_name or ""
-    ocr_disks = ",".join("AFD:" + label for label, _path, group, _disk in asm_entries(config) if group == "OCR")
+    initial_group = "OCR" if config.install_type == "rac" else "DATA"
+    initial_disks = ",".join(
+        "AFD:" + label
+        for label, _path, group, _disk in asm_entries(config)
+        if group == initial_group
+    )
     return f"""oracle.install.responseFileVersion=/oracle/install/rspfmt_crsinstall_response_schema_v19.0.0
 INVENTORY_LOCATION=/u01/app/oraInventory
 oracle.install.option={install_option}
@@ -26,10 +31,9 @@ oracle.install.crs.config.clusterNodes={node_names}
 oracle.install.crs.config.networkInterfaceList=
 oracle.install.crs.config.configureAsExtendedCluster=false
 oracle.install.crs.config.clusterNodeVIPs={vip_names}
-oracle.install.asm.diskGroup.name=OCR
+oracle.install.asm.diskGroup.name={initial_group}
 oracle.install.asm.diskGroup.redundancy={config.asm.redundancy}
-oracle.install.asm.diskGroup.disks={ocr_disks}
+oracle.install.asm.diskGroup.disks={initial_disks}
 oracle.install.asm.configureAFD=true
 oracle.install.crs.rootconfig.executeRootScript=false
 """
-

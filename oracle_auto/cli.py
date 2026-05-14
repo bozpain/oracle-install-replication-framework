@@ -399,7 +399,11 @@ def _print_config_summary(config: AutomationConfig) -> None:
     print("Config valid.")
     print(f"Install type       : {config.install_type}")
     print(f"Primary site       : {config.primary_site.name} ({len(config.primary_site.nodes)} node(s))")
-    print(f"ASM diskgroups     : OCR={len(config.asm.ocr_disks)}, DATA={len(config.asm.data_disks)}, RECO={len(config.asm.reco_disks)}")
+    if config.asm.ocr_disks:
+        asm_summary = f"OCR={len(config.asm.ocr_disks)}, DATA={len(config.asm.data_disks)}, RECO={len(config.asm.reco_disks)}"
+    else:
+        asm_summary = f"DATA={len(config.asm.data_disks)}, RECO={len(config.asm.reco_disks)}"
+    print(f"ASM diskgroups     : {asm_summary}")
     print(f"DNS resolvers      : {', '.join(config.dns.resolvers)}")
     scans = ", ".join(site.scan_name for site in config.sites if site.scan_name) or "not used"
     print(f"SCAN DNS           : {scans}")

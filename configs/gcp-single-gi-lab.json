@@ -1,5 +1,5 @@
 {
-  "run_id": "single-gi-demo",
+  "run_id": "gcp-single-gi-lab",
   "install_type": "single-gi",
   "version": {
     "os_distribution": "oracle_linux",
@@ -13,22 +13,23 @@
     "preinstall_package": "oracle-database-preinstall-19c",
     "selinux_mode": "permissive",
     "ntp_servers": [
-      "192.168.113.41",
-      "192.168.115.41"
+      "169.254.169.254"
     ]
   },
   "ssh": {
-    "user": "root",
+    "user": "rori_learning",
     "port": 22,
     "connect_timeout": 10,
     "strict_host_key_checking": "accept-new"
   },
   "dns": {
     "resolvers": [
-      "192.168.113.10"
+      "169.254.169.254"
     ],
     "search_domains": [
-      "example.com"
+      "asia-southeast2-a.c.project-938a6e28-56f9-4f95-bac.internal",
+      "c.project-938a6e28-56f9-4f95-bac.internal",
+      "google.internal"
     ]
   },
   "primary_site": {
@@ -37,8 +38,8 @@
     "db_unique_name": "ORCL_A",
     "nodes": [
       {
-        "host": "db1-site-a.example.com",
-        "public_ip": "192.168.113.101"
+        "host": "ora-primary-01",
+        "public_ip": "10.184.0.3"
       }
     ]
   },
@@ -47,18 +48,24 @@
     "db_unique_name": "ORCL_B",
     "nodes": [
       {
-        "host": "db1-site-b.example.com",
-        "public_ip": "192.168.115.101"
+        "host": "ora-standby-01",
+        "public_ip": "10.184.0.4"
       }
     ]
   },
   "asm": {
     "redundancy": "EXTERNAL",
     "data_disks": [
-      "360060e8008a3cf000050a3cf00000102"
+      {
+        "path": "/dev/oracleasm-src/data",
+        "name": "data01"
+      }
     ],
     "reco_disks": [
-      "360060e8008a3cf000050a3cf00000103"
+      {
+        "path": "/dev/oracleasm-src/reco",
+        "name": "reco01"
+      }
     ]
   },
   "installer": {
