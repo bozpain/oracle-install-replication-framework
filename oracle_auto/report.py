@@ -135,14 +135,14 @@ def asm_table(config: AutomationConfig) -> str:
         "<tr>"
         f"<td>{html.escape(group)}</td>"
         f"<td>{html.escape(label)}</td>"
-        f"<td>{html.escape(disk.dm_uuid)}</td>"
+        f"<td>{html.escape(disk.dm_uuid if disk.uuid else str(disk.path))}</td>"
         f"<td>{html.escape(path)}</td>"
         f"<td>{html.escape(config.asm.redundancy)}</td>"
         "</tr>"
         for label, path, group, disk in asm_entries(config)
     )
     return (
-        "<table><thead><tr><th>Diskgroup</th><th>AFD Label</th><th>DM_UUID</th><th>Udev Symlink</th><th>Redundancy</th></tr></thead>"
+        "<table><thead><tr><th>Diskgroup</th><th>AFD Label</th><th>Source</th><th>Udev Symlink</th><th>Redundancy</th></tr></thead>"
         f"<tbody>{rows}</tbody></table>"
     )
 

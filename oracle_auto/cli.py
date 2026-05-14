@@ -82,6 +82,24 @@ PHASE_BUILDERS: dict[str, PhaseBuilder] = {
 }
 
 
+WORKFLOW_PHASE_ORDER = [
+    "precheck",
+    "prepare-os",
+    "verify-installer",
+    "prepare-storage-rules",
+    "install-grid",
+    "configure-asm-storage",
+    "install-db-software",
+    "update-opatch",
+    "apply-ojvm-patch",
+    "create-database",
+    "patch-inventory",
+    "setup-active-dataguard",
+    "setup-dataguard-broker",
+    "validate-deployment",
+]
+
+
 DEPLOYMENT_PHASE_ORDER = [
     "prepare-os",
     "verify-installer",
@@ -124,10 +142,18 @@ def build_parser() -> argparse.ArgumentParser:
     _add_execution_args(precheck)
 
     for command, help_text in {
+        "full": "Run precheck and the full install plus replication workflow.",
+        "resume": "Resume the full workflow using the existing state file.",
+    }.items():
+        subparser = subparsers.add_parser(command, help=help_text)
+        _add_execution_args(subparser)
+        _add_workflow_args(subparser)
+
+    for command, help_text in {
         "prepare-os": "Prepare OS users, DNS, hosts, firewall, SELinux, and chrony.",
         "verify-installer": "Verify installer and patch ZIP files on target hosts.",
         "prepare-storage-rules": "Prepare udev rules and /dev/oracleasm symlinks.",
-        "configure-asm-storage": "Configure ASMFD labels and OCR/DATA/RECO disk groups.",
+        "configure-asm-storage": "Configure ASMFD labels and ASM disk groups.",
         "prepare-storage": "Compatibility wrapper for storage rules and ASM storage.",
         "install-grid": "Install Grid Infrastructure.",
         "install-db-software": "Install Oracle Database software.",
@@ -225,6 +251,29 @@ def _add_execution_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_workflow_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--from-phase",
+        choices=WORKFLOW_PHASE_ORDER,
+        help="Start the workflow at this phase. Earlier phases are not executed.",
+    )
+    parser.add_argument(
+        "--to-phase",
+        choices=WORKFLOW_PHASE_ORDER,
+        help="Stop the workflow after this phase.",
+    )
+    parser.add_argument(
+        "--allow-storage-changes",
+        action="store_true",
+        help="Allow udev/ASM storage changes in workflow phases. Required unless --dry-run is used.",
+    )
+    parser.add_argument(
+        "--allow-patch-apply",
+        action="store_true",
+        help="Allow OPatch, patch analysis/apply, or datapatch in workflow phases. Required unless --dry-run is used.",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -276,6 +325,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{args.command} requires --allow-patch-apply unless --dry-run is used.", file=sys.stderr)
         return 2
 
+    if args.command in {"full", "resume"}:
+        return _run_workflow(args, config)
+
     if args.command == "precheck":
         return _run_precheck(args, config)
 
@@ -288,6 +340,60 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_precheck(args, config: AutomationConfig) -> int:
+    step_results = _execute_precheck(args, config)
+    _print_or_json(args, step_results)
+    report = write_html_report(config, step_results, Path(args.report_dir), title=f"Oracle Precheck - {config.run_id}")
+    print(f"\nReport written: {report}")
+    return 1 if any(item.status == "FAIL" for item in step_results) else 0
+
+
+def _run_phase(args, config: AutomationConfig, steps: list[AutomationStep]) -> int:
+    if not steps:
+        print(f"No steps generated for command: {args.command}")
+        return 0
+
+    results = _execute_phase(args, config, steps)
+    _print_or_json(args, results)
+    report = write_html_report(config, results, Path(args.report_dir), title=f"{args.command} - {config.run_id}")
+    print(f"\nReport written: {report}")
+    return 1 if any(item.status == "FAIL" for item in results) else 0
+
+
+def _run_workflow(args, config: AutomationConfig) -> int:
+    try:
+        phases = _selected_workflow_phases(args.from_phase, args.to_phase)
+    except ConfigError as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        return 2
+    if not args.dry_run:
+        if any(phase in {"prepare-storage-rules", "configure-asm-storage"} for phase in phases) and not args.allow_storage_changes:
+            print(f"{args.command} requires --allow-storage-changes unless --dry-run is used.", file=sys.stderr)
+            return 2
+        if any(phase in {"update-opatch", "apply-ojvm-patch"} for phase in phases) and not args.allow_patch_apply:
+            print(f"{args.command} requires --allow-patch-apply unless --dry-run is used.", file=sys.stderr)
+            return 2
+
+    all_results: list[StepResult] = []
+    for phase in phases:
+        print(f"\n== Workflow phase: {phase} ==")
+        if phase == "precheck":
+            results = _execute_precheck(args, config)
+        else:
+            builder = PHASE_BUILDERS[phase]
+            phase_args = argparse.Namespace(**vars(args))
+            phase_args.command = phase
+            results = _execute_phase(phase_args, config, builder(config))
+        all_results.extend(results)
+        _print_or_json(args, results)
+        if any(item.status == "FAIL" for item in results) and not args.continue_on_fail:
+            break
+
+    report = write_html_report(config, all_results, Path(args.report_dir), title=f"{args.command} - {config.run_id}")
+    print(f"\nReport written: {report}")
+    return 1 if any(item.status == "FAIL" for item in all_results) else 0
+
+
+def _execute_precheck(args, config: AutomationConfig) -> list[StepResult]:
     state = NoopStateStore() if args.dry_run else StateStore(Path(args.state_dir), config.run_id)
     executor = SSHExecutor(config.ssh, dry_run=args.dry_run)
     runner = PrecheckRunner(config, executor, state=state, resume=not args.no_resume)
@@ -305,18 +411,10 @@ def _run_precheck(args, config: AutomationConfig) -> int:
         )
         for item in results
     ]
-    step_results = _write_precheck_logs(config, step_results, Path(args.log_dir))
-    _print_or_json(args, step_results)
-    report = write_html_report(config, step_results, Path(args.report_dir), title=f"Oracle Precheck - {config.run_id}")
-    print(f"\nReport written: {report}")
-    return 1 if any(item.status == "FAIL" for item in step_results) else 0
+    return _write_precheck_logs(config, step_results, Path(args.log_dir))
 
 
-def _run_phase(args, config: AutomationConfig, steps: list[AutomationStep]) -> int:
-    if not steps:
-        print(f"No steps generated for command: {args.command}")
-        return 0
-
+def _execute_phase(args, config: AutomationConfig, steps: list[AutomationStep]) -> list[StepResult]:
     state = NoopStateStore() if args.dry_run else StateStore(Path(args.state_dir), config.run_id)
     executor = SSHExecutor(config.ssh, dry_run=args.dry_run)
     runner = AutomationRunner(
@@ -326,11 +424,15 @@ def _run_phase(args, config: AutomationConfig, steps: list[AutomationStep]) -> i
         continue_on_fail=args.continue_on_fail,
         log_dir=Path(args.log_dir) / config.run_id,
     )
-    results = runner.run(steps)
-    _print_or_json(args, results)
-    report = write_html_report(config, results, Path(args.report_dir), title=f"{args.command} - {config.run_id}")
-    print(f"\nReport written: {report}")
-    return 1 if any(item.status == "FAIL" for item in results) else 0
+    return runner.run(steps)
+
+
+def _selected_workflow_phases(from_phase: str | None, to_phase: str | None) -> list[str]:
+    start = WORKFLOW_PHASE_ORDER.index(from_phase) if from_phase else 0
+    end = WORKFLOW_PHASE_ORDER.index(to_phase) if to_phase else len(WORKFLOW_PHASE_ORDER) - 1
+    if start > end:
+        raise ConfigError("--from-phase must not come after --to-phase.")
+    return WORKFLOW_PHASE_ORDER[start : end + 1]
 
 
 def _print_or_json(args, results: list[StepResult]) -> None:

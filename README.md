@@ -138,7 +138,12 @@ Mulai dari guide teknis:
 python main.py validate-config --config configs/sample-rac-dg.json
 python main.py generate-plan --config configs/sample-rac-dg.json
 python main.py precheck --config configs/sample-rac-dg.json --dry-run
+python main.py full --config configs/sample-rac-dg.json --dry-run
 ```
+
+Untuk eksekusi end-to-end, gunakan `full`. Jika run terputus atau salah satu step gagal, jalankan `resume`
+dengan config dan guardrail flag yang sama; state di `.oracle-auto/state/<run_id>.json` akan membuat step
+yang sudah `done` dilewati. Gunakan `--no-resume` hanya jika perlu memaksa rerun.
 
 Seluruh urutan deployment, flag destructive guardrail, dry-run penuh, dan production checklist ada di [Deployment Guide](docs/deployment_guide.md).
 
@@ -152,7 +157,7 @@ Seluruh urutan deployment, flag destructive guardrail, dry-run penuh, dan produc
 | 🐧 Target OS | Oracle Linux `8.10` |
 | 🟥 Oracle stack | Grid Infrastructure + Database `19c` |
 | 🧩 Patch baseline | `19.30`, expandable untuk RU/OJVM/one-off berikutnya |
-| 💽 Storage model | ASM only, `OCR`, `DATA`, `RECO` |
+| 💽 Storage model | ASM only; `single-gi` uses `DATA`/`RECO`, `rac` uses `OCR`/`DATA`/`RECO` |
 | 🟢 Data Guard | Active Data Guard, `max_performance` |
 | 📡 DNS model | SCAN via DNS, public/private/VIP managed through `/etc/hosts` |
 

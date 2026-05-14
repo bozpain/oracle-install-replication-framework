@@ -45,6 +45,31 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(code, 2)
 
+    def test_full_guardrail_blocks_real_execution_without_flags(self):
+        code = main([
+            "full",
+            "--config",
+            "configs/sample-single.json",
+        ])
+
+        self.assertEqual(code, 2)
+
+    def test_full_dry_run_writes_report(self):
+        tmp = self._test_dir("full")
+        code = main([
+            "--report-dir",
+            str(tmp),
+            "--state-dir",
+            str(tmp),
+            "full",
+            "--config",
+            "configs/sample-single.json",
+            "--dry-run",
+        ])
+
+        self.assertEqual(code, 0)
+        self.assertTrue((tmp / "single-gi-demo.html").exists())
+
     def test_storage_rules_contain_dm_uuid_rule(self):
         config = load_config(Path("configs/sample-rac-dg.json"))
         command = prepare_storage_rules_steps(config)[0].command
