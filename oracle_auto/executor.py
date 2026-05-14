@@ -47,13 +47,27 @@ class SSHExecutor:
             )
 
         ssh_command = self._build_ssh_command(target, command)
-        completed = subprocess.run(
-            ssh_command,
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                ssh_command,
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+            detail = f"Command timed out after {timeout} seconds."
+            if stderr.strip():
+                detail = f"{detail}\n{stderr.strip()}"
+            return CommandResult(
+                host=node.host,
+                command=self._format_display_command(target, command),
+                returncode=124,
+                stdout=stdout.strip(),
+                stderr=detail,
+            )
         return CommandResult(
             host=node.host,
             command=self._format_display_command(target, command),
