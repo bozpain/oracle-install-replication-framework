@@ -347,9 +347,16 @@ def _secret_env_check(config: AutomationConfig) -> str:
     ]
     if config.standby_site:
         env_names.append(config.secrets.dg_password_env)
-    source_profile = "set -a; . /etc/profile >/dev/null 2>&1 || true; for f in /etc/profile.d/*.sh; do . \"$f\" >/dev/null 2>&1 || true; done; set +a"
+    source_profile = (
+        "set -a; "
+        "test ! -r /etc/oracle-auto/secrets.env || . /etc/oracle-auto/secrets.env; "
+        ". /etc/profile >/dev/null 2>&1 || true; "
+        "for f in /etc/profile.d/*.sh; do . \"$f\" >/dev/null 2>&1 || true; done; "
+        "set +a"
+    )
     checks = " && ".join(f"test -n \"${{{name}:-}}\"" for name in env_names)
-    return f"{source_profile}; {checks}"
+    script = f"{source_profile}; {checks}"
+    return "sudo -n bash -lc " + shlex.quote(script)
 
 
 def _disk_check(config: AutomationConfig) -> str:

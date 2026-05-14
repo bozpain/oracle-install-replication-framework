@@ -402,7 +402,31 @@ Password tidak ditulis hardcoded di script. Config hanya menyimpan nama environm
 }
 ```
 
-Sebelum `create-database` dan Data Guard step, set secret di target sesuai mekanisme secure environment yang dipakai tim.
+Default runtime membaca secret dari file root-only berikut di setiap target:
+
+```text
+/etc/oracle-auto/secrets.env
+```
+
+Format file:
+
+```bash
+ORACLE_AUTO_SYS_PASSWORD='change-me'
+ORACLE_AUTO_SYSTEM_PASSWORD='change-me'
+ORACLE_AUTO_ASMSNMP_PASSWORD='change-me'
+ORACLE_AUTO_DG_PASSWORD='change-me'
+```
+
+Permission yang direkomendasikan:
+
+```bash
+sudo install -d -m 700 -o root -g root /etc/oracle-auto
+sudo install -m 600 -o root -g root secrets.env /etc/oracle-auto/secrets.env
+```
+
+Precheck membaca file ini lewat `sudo -n bash -lc`, dan setiap remote phase
+akan source file ini sebelum menjalankan command. Jangan simpan password di
+`/etc/profile.d` atau shell profile global.
 
 ---
 

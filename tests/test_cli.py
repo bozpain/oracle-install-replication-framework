@@ -3,8 +3,10 @@ import tempfile
 import uuid
 from pathlib import Path
 
+from oracle_auto.automation import shell_script
 from oracle_auto.cli import main
 from oracle_auto.config import load_config
+from oracle_auto.precheck import _secret_env_check
 from oracle_auto.secrets import redact
 from oracle_auto.phase_builders.storage import prepare_storage_rules_steps
 from oracle_auto.phase_builders.grid import install_grid_steps
@@ -122,6 +124,20 @@ class CliTest(unittest.TestCase):
                 os.environ.pop("ORACLE_AUTO_SYS_PASSWORD", None)
             else:
                 os.environ["ORACLE_AUTO_SYS_PASSWORD"] = previous
+
+    def test_remote_shell_sources_root_only_secret_file(self):
+        command = shell_script("Check secrets", ["test -n \"${ORACLE_AUTO_SYS_PASSWORD:-}\""])
+
+        self.assertIn("/etc/oracle-auto/secrets.env", command)
+        self.assertIn("sudo -n bash -lc", command)
+
+    def test_secret_precheck_uses_sudo_secret_file(self):
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        command = _secret_env_check(config)
+
+        self.assertIn("sudo -n bash -lc", command)
+        self.assertIn("/etc/oracle-auto/secrets.env", command)
+        self.assertIn("ORACLE_AUTO_DG_PASSWORD", command)
 
 
 if __name__ == "__main__":
