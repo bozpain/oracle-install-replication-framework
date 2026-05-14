@@ -20,14 +20,14 @@ Oracle Install Replication Framework adalah framework otomasi untuk membangun en
 
 Framework ini fokus pada deployment fresh install dengan standar enterprise:
 
-| Layer | Fokus |
-|---|---|
-| 🧭 Planning | Validasi config, topology, execution plan, dan runbook per phase |
-| 🖥️ Platform | Oracle Linux baseline, user `grid`/`oracle`, DNS, hosts, chrony, SELinux, firewall |
-| 💽 Storage | ASM berbasis `DM_UUID`, udev symlink stabil, ASMFD label, diskgroup `OCR`, `DATA`, `RECO` |
-| 🧱 Database | Grid Infrastructure, ASM, Oracle Database software, DBCA primary database |
-| 🟢 Replication | Active Data Guard dan optional Data Guard Broker |
-| 🛡️ Operations | Dry-run, resume state, guardrail flag, diagnostics, role operation, HTML report |
+| Layer          | Fokus                                                                                     |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| 🧭 Planning    | Validasi config, topology, execution plan, dan runbook per phase                          |
+| 🖥️ Platform    | Oracle Linux baseline, user `grid`/`oracle`, DNS, hosts, chrony, SELinux, firewall        |
+| 💽 Storage     | ASM berbasis `DM_UUID`, udev symlink stabil, ASMFD label, diskgroup `OCR`, `DATA`, `RECO` |
+| 🧱 Database    | Grid Infrastructure, ASM, Oracle Database software, DBCA primary database                 |
+| 🟢 Replication | Active Data Guard dan optional Data Guard Broker                                          |
+| 🛡️ Operations  | Dry-run, resume state, guardrail flag, diagnostics, role operation, HTML report           |
 
 > README ini sengaja dibuat sebagai landing page. Detail teknis, command sequence, config schema, guardrail, troubleshooting, dan checklist production ada di [Deployment Guide](docs/deployment_guide.md).
 
@@ -96,24 +96,24 @@ flowchart LR
 
 ## 🚀 What You Get
 
-| Capability | Output |
-|---|---|
-| 🧪 Dry-run first workflow | Semua phase bisa direview sebelum SSH execution |
-| 🧾 Execution plan | `.oracle-auto/reports/<run_id>-plan.html` dan runbook shell per phase |
-| 🔁 Resume state | Step yang sudah `done` tidak diulang kecuali memakai `--no-resume` |
-| 📦 Patch pipeline | Grid/DB RU during initial install, OJVM before DB creation, OPatch update, inventory |
-| 🟢 Data Guard path | Manual physical standby atau Broker-managed configuration |
-| 📊 Audit trail | HTML report, state JSON, dan per-step log |
-| 🧯 Recovery aids | Diagnostics, limited cleanup lab, limited framework rollback |
+| Capability                | Output                                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| 🧪 Dry-run first workflow | Semua phase bisa direview sebelum SSH execution                                      |
+| 🧾 Execution plan         | `.oracle-auto/reports/<run_id>-plan.html` dan runbook shell per phase                |
+| 🔁 Resume state           | Step yang sudah `done` tidak diulang kecuali memakai `--no-resume`                   |
+| 📦 Patch pipeline         | Grid/DB RU during initial install, OJVM before DB creation, OPatch update, inventory |
+| 🟢 Data Guard path        | Manual physical standby atau Broker-managed configuration                            |
+| 📊 Audit trail            | HTML report, state JSON, dan per-step log                                            |
+| 🧯 Recovery aids          | Diagnostics, limited cleanup lab, limited framework rollback                         |
 
 ---
 
 ## 🧭 Deployment Modes
 
-| Mode | Topology | Standby |
-|---|---|---|
-| 🔹 `single-gi` | Single node Grid Infrastructure + ASM + Database | `single-gi` standby |
-| 🔶 `rac` | RAC Grid Infrastructure + ASM + Database | RAC standby dengan jumlah node sama |
+| Mode           | Topology                                         | Standby                             |
+| -------------- | ------------------------------------------------ | ----------------------------------- |
+| 🔹 `single-gi` | Single node Grid Infrastructure + ASM + Database | `single-gi` standby                 |
+| 🔶 `rac`       | RAC Grid Infrastructure + ASM + Database         | RAC standby dengan jumlah node sama |
 
 Jika `standby_site` diisi, Active Data Guard dianggap aktif otomatis.
 
@@ -121,12 +121,12 @@ Jika `standby_site` diisi, Active Data Guard dianggap aktif otomatis.
 
 ## 📚 Documentation Map
 
-| Document | Purpose |
-|---|---|
-| 📕 [Deployment Guide](docs/deployment_guide.md) | Runbook teknis premium: prerequisites, config, command sequence, guardrails, reports, troubleshooting |
-| 📘 [Installation and Replication Outline](docs/installation-replication-outline.md) | Blueprint desain, scope, default, dan roadmap framework |
-| 🧪 [Sample RAC + Data Guard Config](configs/sample-rac-dg.json) | Contoh config RAC dengan standby |
-| 🧪 [Sample Single GI Config](configs/sample-single.json) | Contoh config single-node GI |
+| Document                                                                            | Purpose                                                                                               |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 📕 [Deployment Guide](docs/deployment_guide.md)                                     | Runbook teknis premium: prerequisites, config, command sequence, guardrails, reports, troubleshooting |
+| 📘 [Installation and Replication Outline](docs/installation-replication-outline.md) | Blueprint desain, scope, default, dan roadmap framework                                               |
+| 🧪 [Sample RAC + Data Guard Config](configs/sample-rac-dg.json)                     | Contoh config RAC dengan standby                                                                      |
+| 🧪 [Sample Single GI Config](configs/sample-single.json)                            | Contoh config single-node GI                                                                          |
 
 ---
 
@@ -151,15 +151,15 @@ Seluruh urutan deployment, flag destructive guardrail, dry-run penuh, dan produc
 
 ## 🛡️ Current Baseline
 
-| Area | Baseline |
-|---|---|
-| 🐍 Control runtime | Python `3.12` |
-| 🐧 Target OS | Oracle Linux `8.10` |
-| 🟥 Oracle stack | Grid Infrastructure + Database `19c` |
-| 🧩 Patch baseline | `19.30`, expandable untuk RU/OJVM/one-off berikutnya |
-| 💽 Storage model | ASM only; `single-gi` uses `DATA`/`RECO`, `rac` uses `OCR`/`DATA`/`RECO` |
-| 🟢 Data Guard | Active Data Guard, `max_performance` |
-| 📡 DNS model | SCAN via DNS, public/private/VIP managed through `/etc/hosts` |
+| Area               | Baseline                                                                 |
+| ------------------ | ------------------------------------------------------------------------ |
+| 🐍 Control runtime | Python `3.12`                                                            |
+| 🐧 Target OS       | Oracle Linux `8.10`                                                      |
+| 🟥 Oracle stack    | Grid Infrastructure + Database `19c`                                     |
+| 🧩 Patch baseline  | `19.30`, expandable untuk RU/OJVM/one-off berikutnya                     |
+| 💽 Storage model   | ASM only; `single-gi` uses `DATA`/`RECO`, `rac` uses `OCR`/`DATA`/`RECO` |
+| 🟢 Data Guard      | Active Data Guard, `max_performance`                                     |
+| 📡 DNS model       | SCAN via DNS, public/private/VIP managed through `/etc/hosts`            |
 
 ---
 
