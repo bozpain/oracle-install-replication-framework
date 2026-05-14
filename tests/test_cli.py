@@ -16,9 +16,7 @@ from oracle_auto.phase_builders.patching import apply_ojvm_patch_steps
 
 class CliTest(unittest.TestCase):
     def _test_dir(self, name: str) -> Path:
-        path = Path(tempfile.gettempdir()) / "oracle-auto-tests" / f"{name}-{uuid.uuid4().hex}"
-        path.mkdir(parents=True, exist_ok=False)
-        return path
+        return Path(tempfile.mkdtemp(prefix=f"oracle-auto-{name}-{uuid.uuid4().hex}-"))
 
     def test_generate_plan_writes_html_and_json(self):
         tmp = self._test_dir("plan")
