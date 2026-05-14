@@ -82,6 +82,20 @@ def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
     )
 
 
+def afd_label_command(label: str, path: str) -> str:
+    quoted_label = shlex.quote(label)
+    quoted_path = shlex.quote(path)
+    return (
+        f"if {GRID_BASE}/bin/asmcmd afd_lslbl 2>/dev/null | "
+        f"awk '{{print $1}}' | grep -qx {quoted_label}; then "
+        f"echo 'AFD label already exists: {label}'; "
+        "else "
+        f"{GRID_BASE}/bin/asmcmd afd_label {quoted_label} {quoted_path} --init || "
+        f"{GRID_BASE}/bin/asmcmd afd_label {quoted_label} {quoted_path}; "
+        "fi"
+    )
+
+
 def _prepare_storage_rules_script(config: AutomationConfig) -> str:
     entries = asm_entries(config)
     rules = _udev_rules(config)
@@ -141,10 +155,7 @@ def _configure_asm_storage_script(config: AutomationConfig) -> str:
         f"test \"$(blockdev --getsize64 {shlex.quote(path)})\" -gt 0"
         for _label, path, _group, _disk in entries
     ]
-    label_commands = [
-        f"{GRID_BASE}/bin/asmcmd afd_label {label} {shlex.quote(path)} --init || {GRID_BASE}/bin/asmcmd afd_label {label} {shlex.quote(path)}"
-        for label, path, _group, _disk in entries
-    ]
+    label_commands = [afd_label_command(label, path) for label, path, _group, _disk in entries]
     diskgroup_commands = []
     for diskgroup_name in ("OCR", "DATA", "RECO"):
         labels = [label for label, _path, group, _disk in entries if group == diskgroup_name]

@@ -11,6 +11,7 @@ import shlex
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
 from oracle_auto.phase_builders.common import GRID_BASE, STAGE, make_step, stage_patch_lines
+from oracle_auto.phase_builders.storage import afd_label_command, asm_entries
 from oracle_auto.response_files.grid import grid_response
 
 
@@ -50,6 +51,7 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         _hosts_guard(config),
         f"test -x {GRID_BASE}/gridSetup.sh || sudo -iu grid unzip -oq {shlex.quote(config.installer.sources_path)}/{shlex.quote(config.installer.grid_zip)} -d {GRID_BASE}",
         *_grid_patch_stage_lines(config),
+        *_initial_afd_label_lines(config),
         f"cat > {STAGE}/responses/grid-{site.name}.rsp <<'EOF'\n{response}\nEOF",
         f"chown grid:oinstall {STAGE}/responses/grid-{site.name}.rsp",
         f"sudo -iu grid {GRID_BASE}/gridSetup.sh -silent -waitforcompletion -responseFile {STAGE}/responses/grid-{site.name}.rsp{_grid_patch_arg(config)} -ignorePrereqFailure",
@@ -67,6 +69,20 @@ def _grid_patch_arg(config: AutomationConfig) -> str:
     if config.installer.grid_patch is None:
         return ""
     return ' -applyRU "$GRID_PATCH_TOP"'
+
+
+def _initial_afd_label_lines(config: AutomationConfig) -> list[str]:
+    initial_group = "OCR" if config.install_type == "rac" else "DATA"
+    entries = [(label, path) for label, path, group, _disk in asm_entries(config) if group == initial_group]
+    lines = [
+        "echo 'Label initial Grid Infrastructure diskgroup with ASMFD before gridSetup.sh'",
+        f"test -x {GRID_BASE}/bin/asmcmd",
+    ]
+    for label, path in entries:
+        lines.append(f"test -b {shlex.quote(path)}")
+        lines.append(afd_label_command(label, path))
+    lines.append(f"{GRID_BASE}/bin/asmcmd afd_lslbl || true")
+    return lines
 
 
 def _grid_root_script() -> str:

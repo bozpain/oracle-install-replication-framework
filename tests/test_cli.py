@@ -90,6 +90,8 @@ class CliTest(unittest.TestCase):
         grid_command = install_grid_steps(config)[0].command
         db_command = install_db_software_steps(config)[0].command
 
+        self.assertIn("asmcmd afd_label DATA01 /dev/oracleasm/data01 --init", grid_command)
+        self.assertLess(grid_command.index("asmcmd afd_label DATA01"), grid_command.index("gridSetup.sh -silent"))
         self.assertIn("p19_30_grid_ru_Linux-x86-64.zip", grid_command)
         self.assertIn('-applyRU "$GRID_PATCH_TOP"', grid_command)
         self.assertIn("p19_30_db_ru_Linux-x86-64.zip", db_command)
