@@ -101,6 +101,9 @@ def _fresh_grid_home_lines(config: AutomationConfig) -> list[str]:
     grid_zip = f"{config.installer.sources_path}/{config.installer.grid_zip}"
     return [
         "if test ! -f /etc/oracle/olr.loc && test -x "
+        f"{GRID_BASE}/gridSetup.sh && ls {GRID_BASE}/install/response/grid_*.rsp >/dev/null 2>&1; then "
+        "echo 'Grid software appears installed; preserving home for root scripts/config tools'; "
+        "elif test ! -f /etc/oracle/olr.loc && test -x "
         f"{GRID_BASE}/gridSetup.sh; then echo 'Resetting unconfigured Grid home before install'; "
         f"find {GRID_BASE} -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +; fi",
         f"test -x {GRID_BASE}/gridSetup.sh || sudo -iu grid unzip -oq {shlex.quote(grid_zip)} -d {GRID_BASE}",
