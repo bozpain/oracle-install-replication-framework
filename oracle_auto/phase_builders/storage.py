@@ -82,17 +82,25 @@ def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
     )
 
 
-def afd_label_command(label: str, path: str) -> str:
+def afd_label_command(label: str, path: str, *, initial: bool = False) -> str:
     quoted_label = shlex.quote(label)
     quoted_path = shlex.quote(path)
+    label_args = f"{quoted_label} {quoted_path}"
+    if initial:
+        label_args = f"{label_args} --init"
+    label_check = (
+        f"{GRID_BASE}/bin/asmcmd afd_lslbl {quoted_path} 2>/dev/null | "
+        f"awk '{{print $1}}' | grep -qx {quoted_label}"
+    )
     return (
-        f"if {GRID_BASE}/bin/asmcmd afd_lslbl 2>/dev/null | "
-        f"awk '{{print $1}}' | grep -qx {quoted_label}; then "
+        f"if {label_check}; then "
         f"echo 'AFD label already exists: {label}'; "
         "else "
-        f"{GRID_BASE}/bin/asmcmd afd_label {quoted_label} {quoted_path} --init || "
-        f"{GRID_BASE}/bin/asmcmd afd_label {quoted_label} {quoted_path}; "
-        "fi"
+        f"{GRID_BASE}/bin/asmcmd afd_label {label_args}; "
+        "fi; "
+        f"{GRID_BASE}/bin/asmcmd afd_lslbl {quoted_path}; "
+        f"{GRID_BASE}/bin/asmcmd afd_lslbl {quoted_path} 2>/dev/null | "
+        f"awk '{{print $1}}' | grep -qx {quoted_label}"
     )
 
 

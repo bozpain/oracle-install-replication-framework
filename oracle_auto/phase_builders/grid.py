@@ -117,9 +117,14 @@ def _initial_afd_label_lines(config: AutomationConfig) -> list[str]:
         f"test -x {GRID_BASE}/bin/asmcmd",
     ]
     for label, path in entries:
-        lines.append(f"test -b {shlex.quote(path)}")
-        lines.append(afd_label_command(label, path))
-    lines.append(f"{GRID_BASE}/bin/asmcmd afd_lslbl || true")
+        quoted_path = shlex.quote(path)
+        lines.append(f"printf 'ASM candidate %s -> ' {quoted_path}; readlink -f {quoted_path}")
+        lines.append(f"lsblk -ndo NAME,TYPE,SIZE,MODEL {quoted_path} || true")
+        lines.append(f"test -b {quoted_path}")
+        lines.append(f"test \"$(blockdev --getsize64 {quoted_path})\" -ge 8388608")
+        lines.append(afd_label_command(label, path, initial=True))
+    lines.append(f"{GRID_BASE}/bin/asmcmd afd_lslbl")
+    lines.append("unset ORACLE_BASE")
     return lines
 
 
