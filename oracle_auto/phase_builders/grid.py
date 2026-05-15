@@ -215,10 +215,22 @@ def _single_gi_direct_asmca_lines(config: AutomationConfig) -> list[str]:
         for label, _path, group, _disk in asm_entries(config)
         if group == initial_group
     )
+    fallback_disks = ",".join(
+        path
+        for _label, path, group, _disk in asm_entries(config)
+        if group == initial_group
+    )
     return [
         f"  if sudo -iu grid {GRID_BASE}/bin/crsctl check has >/dev/null 2>&1 && ! sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
-        "    echo 'Running ASMCA directly with current ASMLIB disk string to avoid stale OUI config replay'",
+        "    echo 'Running ASMCA directly with ASMLIB logical disk string to avoid stale OUI config replay'",
+        "    set +e",
         f"    sudo -iu grid env ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/bin/asmca -silent -configureASM -sysAsmPassword \"$ASMSNMP_PASSWORD\" -asmsnmpPassword \"$ASMSNMP_PASSWORD\" -diskString {shlex.quote(asm_discovery_string(config))} -diskGroupName {initial_group} -diskList {shlex.quote(initial_disks)} -redundancy {shlex.quote(config.asm.redundancy)} -au_size 1",
+        "    direct_asmca_rc=$?",
+        "    set -e",
+        f"    if test \"$direct_asmca_rc\" -ne 0 && ! sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
+        "      echo 'ASMLIB logical discovery failed; retrying ASMCA with /dev/oracleasm device paths'",
+        f"      sudo -iu grid env ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/bin/asmca -silent -configureASM -sysAsmPassword \"$ASMSNMP_PASSWORD\" -asmsnmpPassword \"$ASMSNMP_PASSWORD\" -diskString '/dev/oracleasm/*' -diskGroupName {initial_group} -diskList {shlex.quote(fallback_disks)} -redundancy {shlex.quote(config.asm.redundancy)} -au_size 1",
+        "    fi",
         "  fi",
     ]
 
