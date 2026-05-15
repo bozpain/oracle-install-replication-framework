@@ -82,7 +82,7 @@ class SSHExecutorTest(unittest.TestCase):
                 result = executor.run(node, "true", timeout=None)
 
         self.assertEqual(result.stdout, "line one\nline two")
-        self.assertEqual(buffer.getvalue(), "line one\nline two\n")
+        self.assertEqual(buffer.getvalue(), "[db1.example.com] line one\n[db1.example.com] line two\n")
 
 
 if __name__ == "__main__":

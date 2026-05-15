@@ -60,12 +60,12 @@ class SSHExecutor:
         )
         stdout_thread = Thread(
             target=_stream_output,
-            args=(process.stdout, stdout_chunks, sys.stdout),
+            args=(process.stdout, stdout_chunks, sys.stdout, node.host),
             daemon=True,
         )
         stderr_thread = Thread(
             target=_stream_output,
-            args=(process.stderr, stderr_chunks, sys.stderr),
+            args=(process.stderr, stderr_chunks, sys.stderr, node.host),
             daemon=True,
         )
         stdout_thread.start()
@@ -125,10 +125,10 @@ class SSHExecutor:
         return f"ssh {target} {command!r}"
 
 
-def _stream_output(source: TextIO | None, chunks: list[str], sink: TextIO) -> None:
+def _stream_output(source: TextIO | None, chunks: list[str], sink: TextIO, host: str) -> None:
     if source is None:
         return
     for line in iter(source.readline, ""):
         chunks.append(line)
-        print(line, end="", file=sink, flush=True)
+        print(f"[{host}] {line}", end="", file=sink, flush=True)
     source.close()

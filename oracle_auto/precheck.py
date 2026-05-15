@@ -325,13 +325,13 @@ def _installer_integrity_check(config: AutomationConfig) -> str:
 def _installer_content_check(config: AutomationConfig) -> str:
     sources = config.installer.sources_path
     checks = [
-        f"unzip -l {shlex.quote(sources + '/' + config.installer.grid_zip)} | grep -q 'gridSetup.sh'",
-        f"unzip -l {shlex.quote(sources + '/' + config.installer.db_zip)} | grep -q 'runInstaller'",
+        f"unzip -l {shlex.quote(sources + '/' + config.installer.grid_zip)} | grep 'gridSetup.sh' >/dev/null",
+        f"unzip -l {shlex.quote(sources + '/' + config.installer.db_zip)} | grep 'runInstaller' >/dev/null",
     ]
     if config.installer.opatch_zip:
-        checks.append(f"unzip -l {shlex.quote(sources + '/' + config.installer.opatch_zip)} | grep -q 'OPatch/'")
+        checks.append(f"unzip -l {shlex.quote(sources + '/' + config.installer.opatch_zip)} | grep 'OPatch/' >/dev/null")
     for patch in config.installer.patches:
-        checks.append(f"unzip -l {shlex.quote(sources + '/' + patch.file)} | awk 'NR > 3 {{print $4}}' | grep -q '^[0-9][0-9]*/'")
+        checks.append(f"unzip -l {shlex.quote(sources + '/' + patch.file)} | awk 'NR > 3 {{print $4}}' | grep '^[0-9][0-9]*/' >/dev/null")
     return " && ".join(checks)
 
 

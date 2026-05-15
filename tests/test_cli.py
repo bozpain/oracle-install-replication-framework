@@ -8,6 +8,7 @@ from oracle_auto.cli import main
 from oracle_auto.config import NodeConfig, load_config
 from oracle_auto.executor import CommandResult
 from oracle_auto.precheck import _secret_env_check
+from oracle_auto.progress import render_progress_line
 from oracle_auto.secrets import redact
 from oracle_auto.phase_builders.inventory import inventory_steps
 from oracle_auto.phase_builders.installer import verify_installer_steps
@@ -60,6 +61,21 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertIn("RUN   generate-report:local:generate_report", buffer.getvalue())
+
+    def test_progress_line_reports_current_running_step(self):
+        tmp = self._test_dir("progress")
+        state = tmp / "run.json"
+        state.write_text(
+            '{"steps":{"verify-installer:db01:verify_installer":{"status":"running"},'
+            '"prepare-os:db01:prepare_os":{"status":"done"}}}',
+            encoding="utf-8",
+        )
+
+        line = render_progress_line(state)
+
+        self.assertIn("done=1", line)
+        self.assertIn("running=1", line)
+        self.assertIn("verify-installer:db01:verify_installer", line)
 
     def test_storage_guardrail_blocks_real_execution(self):
         code = main([
@@ -163,6 +179,8 @@ class CliTest(unittest.TestCase):
 
         self.assertIn("Integrity check: LINUX.X64_193000_grid_home.zip", command)
         self.assertIn("Integrity check: p19_30_ojvm_ru_Linux-x86-64.zip", command)
+        self.assertIn("Content check: gridSetup.sh", command)
+        self.assertNotIn("grep -q 'gridSetup.sh'", command)
 
     def test_storage_rules_contain_dm_uuid_rule(self):
         config = load_config(Path("configs/sample-rac-dg.json"))

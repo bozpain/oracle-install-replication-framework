@@ -46,6 +46,7 @@ from oracle_auto.phases import (
 )
 from oracle_auto.plan import write_plan
 from oracle_auto.precheck import PrecheckRunner
+from oracle_auto.progress import start_progress, stop_progress
 from oracle_auto.report import results_from_state, write_html_report
 from oracle_auto.state import NoopStateStore, StateStore
 
@@ -341,7 +342,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_precheck(args, config: AutomationConfig) -> int:
-    step_results = _execute_precheck(args, config)
+    progress = _start_progress_if_needed(args, config)
+    try:
+        step_results = _execute_precheck(args, config)
+    finally:
+        _stop_progress_if_needed(args, config, progress)
     _print_or_json(args, step_results)
     report = write_html_report(config, step_results, Path(args.report_dir), title=f"Oracle Precheck - {config.run_id}")
     print(f"\nReport written: {report}")
@@ -353,7 +358,11 @@ def _run_phase(args, config: AutomationConfig, steps: list[AutomationStep]) -> i
         print(f"No steps generated for command: {args.command}")
         return 0
 
-    results = _execute_phase(args, config, steps)
+    progress = _start_progress_if_needed(args, config)
+    try:
+        results = _execute_phase(args, config, steps)
+    finally:
+        _stop_progress_if_needed(args, config, progress)
     _print_or_json(args, results)
     report = write_html_report(config, results, Path(args.report_dir), title=f"{args.command} - {config.run_id}")
     print(f"\nReport written: {report}")
@@ -375,19 +384,23 @@ def _run_workflow(args, config: AutomationConfig) -> int:
             return 2
 
     all_results: list[StepResult] = []
-    for phase in phases:
-        print(f"\n== Workflow phase: {phase} ==")
-        if phase == "precheck":
-            results = _execute_precheck(args, config)
-        else:
-            builder = PHASE_BUILDERS[phase]
-            phase_args = argparse.Namespace(**vars(args))
-            phase_args.command = phase
-            results = _execute_phase(phase_args, config, builder(config))
-        all_results.extend(results)
-        _print_or_json(args, results)
-        if any(item.status == "FAIL" for item in results) and not args.continue_on_fail:
-            break
+    progress = _start_progress_if_needed(args, config)
+    try:
+        for phase in phases:
+            print(f"\n== Workflow phase: {phase} ==")
+            if phase == "precheck":
+                results = _execute_precheck(args, config)
+            else:
+                builder = PHASE_BUILDERS[phase]
+                phase_args = argparse.Namespace(**vars(args))
+                phase_args.command = phase
+                results = _execute_phase(phase_args, config, builder(config))
+            all_results.extend(results)
+            _print_or_json(args, results)
+            if any(item.status == "FAIL" for item in results) and not args.continue_on_fail:
+                break
+    finally:
+        _stop_progress_if_needed(args, config, progress)
 
     report = write_html_report(config, all_results, Path(args.report_dir), title=f"{args.command} - {config.run_id}")
     print(f"\nReport written: {report}")
@@ -426,6 +439,21 @@ def _execute_phase(args, config: AutomationConfig, steps: list[AutomationStep]) 
         log_dir=Path(args.log_dir) / config.run_id,
     )
     return runner.run(steps)
+
+
+def _start_progress_if_needed(args, config: AutomationConfig):
+    if args.dry_run:
+        return None
+    state_path = StateStore(Path(args.state_dir), config.run_id).path
+    return start_progress(state_path)
+
+
+def _stop_progress_if_needed(args, config: AutomationConfig, progress) -> None:
+    if progress is None:
+        return
+    state_path = StateStore(Path(args.state_dir), config.run_id).path
+    stop_event, thread = progress
+    stop_progress(state_path, stop_event, thread)
 
 
 def _selected_workflow_phases(from_phase: str | None, to_phase: str | None) -> list[str]:
