@@ -11,6 +11,7 @@ import shlex
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
 from oracle_auto.phase_builders.common import GRID_BASE, GRID_BASE_DIR, STAGE, ensure_swap_lines, make_step, stage_patch_lines
+from oracle_auto.phase_builders.storage import asm_discovery_string, asm_disk_spec, asm_entries
 from oracle_auto.response_files.grid import grid_response
 
 
@@ -173,20 +174,25 @@ def _grid_config_tools_script(config: AutomationConfig, site: SiteConfig) -> str
         f"  CONFIG_TOOLS_LOG={STAGE}/logs/gridConfigTools-{site.name}.out",
         "  config_tools_stamp=$(mktemp /tmp/oracle-auto-grid-config-tools.XXXXXX)",
         "  touch \"$config_tools_stamp\"",
-        "  set +e",
-        f"  sudo -iu grid env CV_ASSUME_DISTID=OL7 ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/gridSetup.sh -executeConfigTools -responseFile {response_file} -silent 2>&1 | tee \"$CONFIG_TOOLS_LOG\"",
-        "  config_tools_rc=${PIPESTATUS[0]}",
-        "  set -e",
-        "  if test \"$config_tools_rc\" -ne 0; then",
-        "    echo 'Grid configuration tools failed; extracting recent Oracle log errors'",
-        "    recent_grid_log_dirs=$(find /u01/app/oraInventory/logs /tmp -maxdepth 1 -type d -name 'GridSetupActions*' -newer \"$config_tools_stamp\" -print 2>/dev/null || true)",
-        f"    for log_root in $recent_grid_log_dirs {GRID_BASE}/cfgtoollogs; do",
-        "      test -n \"$log_root\" && test -d \"$log_root\" || continue",
-        "      find \"$log_root\" -type f \\( -name '*.log' -o -name '*.out' -o -name '*.err' \\) -newer \"$config_tools_stamp\" -print0 2>/dev/null |",
-        "        xargs -0 -r grep -HniE 'SEVERE|ERROR|FATAL|INS-|CLSRSC-|PRCR-|PRVG-|ORA-|ASMCMD|ASMCA|failed|failure' || true",
-        "    done",
-        "    echo \"Captured executeConfigTools output: $CONFIG_TOOLS_LOG\"",
-        "    exit \"$config_tools_rc\"",
+        *_single_gi_direct_asmca_lines(config),
+        f"  if sudo -iu grid {crs_check} >/dev/null 2>&1 && sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
+        "    echo 'Grid ASM configuration complete; skipping OUI executeConfigTools replay.'",
+        "  else",
+        "    set +e",
+        f"    sudo -iu grid env CV_ASSUME_DISTID=OL7 ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/gridSetup.sh -executeConfigTools -responseFile {response_file} -silent 2>&1 | tee \"$CONFIG_TOOLS_LOG\"",
+        "    config_tools_rc=${PIPESTATUS[0]}",
+        "    set -e",
+        "    if test \"$config_tools_rc\" -ne 0; then",
+        "      echo 'Grid configuration tools failed; extracting recent Oracle log errors'",
+        "      recent_grid_log_dirs=$(find /u01/app/oraInventory/logs /tmp -maxdepth 1 -type d -name 'GridSetupActions*' -newer \"$config_tools_stamp\" -print 2>/dev/null || true)",
+        f"      for log_root in $recent_grid_log_dirs {GRID_BASE}/cfgtoollogs; do",
+        "        test -n \"$log_root\" && test -d \"$log_root\" || continue",
+        "        find \"$log_root\" -type f \\( -name '*.log' -o -name '*.out' -o -name '*.err' \\) -newer \"$config_tools_stamp\" -print0 2>/dev/null |",
+        "          xargs -0 -r grep -HniE 'SEVERE|ERROR|FATAL|INS-|CLSRSC-|PRCR-|PRVG-|ORA-|ASMCMD|ASMCA|failed|failure' || true",
+        "      done",
+        "      echo \"Captured executeConfigTools output: $CONFIG_TOOLS_LOG\"",
+        "      exit \"$config_tools_rc\"",
+        "    fi",
         "  fi",
         "fi",
         f"sudo -iu grid {crs_check}",
@@ -198,6 +204,23 @@ def _grid_config_tools_script(config: AutomationConfig, site: SiteConfig) -> str
 def _crs_check_command(config: AutomationConfig) -> str:
     target = "crs" if config.install_type == "rac" else "has"
     return f"{GRID_BASE}/bin/crsctl check {target}"
+
+
+def _single_gi_direct_asmca_lines(config: AutomationConfig) -> list[str]:
+    if config.install_type != "single-gi":
+        return []
+    initial_group = "DATA"
+    initial_disks = ",".join(
+        asm_disk_spec(label)
+        for label, _path, group, _disk in asm_entries(config)
+        if group == initial_group
+    )
+    return [
+        f"  if sudo -iu grid {GRID_BASE}/bin/crsctl check has >/dev/null 2>&1 && ! sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
+        "    echo 'Running ASMCA directly with current ASMLIB disk string to avoid stale OUI config replay'",
+        f"    sudo -iu grid env ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/bin/asmca -silent -configureASM -sysAsmPassword \"$ASMSNMP_PASSWORD\" -asmsnmpPassword \"$ASMSNMP_PASSWORD\" -diskString {shlex.quote(asm_discovery_string(config))} -diskGroupName {initial_group} -diskList {shlex.quote(initial_disks)} -redundancy {shlex.quote(config.asm.redundancy)} -au_size 1",
+        "  fi",
+    ]
 
 
 def _grid_known_hosts_lines(site: SiteConfig) -> list[str]:
