@@ -86,11 +86,11 @@ def asm_device_permission_commands(paths: list[str]) -> list[str]:
 
 
 def asm_discovery_string(_config: AutomationConfig) -> str:
-    return "ORCL:*"
+    return "/dev/oracleasm/*"
 
 
 def asm_disk_spec(label: str) -> str:
-    return f"ORCL:{label}"
+    return f"/dev/oracleasm/{label.lower()}"
 
 
 def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
