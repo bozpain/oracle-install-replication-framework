@@ -57,14 +57,14 @@
     "redundancy": "EXTERNAL",
     "data_disks": [
       {
-        "path": "/dev/oracleasm-src/data",
-        "name": "data01"
+        "path": "/dev/oracleasm/data1",
+        "name": "data1"
       }
     ],
     "reco_disks": [
       {
-        "path": "/dev/oracleasm-src/reco",
-        "name": "reco01"
+        "path": "/dev/oracleasm/reco1",
+        "name": "reco1"
       }
     ]
   },

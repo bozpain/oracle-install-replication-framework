@@ -126,6 +126,11 @@ class ASMDiskConfig:
             return self.path
         return self.symlink_path("asm", 1)
 
+    def final_path(self, group: str, index: int) -> str:
+        if self.path and self.path.startswith("/dev/oracleasm/"):
+            return self.path
+        return self.symlink_path(group, index)
+
     def symlink_name(self, group: str, index: int) -> str:
         return self.name or f"{group.lower()}{index:02d}"
 

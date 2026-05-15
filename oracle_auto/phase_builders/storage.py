@@ -58,7 +58,7 @@ def asm_entries(config: AutomationConfig) -> list[ASMEntry]:
     ):
         for index, disk in enumerate(disks, start=1):
             label = disk.symlink_name(group, index).upper()
-            entries.append((label, disk.symlink_path(group, index), group, disk))
+            entries.append((label, disk.final_path(group, index), group, disk))
     return entries
 
 
@@ -100,7 +100,11 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
     entries = asm_entries(config)
     rules = _udev_rules(config)
     disk_checks = [f"test -b {shlex.quote(path)}" for _label, path, _group, _disk in entries]
-    path_entries = [(path, disk.path) for _label, path, _group, disk in entries if disk.path]
+    path_entries = [
+        (path, disk.path)
+        for _label, path, _group, disk in entries
+        if disk.path and disk.path != path
+    ]
     path_checks = [f"test -b {shlex.quote(source)}" for _path, source in path_entries]
     path_symlinks = [
         (

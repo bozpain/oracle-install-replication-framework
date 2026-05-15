@@ -30,6 +30,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.asm.ocr_disks, [])
         self.assertEqual(config.asm.data_disks[0].dm_uuid, "mpath-360060e8008a3cf000050a3cf00000102")
         self.assertEqual(config.asm.data_disks[0].symlink_path("DATA", 1), "/dev/oracleasm/data01")
+        self.assertEqual(config.asm.data_disks[0].final_path("DATA", 1), "/dev/oracleasm/data01")
         self.assertIsNotNone(config.installer.grid_patch)
         self.assertIsNotNone(config.installer.db_patch)
         self.assertIsNotNone(config.installer.ojvm_patch)

@@ -203,14 +203,10 @@ class CliTest(unittest.TestCase):
         grid_command = install_grid_steps(config)[0].command
         db_command = install_db_software_steps(config)[0].command
 
-        self.assertIn("export ORACLE_HOME=/u01/app/19.0.0/grid", grid_command)
-        self.assertIn("export ORACLE_BASE=/u01/app/grid", grid_command)
         self.assertIn("sudo -iu grid env CV_ASSUME_DISTID=OL7", grid_command)
         self.assertIn("ASMSNMP_PASSWORD=", grid_command)
         self.assertIn("chmod 600 /u01/stage/responses/grid-site-a.rsp", grid_command)
-        self.assertIn("asmcmd afd_label DATA01 /dev/oracleasm/data01 --init", grid_command)
-        self.assertLess(grid_command.index("export ORACLE_HOME=/u01/app/19.0.0/grid"), grid_command.index("asmcmd afd_label DATA01"))
-        self.assertLess(grid_command.index("asmcmd afd_label DATA01"), grid_command.index("gridSetup.sh -silent"))
+        self.assertNotIn("asmcmd afd_label", grid_command)
         self.assertIn("p19_30_grid_ru_Linux-x86-64.zip", grid_command)
         self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_grid_ru_linux_x86_64_zip", grid_command)
         self.assertIn('-applyRU "$GRID_PATCH_TOP"', grid_command)
@@ -219,12 +215,14 @@ class CliTest(unittest.TestCase):
         self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_db_ru_linux_x86_64_zip", db_command)
         self.assertIn('-applyRU "$DB_PATCH_TOP"', db_command)
 
-    def test_path_backed_asm_devices_are_owned_by_grid(self):
+    def test_final_oracleasm_paths_are_used_without_extra_symlinks(self):
         config = load_config(Path("configs/gcp-single-gi-lab.json"))
         command = prepare_storage_rules_steps(config)[0].command
 
-        self.assertIn('chown grid:asmadmin "$(readlink -f /dev/oracleasm-src/data)"', command)
-        self.assertIn('chown grid:asmadmin "$(readlink -f /dev/oracleasm-src/reco)"', command)
+        self.assertIn("test -b /dev/oracleasm/data1", command)
+        self.assertIn("test -b /dev/oracleasm/reco1", command)
+        self.assertNotIn("/dev/oracleasm-src/", command)
+        self.assertNotIn("ln -sfn", command)
 
     def test_single_gi_grid_response_omits_cluster_only_fields(self):
         config = load_config(Path("configs/sample-single.json"))

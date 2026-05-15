@@ -401,7 +401,7 @@ def _symlink_collision_check(config: AutomationConfig) -> str:
         ("DATA", config.asm.data_disks),
         ("RECO", config.asm.reco_disks),
     ):
-        paths.extend(disk.symlink_path(group, index) for index, disk in enumerate(disks, start=1))
+        paths.extend(disk.final_path(group, index) for index, disk in enumerate(disks, start=1))
     return " && ".join(f"test ! -e {shlex.quote(path)} || test -b {shlex.quote(path)}" for path in paths)
 
 
