@@ -10,7 +10,7 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
-from oracle_auto.phase_builders.common import GRID_BASE, STAGE, ensure_swap_lines, make_step, stage_patch_lines
+from oracle_auto.phase_builders.common import GRID_BASE, GRID_BASE_DIR, STAGE, ensure_swap_lines, make_step, stage_patch_lines
 from oracle_auto.phase_builders.storage import (
     afd_discovery_string,
     afd_label_command,
@@ -64,7 +64,7 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         f"cat > {STAGE}/responses/grid-{site.name}.rsp <<EOF\n{response}\nEOF",
         f"chown grid:oinstall {STAGE}/responses/grid-{site.name}.rsp",
         f"chmod 600 {STAGE}/responses/grid-{site.name}.rsp",
-        f"sudo -iu grid env CV_ASSUME_DISTID=OL7 {GRID_BASE}/gridSetup.sh -silent -waitforcompletion -responseFile {STAGE}/responses/grid-{site.name}.rsp{_grid_patch_arg(config)} -ignorePrereqFailure",
+        f"sudo -iu grid env CV_ASSUME_DISTID=OL7 ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/gridSetup.sh -silent -waitforcompletion -responseFile {STAGE}/responses/grid-{site.name}.rsp{_grid_patch_arg(config)} -ignorePrereqFailure",
     ]
     return shell_script(f"Install Grid Infrastructure for {site.name}", lines)
 
@@ -75,6 +75,7 @@ def _grid_patch_stage_lines(config: AutomationConfig) -> list[str]:
     return [
         *stage_patch_lines(config.installer.sources_path, config.installer.grid_patch.file, "GRID_PATCH_TOP"),
         'ls -ld "$GRID_PATCH_TOP"',
+        'namei -l "$GRID_PATCH_TOP" || true',
         'sudo -iu grid test -d "$GRID_PATCH_TOP"',
         'sudo -iu grid ls -ld "$GRID_PATCH_TOP"',
     ]
@@ -137,10 +138,6 @@ def _initial_afd_label_lines(config: AutomationConfig) -> list[str]:
         lines.append(f"test -b {quoted_path}")
         lines.append(f"test \"$(blockdev --getsize64 {quoted_path})\" -ge 8388608")
         lines.append(afd_label_command(label, path, initial=True))
-        lines.append(
-            f"sudo -iu grid env ORACLE_HOME={GRID_BASE} ORACLE_BASE=/tmp "
-            f"{GRID_BASE}/bin/asmcmd afd_lslbl {quoted_path}"
-        )
     lines.append(f"{GRID_BASE}/bin/asmcmd afd_lslbl")
     lines.append(f"{GRID_BASE}/bin/asmcmd afd_lslbl | awk '{{print $1}}' | grep -qx {shlex.quote(entries[0][0])}" if entries else "true")
     lines.append("unset ORACLE_BASE")
