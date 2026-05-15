@@ -28,6 +28,7 @@ def grid_response(config: AutomationConfig, site: SiteConfig) -> str:
         f"oracle.install.asm.diskGroup.name={initial_group}",
         f"oracle.install.asm.diskGroup.redundancy={config.asm.redundancy}",
         f"oracle.install.asm.diskGroup.disks={initial_disks}",
+        "oracle.install.asm.diskGroup.diskDiscoveryString=AFD:*",
         "oracle.install.asm.monitorPassword=$ASMSNMP_PASSWORD",
         "oracle.install.asm.configureAFD=true",
         "oracle.install.config.managementOption=NONE",
