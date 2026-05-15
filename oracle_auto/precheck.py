@@ -393,11 +393,15 @@ def _secret_env_check(config: AutomationConfig) -> str:
 
 def _disk_check(config: AutomationConfig) -> str:
     commands: list[str] = []
+
     for disk in config.asm.all_disks:
-        if disk.uuid:
-            commands.append(f"udevadm info --export-db | grep -q {shlex.quote('DM_UUID=' + disk.dm_uuid)}")
-        elif disk.path:
-            commands.append(f"test -b {shlex.quote(disk.path)}")
+        if disk.path:
+            commands.append(
+                f"test -e {shlex.quote(disk.path)} "
+                f"&& resolved=$(readlink -f {shlex.quote(disk.path)}) "
+                f"&& test -b \"$resolved\""
+            )
+
     return " && ".join(commands)
 
 
@@ -410,15 +414,15 @@ def _hosts_file_check(config: AutomationConfig) -> str:
 
 def _disk_signature_check(config: AutomationConfig) -> str:
     commands = []
+
     for disk in config.asm.all_disks:
-        if disk.uuid:
+        if disk.path:
             commands.append(
-                "device=$(udevadm info --export-db | awk "
-                f"{shlex.quote('/DM_UUID=' + disk.dm_uuid + '/{found=1} found && /^N: /{print \"/dev/\"$2; exit}')} ); "
-                "test -n \"$device\" && test -z \"$(sudo -n wipefs -n \"$device\" 2>/dev/null | awk 'NR>1')\""
+                f'resolved=$(readlink -f {shlex.quote(disk.path)}) && '
+                'test -n "$resolved" && '
+                'test -z "$(sudo -n wipefs -n "$resolved" 2>/dev/null | awk \'NR>1\')"'
             )
-        elif disk.path:
-            commands.append(f"test -z \"$(sudo -n wipefs -n {shlex.quote(disk.path)} 2>/dev/null | awk 'NR>1')\"")
+
     return " && ".join(commands)
 
 
@@ -435,15 +439,15 @@ def _symlink_collision_check(config: AutomationConfig) -> str:
 
 def _disk_size_check(config: AutomationConfig) -> str:
     commands = []
+
     for disk in config.asm.all_disks:
-        if disk.uuid:
+        if disk.path:
             commands.append(
-                "device=$(udevadm info --export-db | awk "
-                f"{shlex.quote('/DM_UUID=' + disk.dm_uuid + '/{found=1} found && /^N: /{print \"/dev/\"$2; exit}')} ); "
-                f"test -n \"$device\" && printf '{disk.dm_uuid} ' && sudo -n blockdev --getsize64 \"$device\""
+                f'resolved=$(readlink -f {shlex.quote(disk.path)}) && '
+                f'printf "{disk.path} " && '
+                'sudo -n blockdev --getsize64 "$resolved"'
             )
-        elif disk.path:
-            commands.append(f"printf '{shlex.quote(disk.path)} ' && sudo -n blockdev --getsize64 {shlex.quote(disk.path)}")
+
     return " && ".join(commands)
 
 
