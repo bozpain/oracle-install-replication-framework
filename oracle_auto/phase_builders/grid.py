@@ -11,7 +11,12 @@ import shlex
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
 from oracle_auto.phase_builders.common import GRID_BASE, STAGE, ensure_swap_lines, make_step, stage_patch_lines
-from oracle_auto.phase_builders.storage import afd_discovery_string, afd_label_command, asm_entries
+from oracle_auto.phase_builders.storage import (
+    afd_discovery_string,
+    afd_label_command,
+    asm_device_permission_commands,
+    asm_entries,
+)
 from oracle_auto.response_files.grid import grid_response
 
 
@@ -67,7 +72,12 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
 def _grid_patch_stage_lines(config: AutomationConfig) -> list[str]:
     if config.installer.grid_patch is None:
         return []
-    return stage_patch_lines(config.installer.sources_path, config.installer.grid_patch.file, "GRID_PATCH_TOP")
+    return [
+        *stage_patch_lines(config.installer.sources_path, config.installer.grid_patch.file, "GRID_PATCH_TOP"),
+        'ls -ld "$GRID_PATCH_TOP"',
+        'sudo -iu grid test -d "$GRID_PATCH_TOP"',
+        'sudo -iu grid ls -ld "$GRID_PATCH_TOP"',
+    ]
 
 
 def _fresh_grid_home_lines(config: AutomationConfig) -> list[str]:
@@ -117,13 +127,20 @@ def _initial_afd_label_lines(config: AutomationConfig) -> list[str]:
         f"test -x {GRID_BASE}/bin/asmcmd",
     ]
     lines.append(f"{GRID_BASE}/bin/asmcmd afd_dsset {shlex.quote(afd_discovery_string(config))}")
+    lines.extend(asm_device_permission_commands([path for _label, path in entries]))
     for label, path in entries:
         quoted_path = shlex.quote(path)
         lines.append(f"printf 'ASM candidate %s -> ' {quoted_path}; readlink -f {quoted_path}")
+        lines.append(f"ls -l {quoted_path}")
+        lines.append(f"ls -l \"$(readlink -f {quoted_path})\"")
         lines.append(f"lsblk -ndo NAME,TYPE,SIZE,MODEL {quoted_path} || true")
         lines.append(f"test -b {quoted_path}")
         lines.append(f"test \"$(blockdev --getsize64 {quoted_path})\" -ge 8388608")
         lines.append(afd_label_command(label, path, initial=True))
+        lines.append(
+            f"sudo -iu grid env ORACLE_HOME={GRID_BASE} ORACLE_BASE=/tmp "
+            f"{GRID_BASE}/bin/asmcmd afd_lslbl {quoted_path}"
+        )
     lines.append(f"{GRID_BASE}/bin/asmcmd afd_lslbl")
     lines.append(f"{GRID_BASE}/bin/asmcmd afd_lslbl | awk '{{print $1}}' | grep -qx {shlex.quote(entries[0][0])}" if entries else "true")
     lines.append("unset ORACLE_BASE")

@@ -260,6 +260,7 @@ class CliTest(unittest.TestCase):
         self.assertLess(grid_command.index("asmcmd afd_label DATA01"), grid_command.index("gridSetup.sh -silent"))
         self.assertIn("p19_30_grid_ru_Linux-x86-64.zip", grid_command)
         self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_grid_ru_linux_x86_64_zip", grid_command)
+        self.assertIn('sudo -iu grid ls -ld "$GRID_PATCH_TOP"', grid_command)
         self.assertIn('-applyRU "$GRID_PATCH_TOP"', grid_command)
         self.assertIn("p19_30_db_ru_Linux-x86-64.zip", db_command)
         self.assertIn("Ensuring at least 512 MiB swap for Oracle installer", db_command)
@@ -273,6 +274,8 @@ class CliTest(unittest.TestCase):
 
         self.assertIn("test -b /dev/oracleasm/data1", command)
         self.assertIn("test -b /dev/oracleasm/reco1", command)
+        self.assertIn("chown -h grid:asmdba /dev/oracleasm/data1", command)
+        self.assertIn("sudo -iu grid test -r /dev/oracleasm/data1", command)
         self.assertNotIn("/dev/oracleasm-src/", command)
         self.assertNotIn("ln -sfn", command)
 

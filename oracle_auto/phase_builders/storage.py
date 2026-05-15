@@ -15,6 +15,7 @@ from oracle_auto.phase_builders.common import GRID_BASE, make_step
 
 
 ASMEntry = tuple[str, str, str, ASMDiskConfig]
+ASM_DEVICE_GROUP = "asmdba"
 
 
 def prepare_storage_steps(config: AutomationConfig) -> list[AutomationStep]:
@@ -68,6 +69,20 @@ def storage_mapping_text(config: AutomationConfig) -> str:
         source = disk.dm_uuid if disk.uuid else disk.path
         rows.append(f"{group:4} {label:16} {source} -> {path}")
     return "\n".join(rows)
+
+
+def asm_device_permission_commands(paths: list[str]) -> list[str]:
+    commands: list[str] = []
+    for path in paths:
+        quoted_path = shlex.quote(path)
+        commands.extend(
+            [
+                f"chown -h grid:{ASM_DEVICE_GROUP} {quoted_path}",
+                f"resolved=$(readlink -f {quoted_path}); test -b \"$resolved\"; chown grid:{ASM_DEVICE_GROUP} \"$resolved\"; chmod 0660 \"$resolved\"",
+                f"sudo -iu grid test -r {quoted_path}",
+            ]
+        )
+    return commands
 
 
 def afd_discovery_string(config: AutomationConfig) -> str:
@@ -124,8 +139,8 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
     path_symlinks = [
         (
             f"ln -sfn \"$(readlink -f {shlex.quote(source)})\" {shlex.quote(path)} && "
-            f"chown -h grid:asmadmin {shlex.quote(path)} && "
-            f"chown grid:asmadmin \"$(readlink -f {shlex.quote(source)})\" && "
+            f"chown -h grid:{ASM_DEVICE_GROUP} {shlex.quote(path)} && "
+            f"chown grid:{ASM_DEVICE_GROUP} \"$(readlink -f {shlex.quote(source)})\" && "
             f"chmod 0660 \"$(readlink -f {shlex.quote(source)})\""
         )
         for path, source in path_entries
@@ -158,6 +173,7 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
             else []
         ),
         *path_symlinks,
+        *asm_device_permission_commands([path for _label, path, _group, _disk in entries]),
         *disk_checks,
         "ls -l /dev/oracleasm",
     ]
@@ -208,6 +224,6 @@ def _udev_rules(config: AutomationConfig) -> str:
         name = path.rsplit("/", 1)[-1]
         rules.append(
             f'ACTION=="add|change", ENV{{DM_UUID}}=="{disk.dm_uuid}", '
-            f'SYMLINK+="oracleasm/{name}", GROUP="asmadmin", OWNER="grid", MODE="0660"'
+            f'SYMLINK+="oracleasm/{name}", GROUP="{ASM_DEVICE_GROUP}", OWNER="grid", MODE="0660"'
         )
     return "\n".join(rules)
