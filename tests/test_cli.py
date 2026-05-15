@@ -1,5 +1,6 @@
 import unittest
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from oracle_auto.phase_builders.grid import install_grid_steps
 from oracle_auto.phase_builders.database import install_db_software_steps
 from oracle_auto.phase_builders.patching import apply_ojvm_patch_steps
 from oracle_auto.response_files.grid import grid_response
+from oracle_auto.state import NoopStateStore
 
 
 class CliTest(unittest.TestCase):
@@ -168,6 +170,36 @@ class CliTest(unittest.TestCase):
             AutomationRunner(RecordingExecutor(), MemoryState()).run([step])
 
         self.assertIn("RUN   verify-installer:db01:verify_installer", buffer.getvalue())
+
+    def test_runner_parallelizes_host_chains_and_preserves_local_order(self):
+        barrier = threading.Barrier(2)
+        calls: list[tuple[str, str]] = []
+        calls_lock = threading.Lock()
+
+        class ParallelExecutor:
+            def run(self, node, command, timeout=60):
+                with calls_lock:
+                    calls.append((node.host, command))
+                if command == "first":
+                    barrier.wait(timeout=2)
+                return CommandResult(node.host, command, 0, "ok", "")
+
+        steps = [
+            AutomationStep("install-grid", "first_a", NodeConfig(host="site-a", public_ip="192.0.2.1"), "first", "A1"),
+            AutomationStep("install-grid", "second_a", NodeConfig(host="site-a", public_ip="192.0.2.1"), "second", "A2"),
+            AutomationStep("install-grid", "first_b", NodeConfig(host="site-b", public_ip="192.0.2.2"), "first", "B1"),
+            AutomationStep("install-grid", "second_b", NodeConfig(host="site-b", public_ip="192.0.2.2"), "second", "B2"),
+        ]
+
+        results = AutomationRunner(
+            ParallelExecutor(),
+            NoopStateStore(),
+            parallel_by_host=True,
+        ).run(steps)
+
+        self.assertEqual([result.name for result in results], ["first_a", "second_a", "first_b", "second_b"])
+        self.assertLess(calls.index(("site-a", "first")), calls.index(("site-a", "second")))
+        self.assertLess(calls.index(("site-b", "first")), calls.index(("site-b", "second")))
 
     def test_verify_installer_has_no_framework_timeout(self):
         config = load_config(Path("configs/sample-single.json"))

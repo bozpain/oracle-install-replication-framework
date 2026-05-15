@@ -118,6 +118,19 @@ DEPLOYMENT_PHASE_ORDER = [
 ]
 
 
+PARALLEL_HOST_PHASES = {
+    "prepare-os",
+    "verify-installer",
+    "prepare-storage-rules",
+    "install-grid",
+    "configure-asm-storage",
+    "install-db-software",
+    "update-opatch",
+    "apply-ojvm-patch",
+    "patch-inventory",
+}
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="oracle-auto",
@@ -437,6 +450,7 @@ def _execute_phase(args, config: AutomationConfig, steps: list[AutomationStep]) 
         resume=not args.no_resume,
         continue_on_fail=args.continue_on_fail,
         log_dir=Path(args.log_dir) / config.run_id,
+        parallel_by_host=args.command in PARALLEL_HOST_PHASES,
     )
     return runner.run(steps)
 

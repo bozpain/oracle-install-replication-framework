@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import html
 import shlex
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 
 from oracle_auto.config import NodeConfig
 from oracle_auto.executor import CommandResult, SSHExecutor
@@ -71,43 +74,78 @@ class AutomationRunner:
         resume: bool = True,
         continue_on_fail: bool = False,
         log_dir: Path | None = None,
+        parallel_by_host: bool = False,
     ):
         self.executor = executor
         self.state = state
         self.resume = resume
         self.continue_on_fail = continue_on_fail
         self.log_dir = log_dir
+        self.parallel_by_host = parallel_by_host
 
     def run(self, steps: list[AutomationStep]) -> list[StepResult]:
+        if self.parallel_by_host and len({step.node.host for step in steps}) > 1:
+            return self._run_parallel_by_host(steps)
+        return self._run_serial(steps)
+
+    def _run_serial(self, steps: list[AutomationStep]) -> list[StepResult]:
         results: list[StepResult] = []
         for step in steps:
-            if self.resume and self.state.is_done(step.state_key):
-                result = StepResult(
-                    phase=step.phase,
-                    host=step.node.host,
-                    name=step.name,
-                    status="PASS",
-                    message="Already completed; use --no-resume to re-run.",
-                    command=step.command,
-                )
-                results.append(result)
-                continue
-
-            print(f"RUN   {step.phase}:{step.node.host}:{step.name}  {step.title}", flush=True)
-            self.state.mark_running(step.state_key)
-            command_result = self.executor.run(step.node, step.command, timeout=step.timeout)
-            result = self._to_step_result(step, command_result)
-            result = self._with_log_path(step, result)
+            result = self._run_one(step)
             results.append(result)
 
             if result.status == "FAIL":
-                self.state.mark_failed(step.state_key, result.to_dict())
                 if not self.continue_on_fail:
                     break
-            else:
-                self.state.mark_done(step.state_key, result.to_dict())
 
         return results
+
+    def _run_parallel_by_host(self, steps: list[AutomationStep]) -> list[StepResult]:
+        grouped: dict[str, list[tuple[int, AutomationStep]]] = defaultdict(list)
+        for index, step in enumerate(steps):
+            grouped[step.node.host].append((index, step))
+
+        stop_event = Event()
+
+        def run_host_chain(items: list[tuple[int, AutomationStep]]) -> list[tuple[int, StepResult]]:
+            results: list[tuple[int, StepResult]] = []
+            for index, step in items:
+                if stop_event.is_set() and not self.continue_on_fail:
+                    break
+                result = self._run_one(step)
+                results.append((index, result))
+                if result.status == "FAIL" and not self.continue_on_fail:
+                    stop_event.set()
+                    break
+            return results
+
+        indexed_results: list[tuple[int, StepResult]] = []
+        with ThreadPoolExecutor(max_workers=len(grouped)) as pool:
+            for host_results in pool.map(run_host_chain, grouped.values()):
+                indexed_results.extend(host_results)
+        return [result for _index, result in sorted(indexed_results, key=lambda item: item[0])]
+
+    def _run_one(self, step: AutomationStep) -> StepResult:
+        if self.resume and self.state.is_done(step.state_key):
+            return StepResult(
+                phase=step.phase,
+                host=step.node.host,
+                name=step.name,
+                status="PASS",
+                message="Already completed; use --no-resume to re-run.",
+                command=step.command,
+            )
+
+        print(f"RUN   {step.phase}:{step.node.host}:{step.name}  {step.title}", flush=True)
+        self.state.mark_running(step.state_key)
+        command_result = self.executor.run(step.node, step.command, timeout=step.timeout)
+        result = self._to_step_result(step, command_result)
+        result = self._with_log_path(step, result)
+        if result.status == "FAIL":
+            self.state.mark_failed(step.state_key, result.to_dict())
+        else:
+            self.state.mark_done(step.state_key, result.to_dict())
+        return result
 
     def _with_log_path(self, step: AutomationStep, result: StepResult) -> StepResult:
         if self.log_dir is None:

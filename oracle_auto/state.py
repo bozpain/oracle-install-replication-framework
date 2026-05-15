@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import RLock
 from typing import Any, Protocol
 
 
@@ -32,10 +33,12 @@ class StateStore:
         self.state_dir = state_dir
         self.run_id = _safe_run_id(run_id)
         self.path = self.state_dir / f"{self.run_id}.json"
+        self._lock = RLock()
         self.data = self._load()
 
     def is_done(self, step: str) -> bool:
-        return self.data.get("steps", {}).get(step, {}).get("status") == "done"
+        with self._lock:
+            return self.data.get("steps", {}).get(step, {}).get("status") == "done"
 
     def mark_running(self, step: str) -> None:
         self._mark(step, "running")
@@ -47,13 +50,14 @@ class StateStore:
         self._mark(step, "failed", details)
 
     def _mark(self, step: str, status: str, details: dict[str, Any] | None = None) -> None:
-        steps = self.data.setdefault("steps", {})
-        steps[step] = {
-            "status": status,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-            "details": details or {},
-        }
-        self._save()
+        with self._lock:
+            steps = self.data.setdefault("steps", {})
+            steps[step] = {
+                "status": status,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "details": details or {},
+            }
+            self._save()
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():
