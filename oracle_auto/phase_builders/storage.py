@@ -209,8 +209,9 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
         "systemctl enable oracleasm || true",
         "oracleasm status || true",
         *[asmlib_label_command(label, path) for label, path, _group, _disk in entries],
+        *asm_device_permission_commands([path for _label, path, _group, _disk in entries]),
         "oracleasm listdisks",
-        "oracleasm status",
+        "oracleasm status || true",
     ]
     return shell_script("Prepare ASMLIB disks", lines)
 

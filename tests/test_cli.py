@@ -325,6 +325,10 @@ class CliTest(unittest.TestCase):
         self.assertIn("Removing unmanaged ASM symlink", command)
         self.assertIn("systemctl restart oracleasm || oracleasm init", command)
         self.assertIn("oracleasm status || true", command)
+        self.assertLess(
+            command.index("oracleasm querydisk DATA1"),
+            command.rindex("sudo -iu grid test -r /dev/oracleasm/data1"),
+        )
         self.assertIn("ASMLIB v3 kernel interface: UEK driverless/io_uring", command)
         self.assertIn("/boot/vmlinuz-5.15.0-320.202.8.2.el8uek.x86_64", command)
         self.assertIn("config-manager --set-enabled ol8_addons", command)
