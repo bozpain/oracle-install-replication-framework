@@ -9,10 +9,12 @@ VIP names are treated as `/etc/hosts` content managed by prepare-os.
 from __future__ import annotations
 
 import shlex
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from oracle_auto.config import AutomationConfig, NodeConfig
 from oracle_auto.executor import CommandResult, SSHExecutor
+from oracle_auto.phase_builders.storage import asmlib_kernel_check_command
 from oracle_auto.secrets import redact
 from oracle_auto.state import StateBackend
 
@@ -62,32 +64,38 @@ class PrecheckRunner:
         self.resume = resume
 
     def run(self) -> list[PrecheckItem]:
+        if len(self.config.all_nodes) > 1:
+            with ThreadPoolExecutor(max_workers=len(self.config.all_nodes)) as pool:
+                host_results = pool.map(self._run_node_checks, self.config.all_nodes)
+            return [item for items in host_results for item in items]
+        return self._run_node_checks(self.config.all_nodes[0]) if self.config.all_nodes else []
+
+    def _run_node_checks(self, node: NodeConfig) -> list[PrecheckItem]:
         results: list[PrecheckItem] = []
-        for node in self.config.all_nodes:
-            for check in self._checks_for(node):
-                step = f"precheck:{node.host}:{check.name}"
-                if self.resume and self.state.is_done(step):
-                    results.append(
-                        PrecheckItem(
-                            host=node.host,
-                            name=check.name,
-                            status="PASS",
-                            message="Already completed; use --no-resume to re-run.",
-                            command=check.command,
-                        )
+        for check in self._checks_for(node):
+            step = f"precheck:{node.host}:{check.name}"
+            if self.resume and self.state.is_done(step):
+                results.append(
+                    PrecheckItem(
+                        host=node.host,
+                        name=check.name,
+                        status="PASS",
+                        message="Already completed; use --no-resume to re-run.",
+                        command=check.command,
                     )
-                    continue
+                )
+                continue
 
-                print(f"RUN   precheck:{node.host}:{check.name}", flush=True)
-                self.state.mark_running(step)
-                result = self.executor.run(node, check.command, timeout=check.timeout)
-                item = self._to_precheck_item(check, result)
-                results.append(item)
+            print(f"RUN   precheck:{node.host}:{check.name}", flush=True)
+            self.state.mark_running(step)
+            result = self.executor.run(node, check.command, timeout=check.timeout)
+            item = self._to_precheck_item(check, result)
+            results.append(item)
 
-                if item.status == "FAIL":
-                    self.state.mark_failed(step, item.to_dict())
-                else:
-                    self.state.mark_done(step, item.to_dict())
+            if item.status == "FAIL":
+                self.state.mark_failed(step, item.to_dict())
+            else:
+                self.state.mark_done(step, item.to_dict())
 
         return results
 
@@ -116,6 +124,11 @@ class PrecheckRunner:
                 name="kernel",
                 command="uname -r",
                 fail_message="Cannot read kernel version.",
+            ),
+            Check(
+                name="asmlib_kernel_interface",
+                command=asmlib_kernel_check_command(),
+                fail_message="ASMLIB v3 requires UEK R7+ (5.15+) or an oracleasm kernel driver.",
             ),
             Check(
                 name="package_manager",

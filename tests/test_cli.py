@@ -201,6 +201,29 @@ class CliTest(unittest.TestCase):
         self.assertLess(calls.index(("site-a", "first")), calls.index(("site-a", "second")))
         self.assertLess(calls.index(("site-b", "first")), calls.index(("site-b", "second")))
 
+    def test_precheck_parallelizes_host_chains(self):
+        from oracle_auto.precheck import PrecheckRunner
+
+        barrier = threading.Barrier(2)
+        calls: list[tuple[str, str]] = []
+        lock = threading.Lock()
+
+        class FakeExecutor:
+            def run(self, node, command, timeout=60):
+                if command == "printf ok":
+                    with lock:
+                        calls.append((node.host, command))
+                    barrier.wait(timeout=2)
+                return CommandResult(node.host, command, 0, "ok", "")
+
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        runner = PrecheckRunner(config, FakeExecutor(), state=NoopStateStore())
+        results = runner.run()
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual({host for host, _command in calls}, {"ora-primary-01", "ora-standby-01"})
+        self.assertTrue(all(item.status == "PASS" for item in results))
+
     def test_verify_installer_has_no_framework_timeout(self):
         config = load_config(Path("configs/sample-single.json"))
 
@@ -253,6 +276,17 @@ class CliTest(unittest.TestCase):
         self.assertIsNone(checks["preinstall_package"].timeout)
         self.assertIsNone(checks["asmlib_packages"].timeout)
 
+    def test_precheck_checks_asmlib_kernel_interface(self):
+        from oracle_auto.precheck import PrecheckRunner
+
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
+        checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
+
+        self.assertIn("asmlib_kernel_interface", checks)
+        self.assertIn("ASMLIB v3 requires UEK R7+ (5.15+)", checks["asmlib_kernel_interface"].command)
+        self.assertIn("oracleasm.ko", checks["asmlib_kernel_interface"].command)
+
     def test_install_steps_apply_targeted_ru_patches(self):
         config = load_config(Path("configs/sample-single.json"))
         grid_command = install_grid_steps(config)[0].command
@@ -288,6 +322,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("chown -h grid:asmdba /dev/oracleasm/data1", command)
         self.assertIn("sudo -iu grid test -r /dev/oracleasm/data1", command)
         self.assertIn("oracleasm configure -u grid -g asmdba -e -s y -m 2048", command)
+        self.assertIn("ASMLIB v3 kernel interface: UEK driverless/io_uring", command)
+        self.assertIn("/boot/vmlinuz-5.15.0-320.202.8.2.el8uek.x86_64", command)
         self.assertIn("config-manager --set-enabled ol8_addons", command)
         self.assertIn("/u01/sources/oracleasmlib-3.1.1-1.el8.x86_64.rpm", command)
         self.assertNotIn("download.oracle.com/otn_software/asmlib", command)

@@ -105,6 +105,23 @@ def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
     )
 
 
+def asmlib_kernel_check_command() -> str:
+    return (
+        "kernel=$(uname -r)\n"
+        "if [[ \"$kernel\" == *uek* ]]; then\n"
+        "  case \"$kernel\" in\n"
+        "    5.15.*|6.*|7.*) echo \"ASMLIB v3 kernel interface: UEK driverless/io_uring ($kernel)\" ;;\n"
+        "    *) echo \"ASMLIB v3 requires UEK R7+ (5.15+) or an oracleasm kernel driver; current kernel: $kernel\" >&2; exit 1 ;;\n"
+        "  esac\n"
+        "elif find \"/lib/modules/$kernel\" -name 'oracleasm.ko*' -print -quit 2>/dev/null | grep -q .; then\n"
+        "  echo \"ASMLIB kernel driver present for $kernel\"\n"
+        "else\n"
+        "  echo \"ASMLIB v3 requires UEK R7+ (5.15+) or an oracleasm kernel driver; current kernel: $kernel. Boot the UEK kernel, for example /boot/vmlinuz-5.15.0-320.202.8.2.el8uek.x86_64.\" >&2\n"
+        "  exit 1\n"
+        "fi"
+    )
+
+
 def asmlib_label_command(label: str, path: str) -> str:
     quoted_label = shlex.quote(label)
     quoted_path = shlex.quote(path)
@@ -158,6 +175,7 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
         "command -v udevadm",
         *install_asmlib_lines(config.os.package_manager),
         "command -v oracleasm",
+        asmlib_kernel_check_command(),
         "echo 'Planned ASM disk mapping:'",
         "cat <<'MAP'\n" + storage_mapping_text(config) + "\nMAP",
         *uuid_checks,
