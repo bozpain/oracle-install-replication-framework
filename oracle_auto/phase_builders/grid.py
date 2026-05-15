@@ -39,6 +39,16 @@ def install_grid_steps(config: AutomationConfig) -> list[AutomationStep]:
                     timeout=1800,
                 )
             )
+        steps.append(
+            make_step(
+                "install-grid",
+                f"config_tools_{site.name}",
+                first,
+                f"Run Grid configuration tools for {site.name}",
+                _grid_config_tools_script(site),
+                timeout=3600,
+            )
+        )
     return steps
 
 
@@ -57,7 +67,20 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         f"cat > {STAGE}/responses/grid-{site.name}.rsp <<EOF\n{response}\nEOF",
         f"chown grid:oinstall {STAGE}/responses/grid-{site.name}.rsp",
         f"chmod 600 {STAGE}/responses/grid-{site.name}.rsp",
-        f"sudo -iu grid env CV_ASSUME_DISTID=OL7 ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/gridSetup.sh -silent -waitforcompletion -responseFile {STAGE}/responses/grid-{site.name}.rsp{_grid_patch_arg(config)} -ignorePrereqFailure",
+        f"mkdir -p {STAGE}/logs",
+        f"GRID_SETUP_LOG={STAGE}/logs/gridSetup-{site.name}.out",
+        "set +e",
+        f"sudo -iu grid env CV_ASSUME_DISTID=OL7 ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/gridSetup.sh -silent -waitforcompletion -responseFile {STAGE}/responses/grid-{site.name}.rsp{_grid_patch_arg(config)} -ignorePrereqFailure 2>&1 | tee \"$GRID_SETUP_LOG\"",
+        "grid_setup_rc=${PIPESTATUS[0]}",
+        "set -e",
+        "if test \"$grid_setup_rc\" -ne 0; then",
+        "  if grep -Eq 'Successfully Setup Software|execute the following script|executeConfigTools' \"$GRID_SETUP_LOG\" && test -x "
+        f"{GRID_BASE}/root.sh; then",
+        "    echo 'Grid software setup completed; root scripts and config tools will run in following steps.'",
+        "  else",
+        "    exit \"$grid_setup_rc\"",
+        "  fi",
+        "fi",
     ]
     return shell_script(f"Install Grid Infrastructure for {site.name}", lines)
 
@@ -119,6 +142,21 @@ def _grid_root_script() -> str:
         "sudo -iu grid asmcmd lsdg || true",
     ]
     return shell_script("Run Grid root scripts", lines)
+
+
+def _grid_config_tools_script(site: SiteConfig) -> str:
+    response_file = f"{STAGE}/responses/grid-{site.name}.rsp"
+    lines = [
+        f"test -s {response_file}",
+        f"if sudo -iu grid {GRID_BASE}/bin/crsctl check crs >/dev/null 2>&1 && sudo -iu grid asmcmd lsdg >/dev/null 2>&1; then",
+        "  echo 'Grid configuration tools appear complete; skipping executeConfigTools.'",
+        "else",
+        f"  sudo -iu grid env CV_ASSUME_DISTID=OL7 ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/gridSetup.sh -executeConfigTools -responseFile {response_file} -silent",
+        "fi",
+        f"sudo -iu grid {GRID_BASE}/bin/crsctl check crs",
+        "sudo -iu grid asmcmd lsdg || true",
+    ]
+    return shell_script("Run Grid configuration tools", lines)
 
 
 def _scan_dns_guard(site: SiteConfig) -> str:

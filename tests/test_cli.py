@@ -289,7 +289,10 @@ class CliTest(unittest.TestCase):
 
     def test_install_steps_apply_targeted_ru_patches(self):
         config = load_config(Path("configs/sample-single.json"))
-        grid_command = install_grid_steps(config)[0].command
+        grid_steps = install_grid_steps(config)
+        grid_command = grid_steps[0].command
+        root_command = next(step.command for step in grid_steps if step.name.startswith("root_scripts_site-a_"))
+        config_tools_command = next(step.command for step in grid_steps if step.name == "config_tools_site-a")
         db_command = install_db_software_steps(config)[0].command
 
         self.assertIn("Resetting unconfigured Grid home before install", grid_command)
@@ -300,6 +303,9 @@ class CliTest(unittest.TestCase):
         self.assertIn("ORACLE_BASE=/u01/app/grid /u01/app/19.0.0/grid/gridSetup.sh", grid_command)
         self.assertIn("ASMSNMP_PASSWORD=", grid_command)
         self.assertIn("chmod 600 /u01/stage/responses/grid-site-a.rsp", grid_command)
+        self.assertIn("GRID_SETUP_LOG=/u01/stage/logs/gridSetup-site-a.out", grid_command)
+        self.assertIn("Successfully Setup Software|execute the following script|executeConfigTools", grid_command)
+        self.assertIn("Grid software setup completed; root scripts and config tools will run in following steps.", grid_command)
         self.assertNotIn("asmcmd afd_label", grid_command)
         self.assertIn("p19_30_grid_ru_Linux-x86-64.zip", grid_command)
         self.assertIn("chmod a+rx /u01/stage /u01/stage/patches /u01/stage/patches/p19_30_grid_ru_linux_x86_64_zip", grid_command)
@@ -307,6 +313,10 @@ class CliTest(unittest.TestCase):
         self.assertIn('sudo -iu grid ls -ld "$GRID_PATCH_TOP"', grid_command)
         self.assertNotIn("sudo -iu grid env ORACLE_HOME=/u01/app/19.0.0/grid ORACLE_BASE=/tmp", grid_command)
         self.assertIn('-applyRU "$GRID_PATCH_TOP"', grid_command)
+        self.assertIn("/u01/app/oraInventory/orainstRoot.sh", root_command)
+        self.assertIn("/u01/app/19.0.0/grid/root.sh", root_command)
+        self.assertIn("-executeConfigTools -responseFile /u01/stage/responses/grid-site-a.rsp -silent", config_tools_command)
+        self.assertIn("Grid configuration tools appear complete; skipping executeConfigTools.", config_tools_command)
         self.assertIn("p19_30_db_ru_Linux-x86-64.zip", db_command)
         self.assertIn("Ensuring at least 512 MiB swap for Oracle installer", db_command)
         self.assertIn("sudo -iu oracle env CV_ASSUME_DISTID=OL7", db_command)
