@@ -76,6 +76,8 @@ def _initial_afd_label_lines(config: AutomationConfig) -> list[str]:
     entries = [(label, path) for label, path, group, _disk in asm_entries(config) if group == initial_group]
     lines = [
         "echo 'Label initial Grid Infrastructure diskgroup with ASMFD before gridSetup.sh'",
+        f"export ORACLE_HOME={GRID_BASE}",
+        "export ORACLE_BASE=/u01/app/grid",
         f"test -x {GRID_BASE}/bin/asmcmd",
     ]
     for label, path in entries:

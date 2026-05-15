@@ -202,7 +202,10 @@ class CliTest(unittest.TestCase):
         grid_command = install_grid_steps(config)[0].command
         db_command = install_db_software_steps(config)[0].command
 
+        self.assertIn("export ORACLE_HOME=/u01/app/19.0.0/grid", grid_command)
+        self.assertIn("export ORACLE_BASE=/u01/app/grid", grid_command)
         self.assertIn("asmcmd afd_label DATA01 /dev/oracleasm/data01 --init", grid_command)
+        self.assertLess(grid_command.index("export ORACLE_HOME=/u01/app/19.0.0/grid"), grid_command.index("asmcmd afd_label DATA01"))
         self.assertLess(grid_command.index("asmcmd afd_label DATA01"), grid_command.index("gridSetup.sh -silent"))
         self.assertIn("p19_30_grid_ru_Linux-x86-64.zip", grid_command)
         self.assertIn('-applyRU "$GRID_PATCH_TOP"', grid_command)
