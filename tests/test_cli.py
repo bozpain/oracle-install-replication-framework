@@ -39,6 +39,27 @@ class CliTest(unittest.TestCase):
         self.assertTrue((tmp / "rac-adg-demo-phase-runbooks" / "apply-ojvm-patch.sh").exists())
         self.assertFalse((tmp / "rac-adg-demo-phase-runbooks" / "datapatch.sh").exists())
 
+    def test_generate_report_prints_start_logger(self):
+        tmp = self._test_dir("report")
+
+        import io
+        from contextlib import redirect_stdout
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            code = main([
+                "--report-dir",
+                str(tmp),
+                "--state-dir",
+                str(tmp),
+                "generate-report",
+                "--config",
+                "configs/sample-single.json",
+            ])
+
+        self.assertEqual(code, 0)
+        self.assertIn("RUN   generate-report:local:generate_report", buffer.getvalue())
+
     def test_storage_guardrail_blocks_real_execution(self):
         code = main([
             "configure-asm-storage",

@@ -300,6 +300,7 @@ def main(argv: list[str] | None = None) -> int:
     state = StateStore(Path(args.state_dir), config.run_id)
 
     if args.command == "generate-report":
+        print("RUN   generate-report:local:generate_report  Generate HTML report from current state", flush=True)
         results = results_from_state(state.data)
         path = write_html_report(config, results, Path(args.report_dir))
         print(f"Report written: {path}")
