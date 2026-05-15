@@ -148,7 +148,7 @@ class AutomationRunner:
     @staticmethod
     def _to_step_result(step: AutomationStep, result: CommandResult) -> StepResult:
         if result.ok:
-            status = "SKIP" if result.skipped else "PASS"
+            status = "DRYRUN" if result.skipped else "PASS"
             message = result.command if result.skipped else (_compact(result.stdout) or "OK")
         elif step.warn_only:
             status = "WARN"

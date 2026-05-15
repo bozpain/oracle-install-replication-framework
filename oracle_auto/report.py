@@ -51,6 +51,7 @@ def render_html_report(
     th {{ background: #f0f4f8; }}
     code {{ background: #f0f4f8; padding: 2px 4px; border-radius: 3px; }}
     .status-pass {{ color: #0b6b3a; font-weight: 700; }}
+    .status-dryrun {{ color: #52606d; font-weight: 700; }}
     .status-skip {{ color: #52606d; font-weight: 700; }}
     .status-warn {{ color: #a05a00; font-weight: 700; }}
     .status-fail {{ color: #b42318; font-weight: 700; }}
@@ -188,7 +189,7 @@ def summary_table(results: list[StepResult]) -> str:
     counts: dict[str, int] = {}
     for item in results:
         counts[item.status] = counts.get(item.status, 0) + 1
-    rows = [(status, str(counts.get(status, 0))) for status in ("PASS", "SKIP", "WARN", "FAIL")]
+    rows = [(status, str(counts.get(status, 0))) for status in ("PASS", "DRYRUN", "SKIP", "WARN", "FAIL")]
     return _kv_table(rows)
 
 

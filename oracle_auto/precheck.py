@@ -272,7 +272,7 @@ class PrecheckRunner:
     @staticmethod
     def _to_precheck_item(check: Check, result: CommandResult) -> PrecheckItem:
         if result.ok:
-            status = "SKIP" if result.skipped else "PASS"
+            status = "DRYRUN" if result.skipped else "PASS"
             message = result.command if result.skipped else (_compact(result.stdout) or "OK")
         elif check.warn_only:
             status = "WARN"

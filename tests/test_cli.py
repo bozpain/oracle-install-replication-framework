@@ -3,9 +3,10 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from oracle_auto.automation import shell_script
+from oracle_auto.automation import AutomationRunner, AutomationStep, shell_script
 from oracle_auto.cli import main
-from oracle_auto.config import load_config
+from oracle_auto.config import NodeConfig, load_config
+from oracle_auto.executor import CommandResult
 from oracle_auto.precheck import _secret_env_check
 from oracle_auto.secrets import redact
 from oracle_auto.phase_builders.inventory import inventory_steps
@@ -71,6 +72,28 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertTrue((tmp / "single-gi-demo.html").exists())
+
+    def test_dry_run_results_are_labeled_dryrun(self):
+        step = AutomationStep(
+            phase="prepare-os",
+            name="prepare_os",
+            node=NodeConfig(host="db01", public_ip="192.0.2.10"),
+            command="true",
+            title="Prepare OS",
+        )
+        result = AutomationRunner._to_step_result(
+            step,
+            CommandResult(
+                host="db01",
+                command="ssh oracle@db01 'true'",
+                returncode=0,
+                stdout="DRY-RUN",
+                stderr="",
+                skipped=True,
+            ),
+        )
+
+        self.assertEqual(result.status, "DRYRUN")
 
     def test_storage_rules_contain_dm_uuid_rule(self):
         config = load_config(Path("configs/sample-rac-dg.json"))
