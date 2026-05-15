@@ -45,7 +45,7 @@ def install_grid_steps(config: AutomationConfig) -> list[AutomationStep]:
                 f"config_tools_{site.name}",
                 first,
                 f"Run Grid configuration tools for {site.name}",
-                _grid_config_tools_script(site),
+                _grid_config_tools_script(config, site),
                 timeout=3600,
             )
         )
@@ -152,19 +152,28 @@ def _grid_root_script() -> str:
     return shell_script("Run Grid root scripts", lines)
 
 
-def _grid_config_tools_script(site: SiteConfig) -> str:
+def _grid_config_tools_script(config: AutomationConfig, site: SiteConfig) -> str:
     response_file = f"{STAGE}/responses/grid-{site.name}.rsp"
+    crs_check = _crs_check_command(config)
     lines = [
         f"test -s {response_file}",
-        f"if sudo -iu grid {GRID_BASE}/bin/crsctl check crs >/dev/null 2>&1 && sudo -iu grid asmcmd lsdg >/dev/null 2>&1; then",
+        f"if sudo -iu grid {crs_check} >/dev/null 2>&1 && sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
         "  echo 'Grid configuration tools appear complete; skipping executeConfigTools.'",
         "else",
+        "  echo 'Repairing unexpected root-owned Grid image files before executeConfigTools'",
+        f"  find {GRID_BASE} -xdev -user root ! -perm /6000 -print | head -50 || true",
+        f"  find {GRID_BASE} -xdev -user root ! -perm /6000 -exec chown grid:oinstall {{}} +",
         f"  sudo -iu grid env CV_ASSUME_DISTID=OL7 ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/gridSetup.sh -executeConfigTools -responseFile {response_file} -silent",
         "fi",
-        f"sudo -iu grid {GRID_BASE}/bin/crsctl check crs",
-        "sudo -iu grid asmcmd lsdg || true",
+        f"sudo -iu grid {crs_check}",
+        f"sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg || true",
     ]
     return shell_script("Run Grid configuration tools", lines)
+
+
+def _crs_check_command(config: AutomationConfig) -> str:
+    target = "crs" if config.install_type == "rac" else "has"
+    return f"{GRID_BASE}/bin/crsctl check {target}"
 
 
 def _scan_dns_guard(site: SiteConfig) -> str:
