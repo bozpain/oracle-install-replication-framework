@@ -163,6 +163,7 @@ def _grid_config_tools_script(config: AutomationConfig, site: SiteConfig) -> str
         "  echo 'Repairing unexpected root-owned Grid image files before executeConfigTools'",
         f"  find {GRID_BASE} -xdev -user root ! -perm /6000 -print | head -50 || true",
         f"  find {GRID_BASE} -xdev -user root ! -perm /6000 -exec chown grid:oinstall {{}} +",
+        *_grid_known_hosts_lines(site),
         "  set +e",
         f"  sudo -iu grid env CV_ASSUME_DISTID=OL7 ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/gridSetup.sh -executeConfigTools -responseFile {response_file} -silent",
         "  config_tools_rc=$?",
@@ -187,6 +188,23 @@ def _grid_config_tools_script(config: AutomationConfig, site: SiteConfig) -> str
 def _crs_check_command(config: AutomationConfig) -> str:
     target = "crs" if config.install_type == "rac" else "has"
     return f"{GRID_BASE}/bin/crsctl check {target}"
+
+
+def _grid_known_hosts_lines(site: SiteConfig) -> list[str]:
+    hostnames = sorted({name for node in site.nodes for name in (node.host, node.short_name) if name})
+    host_args = " ".join(shlex.quote(hostname) for hostname in hostnames)
+    return [
+        "  echo 'Seeding grid SSH known_hosts for Oracle CVU strict host checks'",
+        "  install -d -m 700 -o grid -g oinstall /home/grid/.ssh",
+        "  touch /home/grid/.ssh/known_hosts",
+        "  chown grid:oinstall /home/grid/.ssh/known_hosts",
+        "  chmod 600 /home/grid/.ssh/known_hosts",
+        f"  for host in {host_args}; do",
+        "    sudo -iu grid ssh-keygen -F \"$host\" >/dev/null 2>&1 || ssh-keyscan -T 10 -H \"$host\" >> /home/grid/.ssh/known_hosts",
+        "  done",
+        "  chown grid:oinstall /home/grid/.ssh/known_hosts",
+        "  chmod 600 /home/grid/.ssh/known_hosts",
+    ]
 
 
 def _scan_dns_guard(site: SiteConfig) -> str:
