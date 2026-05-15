@@ -12,6 +12,7 @@ import shlex
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig
 from oracle_auto.phase_builders.common import (
+    INVENTORY_LOCATION,
     DB_HOME,
     GRID_BASE,
     GRID_BASE_DIR,
@@ -49,10 +50,10 @@ def _prepare_os_script(config: AutomationConfig) -> str:
         'id oracle >/dev/null 2>&1 || useradd -g oinstall -G dba,oper,backupdba,dgdba,kmdba,racdba,asmdba oracle',
         "sudo -iu grid true",
         "sudo -iu oracle true",
-        f"mkdir -p {GRID_BASE_DIR} {GRID_BASE} {ORACLE_BASE} {DB_HOME} {config.installer.sources_path} {STAGE}",
-        f"chown -R grid:oinstall {GRID_BASE_DIR} {GRID_BASE}",
+        f"mkdir -p {GRID_BASE_DIR} {GRID_BASE} {ORACLE_BASE} {DB_HOME} {config.installer.sources_path} {STAGE} {INVENTORY_LOCATION}",
+        f"chown -R grid:oinstall {GRID_BASE_DIR} {GRID_BASE} {INVENTORY_LOCATION}",
         f"chown -R oracle:oinstall {ORACLE_BASE}",
-        f"chmod -R 775 {GRID_BASE_DIR} {ORACLE_BASE}",
+        f"chmod -R 775 {GRID_BASE_DIR} {ORACLE_BASE} {INVENTORY_LOCATION}",
         "cp -p /etc/resolv.conf /etc/resolv.conf.oracle-auto.bak.$(date +%Y%m%d%H%M%S) 2>/dev/null || true",
         f"cat > /etc/resolv.conf <<'EOF'\n{resolv_conf}\nEOF",
         "awk '/# BEGIN ORACLE-AUTO HOSTS/{skip=1} /# END ORACLE-AUTO HOSTS/{skip=0; next} !skip{print}' /etc/hosts > /etc/hosts.oracle-auto",

@@ -12,7 +12,7 @@ import shlex
 from oracle_auto.automation import AutomationStep
 from oracle_auto.config import NodeConfig
 
-
+INVENTORY_LOCATION = "/u01/app/oraInventory"
 GRID_BASE = "/u01/app/19.0.0/grid"
 GRID_BASE_DIR = "/u01/app/grid"
 ORACLE_BASE = "/u01/app/oracle"
