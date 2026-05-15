@@ -134,8 +134,8 @@ class PrecheckRunner:
             ),
             Check(
                 name="asmlib_packages",
-                command=f"{package_manager} list oracleasm-support oracleasmlib",
-                fail_message="Cannot find Oracle ASMLIB v3 packages from enabled repositories; prepare-os installs oracleasm-support and oracleasmlib.",
+                command=f"{package_manager} list oracleasm-support && ({package_manager} list oracleasmlib || echo 'oracleasmlib will be installed from Oracle ASMLIB v3 RPM URL')",
+                fail_message="Cannot find Oracle ASMLIB v3 packages from enabled repositories; prepare-os can enable ol8_addons and install oracleasmlib from Oracle ASMLIB v3 RPM URL.",
                 warn_only=True,
             ),
             Check(

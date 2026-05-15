@@ -238,7 +238,8 @@ class CliTest(unittest.TestCase):
         checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
 
         self.assertIn("asmlib_packages", checks)
-        self.assertIn("oracleasm-support oracleasmlib", checks["asmlib_packages"].command)
+        self.assertIn("dnf list oracleasm-support", checks["asmlib_packages"].command)
+        self.assertIn("Oracle ASMLIB v3 RPM URL", checks["asmlib_packages"].command)
         self.assertTrue(checks["asmlib_packages"].warn_only)
 
     def test_install_steps_apply_targeted_ru_patches(self):
@@ -276,6 +277,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("chown -h grid:asmdba /dev/oracleasm/data1", command)
         self.assertIn("sudo -iu grid test -r /dev/oracleasm/data1", command)
         self.assertIn("oracleasm configure -u grid -g asmdba -e -s y -m 2048", command)
+        self.assertIn("config-manager --set-enabled ol8_addons", command)
+        self.assertIn("oracleasmlib-3.1.1-1.el8.x86_64.rpm", command)
         self.assertIn("oracleasm createdisk DATA1", command)
         self.assertIn("oracleasm listdisks", command)
         self.assertNotIn("/dev/oracleasm-src/", command)

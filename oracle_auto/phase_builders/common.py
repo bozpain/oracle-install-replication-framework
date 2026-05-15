@@ -18,6 +18,10 @@ GRID_BASE_DIR = "/u01/app/grid"
 ORACLE_BASE = "/u01/app/oracle"
 DB_HOME = "/u01/app/oracle/product/19.0.0/dbhome_1"
 STAGE = "/u01/stage"
+ASMLIB_RPM_URLS = {
+    "x86_64": "https://download.oracle.com/otn_software/asmlib/oracleasmlib-3.1.1-1.el8.x86_64.rpm",
+    "aarch64": "https://download.oracle.com/otn_software/asmlib/oracleasmlib-3.1.1-1.el8.aarch64.rpm",
+}
 
 
 def make_step(
@@ -72,6 +76,26 @@ def ensure_swap_lines() -> list[str]:
         "  grep -q '^/swapfile[[:space:]]' /etc/fstab || printf '/swapfile none swap sw 0 0\\n' >> /etc/fstab",
         "fi",
         "awk '/SwapTotal/ {print; exit !($2 >= 524288)}' /proc/meminfo",
+    ]
+
+
+def install_asmlib_lines(package_manager: str) -> list[str]:
+    pm = shlex.quote(package_manager)
+    rpm_cases = "\n".join(
+        f"  {arch}) asmlib_url={shlex.quote(url)} ;;"
+        for arch, url in ASMLIB_RPM_URLS.items()
+    )
+    return [
+        f"if ! rpm -q oracleasm-support >/dev/null 2>&1; then {pm} install -y oracleasm-support || (if grep -Rqs '^\\[ol8_addons\\]' /etc/yum.repos.d; then {pm} config-manager --set-enabled ol8_addons 2>/dev/null || sed -i '/^\\[ol8_addons\\]/,/^\\[/{{s/^enabled=.*/enabled=1/}}' /etc/yum.repos.d/*.repo; fi; {pm} install -y oracleasm-support); fi",
+        "if ! rpm -q oracleasmlib >/dev/null 2>&1; then\n"
+        "  arch=$(uname -m)\n"
+        "  case \"$arch\" in\n"
+        f"{rpm_cases}\n"
+        "    *) echo \"Unsupported ASMLIB architecture: $arch\" >&2; exit 1 ;;\n"
+        "  esac\n"
+        f"  {pm} install -y \"$asmlib_url\"\n"
+        "fi",
+        "rpm -q oracleasm-support oracleasmlib",
     ]
 
 

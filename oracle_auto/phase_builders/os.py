@@ -11,7 +11,16 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig
-from oracle_auto.phase_builders.common import DB_HOME, GRID_BASE, GRID_BASE_DIR, ORACLE_BASE, STAGE, ensure_swap_lines, make_step
+from oracle_auto.phase_builders.common import (
+    DB_HOME,
+    GRID_BASE,
+    GRID_BASE_DIR,
+    ORACLE_BASE,
+    STAGE,
+    ensure_swap_lines,
+    install_asmlib_lines,
+    make_step,
+)
 
 
 def prepare_os_steps(config: AutomationConfig) -> list[AutomationStep]:
@@ -33,7 +42,8 @@ def _prepare_os_script(config: AutomationConfig) -> str:
     resolv_conf = _resolv_conf(config)
     chrony_block = "\n".join(f"server {server} iburst" for server in config.os.ntp_servers)
     lines = [
-        f"{config.os.package_manager} install -y {shlex.quote(config.os.preinstall_package)} chrony unzip tar libnsl oracleasm-support oracleasmlib",
+        f"{config.os.package_manager} install -y {shlex.quote(config.os.preinstall_package)} chrony unzip tar libnsl",
+        *install_asmlib_lines(config.os.package_manager),
         'for group in oinstall dba oper backupdba dgdba kmdba racdba asmadmin asmdba asmoper; do getent group "$group" >/dev/null || groupadd "$group"; done',
         'id grid >/dev/null 2>&1 || useradd -g oinstall -G asmadmin,asmdba,asmoper,dba grid',
         'id oracle >/dev/null 2>&1 || useradd -g oinstall -G dba,oper,backupdba,dgdba,kmdba,racdba,asmdba oracle',

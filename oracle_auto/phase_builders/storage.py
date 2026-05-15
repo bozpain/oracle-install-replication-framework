@@ -11,7 +11,7 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import ASMDiskConfig, AutomationConfig
-from oracle_auto.phase_builders.common import GRID_BASE, make_step
+from oracle_auto.phase_builders.common import GRID_BASE, install_asmlib_lines, make_step
 
 
 ASMEntry = tuple[str, str, str, ASMDiskConfig]
@@ -156,7 +156,7 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
     ]
     lines = [
         "command -v udevadm",
-        f"{config.os.package_manager} install -y oracleasm-support oracleasmlib",
+        *install_asmlib_lines(config.os.package_manager),
         "command -v oracleasm",
         "echo 'Planned ASM disk mapping:'",
         "cat <<'MAP'\n" + storage_mapping_text(config) + "\nMAP",
