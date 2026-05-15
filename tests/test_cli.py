@@ -205,6 +205,9 @@ class CliTest(unittest.TestCase):
 
         self.assertIn("export ORACLE_HOME=/u01/app/19.0.0/grid", grid_command)
         self.assertIn("export ORACLE_BASE=/tmp", grid_command)
+        self.assertIn("Resetting unconfigured Grid home before install", grid_command)
+        self.assertIn("rm -rf /u01/app/19.0.0/grid/OPatch", grid_command)
+        self.assertIn("sudo -iu grid /u01/app/19.0.0/grid/OPatch/opatch version", grid_command)
         self.assertIn("sudo -iu grid env CV_ASSUME_DISTID=OL7", grid_command)
         self.assertIn("ASMSNMP_PASSWORD=", grid_command)
         self.assertIn("chmod 600 /u01/stage/responses/grid-site-a.rsp", grid_command)

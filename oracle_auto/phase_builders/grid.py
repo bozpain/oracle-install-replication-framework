@@ -51,7 +51,8 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         "umask 077",
         _scan_dns_guard(site),
         _hosts_guard(config),
-        f"test -x {GRID_BASE}/gridSetup.sh || sudo -iu grid unzip -oq {shlex.quote(config.installer.sources_path)}/{shlex.quote(config.installer.grid_zip)} -d {GRID_BASE}",
+        *_fresh_grid_home_lines(config),
+        *_grid_opatch_lines(config),
         *_grid_patch_stage_lines(config),
         *_initial_afd_label_lines(config),
         f"cat > {STAGE}/responses/grid-{site.name}.rsp <<EOF\n{response}\nEOF",
@@ -66,6 +67,28 @@ def _grid_patch_stage_lines(config: AutomationConfig) -> list[str]:
     if config.installer.grid_patch is None:
         return []
     return stage_patch_lines(config.installer.sources_path, config.installer.grid_patch.file, "GRID_PATCH_TOP")
+
+
+def _fresh_grid_home_lines(config: AutomationConfig) -> list[str]:
+    grid_zip = f"{config.installer.sources_path}/{config.installer.grid_zip}"
+    return [
+        "if test ! -f /etc/oracle/olr.loc && test -x "
+        f"{GRID_BASE}/gridSetup.sh; then echo 'Resetting unconfigured Grid home before install'; "
+        f"find {GRID_BASE} -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +; fi",
+        f"test -x {GRID_BASE}/gridSetup.sh || sudo -iu grid unzip -oq {shlex.quote(grid_zip)} -d {GRID_BASE}",
+    ]
+
+
+def _grid_opatch_lines(config: AutomationConfig) -> list[str]:
+    if not config.installer.opatch_zip:
+        return []
+    opatch_zip = f"{config.installer.sources_path}/{config.installer.opatch_zip}"
+    return [
+        f"test -s {shlex.quote(opatch_zip)}",
+        f"rm -rf {GRID_BASE}/OPatch",
+        f"sudo -iu grid unzip -oq {shlex.quote(opatch_zip)} -d {GRID_BASE}",
+        f"sudo -iu grid {GRID_BASE}/OPatch/opatch version",
+    ]
 
 
 def _grid_patch_arg(config: AutomationConfig) -> str:
