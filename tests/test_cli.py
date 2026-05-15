@@ -208,8 +208,10 @@ class CliTest(unittest.TestCase):
         self.assertLess(grid_command.index("export ORACLE_HOME=/u01/app/19.0.0/grid"), grid_command.index("asmcmd afd_label DATA01"))
         self.assertLess(grid_command.index("asmcmd afd_label DATA01"), grid_command.index("gridSetup.sh -silent"))
         self.assertIn("p19_30_grid_ru_Linux-x86-64.zip", grid_command)
+        self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_grid_ru_linux_x86_64_zip", grid_command)
         self.assertIn('-applyRU "$GRID_PATCH_TOP"', grid_command)
         self.assertIn("p19_30_db_ru_Linux-x86-64.zip", db_command)
+        self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_db_ru_linux_x86_64_zip", db_command)
         self.assertIn('-applyRU "$DB_PATCH_TOP"', db_command)
 
     def test_ojvm_patch_runs_before_database_creation_phase(self):

@@ -52,6 +52,7 @@ def stage_patch_lines(sources_path: str, patch_file: str, variable: str = "PATCH
         f"test -s {shlex.quote(patch_zip)}",
         f"mkdir -p {patch_dir}",
         f"unzip -oq {shlex.quote(patch_zip)} -d {patch_dir}",
+        f"chmod -R a+rX {patch_dir}",
         patch_top_assignment(patch_dir, variable),
         f'echo "Detected patch top: ${variable}"',
     ]
