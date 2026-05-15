@@ -229,7 +229,7 @@ def _single_gi_direct_asmca_lines(config: AutomationConfig) -> list[str]:
         "    set -e",
         f"    if test \"$direct_asmca_rc\" -ne 0 && ! sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
         "      echo 'ASMLIB logical discovery failed; disabling iofilter before retrying ASMCA with /dev/oracleasm device paths'",
-        "      oracleasm configure -u grid -g asmdba -e -s y -m 2048 -f n",
+        "      oracleasm configure -u grid -g asmdba -e -s y -m 2048",
         "      systemctl restart oracleasm || oracleasm init",
         "      oracleasm scandisks",
         "      oracleasm status || true",
