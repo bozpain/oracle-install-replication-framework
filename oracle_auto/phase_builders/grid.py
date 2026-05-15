@@ -153,10 +153,14 @@ def _grid_root_script() -> str:
 
 
 def _grid_config_tools_script(config: AutomationConfig, site: SiteConfig) -> str:
+    response = grid_response(config, site)
     response_file = f"{STAGE}/responses/grid-{site.name}.rsp"
     crs_check = _crs_check_command(config)
     lines = [
-        f"test -s {response_file}",
+        f"mkdir -p {STAGE}/responses",
+        f"cat > {response_file} <<EOF\n{response}\nEOF",
+        f"chown grid:oinstall {response_file}",
+        f"chmod 600 {response_file}",
         f"if sudo -iu grid {crs_check} >/dev/null 2>&1 && sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
         "  echo 'Grid configuration tools appear complete; skipping executeConfigTools.'",
         "else",
@@ -200,7 +204,9 @@ def _grid_known_hosts_lines(site: SiteConfig) -> list[str]:
         "  chown grid:oinstall /home/grid/.ssh/known_hosts",
         "  chmod 600 /home/grid/.ssh/known_hosts",
         f"  for host in {host_args}; do",
-        "    sudo -iu grid ssh-keygen -F \"$host\" >/dev/null 2>&1 || ssh-keyscan -T 10 -H \"$host\" >> /home/grid/.ssh/known_hosts",
+        "    if ! sudo -iu grid ssh-keygen -F \"$host\" >/dev/null 2>&1; then",
+        "      ssh-keyscan -T 10 -H \"$host\" 2>/dev/null >> /home/grid/.ssh/known_hosts || true",
+        "    fi",
         "  done",
         "  chown grid:oinstall /home/grid/.ssh/known_hosts",
         "  chmod 600 /home/grid/.ssh/known_hosts",
