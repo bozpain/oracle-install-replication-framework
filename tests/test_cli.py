@@ -306,6 +306,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("GRID_SETUP_LOG=/u01/stage/logs/gridSetup-site-a.out", grid_command)
         self.assertIn("Successfully Setup Software|execute the following script|executeConfigTools", grid_command)
         self.assertIn("Grid software setup completed; root scripts and config tools will run in following steps.", grid_command)
+        self.assertIn("Grid software already installed; skipping software setup and continuing with root scripts/config tools.", grid_command)
         self.assertNotIn("asmcmd afd_label", grid_command)
         self.assertIn("p19_30_grid_ru_Linux-x86-64.zip", grid_command)
         self.assertIn("chmod a+rx /u01/stage /u01/stage/patches /u01/stage/patches/p19_30_grid_ru_linux_x86_64_zip", grid_command)

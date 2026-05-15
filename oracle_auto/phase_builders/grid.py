@@ -69,6 +69,10 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         f"chmod 600 {STAGE}/responses/grid-{site.name}.rsp",
         f"mkdir -p {STAGE}/logs",
         f"GRID_SETUP_LOG={STAGE}/logs/gridSetup-{site.name}.out",
+        "if test ! -f /etc/oracle/olr.loc && test -x "
+        f"{GRID_BASE}/root.sh && ls {GRID_BASE}/install/response/grid_*.rsp >/dev/null 2>&1; then",
+        "  echo 'Grid software already installed; skipping software setup and continuing with root scripts/config tools.'",
+        "else",
         "set +e",
         f"sudo -iu grid env CV_ASSUME_DISTID=OL7 ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/gridSetup.sh -silent -waitforcompletion -responseFile {STAGE}/responses/grid-{site.name}.rsp{_grid_patch_arg(config)} -ignorePrereqFailure 2>&1 | tee \"$GRID_SETUP_LOG\"",
         "grid_setup_rc=${PIPESTATUS[0]}",
@@ -80,6 +84,7 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         "  else",
         "    exit \"$grid_setup_rc\"",
         "  fi",
+        "fi",
         "fi",
     ]
     return shell_script(f"Install Grid Infrastructure for {site.name}", lines)
