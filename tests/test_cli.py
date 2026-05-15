@@ -283,8 +283,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("oracle.install.option=HA_CONFIG", response)
         self.assertIn("oracle.install.asm.SYSASMPassword=$ASMSNMP_PASSWORD", response)
         self.assertIn("oracle.install.asm.monitorPassword=$ASMSNMP_PASSWORD", response)
-        self.assertIn("oracle.install.asm.diskGroup.disks=AFD:DATA01", response)
-        self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=AFD:*", response)
+        self.assertIn("oracle.install.asm.diskGroup.disks=/dev/oracleasm/data01", response)
+        self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=/dev/oracleasm/*", response)
         self.assertNotIn("oracle.install.crs.config.clusterNodeVIPs", response)
         self.assertNotIn("oracle.install.crs.config.clusterNodes", response)
 
