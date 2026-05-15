@@ -242,6 +242,17 @@ class CliTest(unittest.TestCase):
         self.assertIn("Oracle ASMLIB v3 RPM URL", checks["asmlib_packages"].command)
         self.assertTrue(checks["asmlib_packages"].warn_only)
 
+    def test_precheck_dnf_checks_have_no_framework_timeout(self):
+        from oracle_auto.precheck import PrecheckRunner
+
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
+        checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
+
+        self.assertIsNone(checks["oracle_yum_repo"].timeout)
+        self.assertIsNone(checks["preinstall_package"].timeout)
+        self.assertIsNone(checks["asmlib_packages"].timeout)
+
     def test_install_steps_apply_targeted_ru_patches(self):
         config = load_config(Path("configs/sample-single.json"))
         grid_command = install_grid_steps(config)[0].command
