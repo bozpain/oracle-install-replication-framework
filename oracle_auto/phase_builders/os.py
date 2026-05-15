@@ -33,7 +33,7 @@ def _prepare_os_script(config: AutomationConfig) -> str:
     resolv_conf = _resolv_conf(config)
     chrony_block = "\n".join(f"server {server} iburst" for server in config.os.ntp_servers)
     lines = [
-        f"{config.os.package_manager} install -y {shlex.quote(config.os.preinstall_package)} chrony unzip tar libnsl",
+        f"{config.os.package_manager} install -y {shlex.quote(config.os.preinstall_package)} chrony unzip tar libnsl oracleasm-support oracleasmlib",
         'for group in oinstall dba oper backupdba dgdba kmdba racdba asmadmin asmdba asmoper; do getent group "$group" >/dev/null || groupadd "$group"; done',
         'id grid >/dev/null 2>&1 || useradd -g oinstall -G asmadmin,asmdba,asmoper,dba grid',
         'id oracle >/dev/null 2>&1 || useradd -g oinstall -G dba,oper,backupdba,dgdba,kmdba,racdba,asmdba oracle',

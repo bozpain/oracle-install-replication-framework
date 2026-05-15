@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from oracle_auto.config import AutomationConfig, SiteConfig
 from oracle_auto.phase_builders.common import GRID_BASE_DIR
-from oracle_auto.phase_builders.storage import afd_discovery_string, asm_entries
+from oracle_auto.phase_builders.storage import asm_discovery_string, asm_disk_spec, asm_entries
 
 
 def grid_response(config: AutomationConfig, site: SiteConfig) -> str:
     install_option = "CRS_CONFIG" if config.install_type == "rac" else "HA_CONFIG"
     initial_group = "OCR" if config.install_type == "rac" else "DATA"
     initial_disks = ",".join(
-        f"AFD:{label}"
+        asm_disk_spec(label)
         for label, _path, group, _disk in asm_entries(config)
         if group == initial_group
     )
@@ -28,9 +28,9 @@ def grid_response(config: AutomationConfig, site: SiteConfig) -> str:
         f"oracle.install.asm.diskGroup.name={initial_group}",
         f"oracle.install.asm.diskGroup.redundancy={config.asm.redundancy}",
         f"oracle.install.asm.diskGroup.disks={initial_disks}",
-        f"oracle.install.asm.diskGroup.diskDiscoveryString={afd_discovery_string(config)}",
+        f"oracle.install.asm.diskGroup.diskDiscoveryString={asm_discovery_string(config)}",
         "oracle.install.asm.monitorPassword=$ASMSNMP_PASSWORD",
-        "oracle.install.asm.configureAFD=true",
+        "oracle.install.asm.configureAFD=false",
         "oracle.install.config.managementOption=NONE",
         "oracle.install.crs.rootconfig.executeRootScript=false",
     ]

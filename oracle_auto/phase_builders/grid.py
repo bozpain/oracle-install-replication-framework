@@ -11,12 +11,6 @@ import shlex
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
 from oracle_auto.phase_builders.common import GRID_BASE, GRID_BASE_DIR, STAGE, ensure_swap_lines, make_step, stage_patch_lines
-from oracle_auto.phase_builders.storage import (
-    afd_discovery_string,
-    afd_label_command,
-    asm_device_permission_commands,
-    asm_entries,
-)
 from oracle_auto.response_files.grid import grid_response
 
 
@@ -60,7 +54,6 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         *_fresh_grid_home_lines(config),
         *_grid_opatch_lines(config),
         *_grid_patch_stage_lines(config),
-        *_initial_afd_label_lines(config),
         f"cat > {STAGE}/responses/grid-{site.name}.rsp <<EOF\n{response}\nEOF",
         f"chown grid:oinstall {STAGE}/responses/grid-{site.name}.rsp",
         f"chmod 600 {STAGE}/responses/grid-{site.name}.rsp",
@@ -115,33 +108,6 @@ def _asm_password_export(config: AutomationConfig) -> str:
         f'Set {config.secrets.asmsnmp_password_env} on target before running install-grid}}"\n'
         "export ASMSNMP_PASSWORD"
     )
-
-
-def _initial_afd_label_lines(config: AutomationConfig) -> list[str]:
-    initial_group = "OCR" if config.install_type == "rac" else "DATA"
-    entries = [(label, path) for label, path, group, _disk in asm_entries(config) if group == initial_group]
-    lines = [
-        "echo 'Label initial Grid Infrastructure diskgroup with ASMFD before gridSetup.sh'",
-        f"export ORACLE_HOME={GRID_BASE}",
-        "export ORACLE_BASE=/tmp",
-        f"export PATH={GRID_BASE}/bin:$PATH",
-        f"test -x {GRID_BASE}/bin/asmcmd",
-    ]
-    lines.append(f"{GRID_BASE}/bin/asmcmd afd_dsset {shlex.quote(afd_discovery_string(config))}")
-    lines.extend(asm_device_permission_commands([path for _label, path in entries]))
-    for label, path in entries:
-        quoted_path = shlex.quote(path)
-        lines.append(f"printf 'ASM candidate %s -> ' {quoted_path}; readlink -f {quoted_path}")
-        lines.append(f"ls -l {quoted_path}")
-        lines.append(f"ls -l \"$(readlink -f {quoted_path})\"")
-        lines.append(f"lsblk -ndo NAME,TYPE,SIZE,MODEL {quoted_path} || true")
-        lines.append(f"test -b {quoted_path}")
-        lines.append(f"test \"$(blockdev --getsize64 {quoted_path})\" -ge 8388608")
-        lines.append(afd_label_command(label, path, initial=True))
-    lines.append(f"{GRID_BASE}/bin/asmcmd afd_lslbl")
-    lines.append(f"{GRID_BASE}/bin/asmcmd afd_lslbl | awk '{{print $1}}' | grep -qx {shlex.quote(entries[0][0])}" if entries else "true")
-    lines.append("unset ORACLE_BASE")
-    return lines
 
 
 def _grid_root_script() -> str:

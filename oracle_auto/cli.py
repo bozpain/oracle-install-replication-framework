@@ -167,7 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
         "prepare-os": "Prepare OS users, DNS, hosts, firewall, SELinux, and chrony.",
         "verify-installer": "Verify installer and patch ZIP files on target hosts.",
         "prepare-storage-rules": "Prepare udev rules and /dev/oracleasm symlinks.",
-        "configure-asm-storage": "Configure ASMFD labels and ASM disk groups.",
+        "configure-asm-storage": "Configure ASMLIB disks and ASM disk groups.",
         "prepare-storage": "Compatibility wrapper for storage rules and ASM storage.",
         "install-grid": "Install Grid Infrastructure.",
         "install-db-software": "Install Oracle Database software.",

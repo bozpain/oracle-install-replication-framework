@@ -230,24 +230,22 @@ class CliTest(unittest.TestCase):
         self.assertIn("sudo -n wipefs", _disk_signature_check(config))
         self.assertIn("sudo -n blockdev", _disk_size_check(config))
 
-    def test_precheck_rejects_kernel_5_14_or_newer_for_asmfd(self):
+    def test_precheck_warns_when_asmlib_packages_are_not_visible(self):
         from oracle_auto.precheck import PrecheckRunner
 
         config = load_config(Path("configs/gcp-single-gi-lab.json"))
         runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
         checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
 
-        self.assertIn("asmfd_kernel_support", checks)
-        self.assertIn('test "$major" -lt 5', checks["asmfd_kernel_support"].command)
-        self.assertIn("ASMFD is not supported on Linux kernel 5.14 or newer", checks["asmfd_kernel_support"].fail_message)
+        self.assertIn("asmlib_packages", checks)
+        self.assertIn("oracleasm-support oracleasmlib", checks["asmlib_packages"].command)
+        self.assertTrue(checks["asmlib_packages"].warn_only)
 
     def test_install_steps_apply_targeted_ru_patches(self):
         config = load_config(Path("configs/sample-single.json"))
         grid_command = install_grid_steps(config)[0].command
         db_command = install_db_software_steps(config)[0].command
 
-        self.assertIn("export ORACLE_HOME=/u01/app/19.0.0/grid", grid_command)
-        self.assertIn("export ORACLE_BASE=/tmp", grid_command)
         self.assertIn("Resetting unconfigured Grid home before install", grid_command)
         self.assertIn("Ensuring at least 512 MiB swap for Oracle installer", grid_command)
         self.assertIn("rm -rf /u01/app/19.0.0/grid/OPatch", grid_command)
@@ -256,9 +254,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("ORACLE_BASE=/u01/app/grid /u01/app/19.0.0/grid/gridSetup.sh", grid_command)
         self.assertIn("ASMSNMP_PASSWORD=", grid_command)
         self.assertIn("chmod 600 /u01/stage/responses/grid-site-a.rsp", grid_command)
-        self.assertIn("asmcmd afd_label DATA01 /dev/oracleasm/data01 --init", grid_command)
-        self.assertLess(grid_command.index("export ORACLE_HOME=/u01/app/19.0.0/grid"), grid_command.index("asmcmd afd_label DATA01"))
-        self.assertLess(grid_command.index("asmcmd afd_label DATA01"), grid_command.index("gridSetup.sh -silent"))
+        self.assertNotIn("asmcmd afd_label", grid_command)
         self.assertIn("p19_30_grid_ru_Linux-x86-64.zip", grid_command)
         self.assertIn("chmod a+rx /u01/stage /u01/stage/patches /u01/stage/patches/p19_30_grid_ru_linux_x86_64_zip", grid_command)
         self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_grid_ru_linux_x86_64_zip", grid_command)
@@ -279,6 +275,9 @@ class CliTest(unittest.TestCase):
         self.assertIn("test -b /dev/oracleasm/reco1", command)
         self.assertIn("chown -h grid:asmdba /dev/oracleasm/data1", command)
         self.assertIn("sudo -iu grid test -r /dev/oracleasm/data1", command)
+        self.assertIn("oracleasm configure -u grid -g asmdba -e -s y -m 2048", command)
+        self.assertIn("oracleasm createdisk DATA1", command)
+        self.assertIn("oracleasm listdisks", command)
         self.assertNotIn("/dev/oracleasm-src/", command)
         self.assertNotIn("ln -sfn", command)
 
@@ -289,8 +288,9 @@ class CliTest(unittest.TestCase):
         self.assertIn("oracle.install.option=HA_CONFIG", response)
         self.assertIn("oracle.install.asm.SYSASMPassword=$ASMSNMP_PASSWORD", response)
         self.assertIn("oracle.install.asm.monitorPassword=$ASMSNMP_PASSWORD", response)
-        self.assertIn("oracle.install.asm.diskGroup.disks=AFD:DATA01", response)
-        self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=/dev/oracleasm/*", response)
+        self.assertIn("oracle.install.asm.diskGroup.disks=ORCL:DATA01", response)
+        self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=ORCL:*", response)
+        self.assertIn("oracle.install.asm.configureAFD=false", response)
         self.assertNotIn("oracle.install.crs.config.clusterNodeVIPs", response)
         self.assertNotIn("oracle.install.crs.config.clusterNodes", response)
 

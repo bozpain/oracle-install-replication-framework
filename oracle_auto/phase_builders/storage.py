@@ -1,8 +1,8 @@
 """ASM storage phase manual.
 
-Builds UUID-driven udev rules first, then performs ASMFD labeling and diskgroup
-creation in a separate post-GI phase. The old `prepare-storage` command remains
-as a compatibility wrapper for dry-run review.
+Builds UUID-driven udev rules first, then labels disks with Oracle ASMLIB.
+The old `prepare-storage` command remains as a compatibility wrapper for
+dry-run review.
 """
 
 from __future__ import annotations
@@ -39,13 +39,13 @@ def prepare_storage_rules_steps(config: AutomationConfig) -> list[AutomationStep
 def configure_asm_storage_steps(config: AutomationConfig) -> list[AutomationStep]:
     return [
         make_step(
-            "configure-asm-storage",
-            "configure_asm_storage",
-            node,
-            "Configure ASM Filter Driver labels and disk groups",
-            _configure_asm_storage_script(config),
-            timeout=1200,
-        )
+                "configure-asm-storage",
+                "configure_asm_storage",
+                node,
+                "Configure ASMLIB labels and ASM disk groups",
+                _configure_asm_storage_script(config),
+                timeout=1200,
+            )
         for node in config.all_nodes
     ]
 
@@ -85,15 +85,16 @@ def asm_device_permission_commands(paths: list[str]) -> list[str]:
     return commands
 
 
-def afd_discovery_string(config: AutomationConfig) -> str:
-    paths = [path for _label, path, _group, _disk in asm_entries(config)]
-    if paths and all(path.startswith("/dev/oracleasm/") for path in paths):
-        return "/dev/oracleasm/*"
-    return ",".join(paths)
+def asm_discovery_string(_config: AutomationConfig) -> str:
+    return "ORCL:*"
+
+
+def asm_disk_spec(label: str) -> str:
+    return f"ORCL:{label}"
 
 
 def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
-    disk_list = ",".join(f"'AFD:{label}'" for label in labels)
+    disk_list = ",".join(f"'{asm_disk_spec(label)}'" for label in labels)
     return (
         f"sudo -iu grid {GRID_BASE}/bin/sqlplus -s / as sysasm <<'SQL'\n"
         "WHENEVER SQLERROR EXIT SQL.SQLCODE\n"
@@ -104,25 +105,24 @@ def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
     )
 
 
-def afd_label_command(label: str, path: str, *, initial: bool = False) -> str:
+def asmlib_label_command(label: str, path: str) -> str:
     quoted_label = shlex.quote(label)
     quoted_path = shlex.quote(path)
-    label_args = f"{quoted_label} {quoted_path}"
-    if initial:
-        label_args = f"{label_args} --init"
-    label_check = (
-        f"{GRID_BASE}/bin/asmcmd afd_lslbl {quoted_path} 2>/dev/null | "
-        f"awk '{{print $1}}' | grep -qx {quoted_label}"
-    )
     return (
-        f"if {label_check}; then "
-        f"echo 'AFD label already exists: {label}'; "
-        "else "
-        f"{GRID_BASE}/bin/asmcmd afd_label {label_args}; "
+        f"resolved=$(readlink -f {quoted_path}); test -b \"$resolved\"; "
+        f"if test -x {GRID_BASE}/bin/asmcmd && "
+        f"ORACLE_HOME={GRID_BASE} ORACLE_BASE=/tmp {GRID_BASE}/bin/asmcmd afd_lslbl \"$resolved\" 2>/dev/null | "
+        f"awk '{{print $1}}' | grep -qx {quoted_label}; then "
+        f"echo 'Removing stale ASMFD label before ASMLIB migration: {label}'; "
+        f"ORACLE_HOME={GRID_BASE} ORACLE_BASE=/tmp {GRID_BASE}/bin/asmcmd afd_unlabel \"$resolved\" --init; "
         "fi; "
-        f"{GRID_BASE}/bin/asmcmd afd_lslbl {quoted_path}; "
-        f"{GRID_BASE}/bin/asmcmd afd_lslbl {quoted_path} 2>/dev/null | "
-        f"awk '{{print $1}}' | grep -qx {quoted_label}"
+        f"if oracleasm querydisk {quoted_label} >/dev/null 2>&1; then "
+        f"echo 'ASMLIB disk already exists: {label}'; "
+        "else "
+        f"oracleasm createdisk {quoted_label} \"$resolved\"; "
+        "fi; "
+        "oracleasm scandisks; "
+        f"oracleasm querydisk {quoted_label}"
     )
 
 
@@ -156,6 +156,8 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
     ]
     lines = [
         "command -v udevadm",
+        f"{config.os.package_manager} install -y oracleasm-support oracleasmlib",
+        "command -v oracleasm",
         "echo 'Planned ASM disk mapping:'",
         "cat <<'MAP'\n" + storage_mapping_text(config) + "\nMAP",
         *uuid_checks,
@@ -176,8 +178,13 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
         *asm_device_permission_commands([path for _label, path, _group, _disk in entries]),
         *disk_checks,
         "ls -l /dev/oracleasm",
+        "oracleasm configure -u grid -g asmdba -e -s y -m 2048",
+        "systemctl enable --now oracleasm || oracleasm init",
+        "oracleasm status",
+        *[asmlib_label_command(label, path) for label, path, _group, _disk in entries],
+        "oracleasm listdisks",
     ]
-    return shell_script("Prepare ASM udev rules", lines)
+    return shell_script("Prepare ASMLIB disks", lines)
 
 
 def _configure_asm_storage_script(config: AutomationConfig) -> str:
@@ -191,7 +198,6 @@ def _configure_asm_storage_script(config: AutomationConfig) -> str:
         f"test \"$(blockdev --getsize64 {shlex.quote(path)})\" -gt 0"
         for _label, path, _group, _disk in entries
     ]
-    label_commands = [afd_label_command(label, path) for label, path, _group, _disk in entries]
     diskgroup_commands = []
     for diskgroup_name in ("OCR", "DATA", "RECO"):
         labels = [label for label, _path, group, _disk in entries if group == diskgroup_name]
@@ -201,19 +207,15 @@ def _configure_asm_storage_script(config: AutomationConfig) -> str:
         "echo 'Resolved ASM disk mapping before AFD label:'",
         "for path in " + " ".join(shlex.quote(path) for _label, path, _group, _disk in entries) + "; do printf '%s -> ' \"$path\"; readlink -f \"$path\"; done",
         *disk_checks,
-        *signature_checks,
         *size_checks,
-        f"test -x {GRID_BASE}/bin/asmcmd",
+        "oracleasm scandisks",
+        "oracleasm listdisks",
         f"test -x {GRID_BASE}/bin/sqlplus",
         f"sudo -iu grid {GRID_BASE}/bin/crsctl check crs",
-        f"sudo -iu grid {GRID_BASE}/bin/asmcmd afd_state || true",
-        *label_commands,
-        f"sudo -iu grid {GRID_BASE}/bin/asmcmd afd_dsset {shlex.quote(afd_discovery_string(config))}",
-        f"sudo -iu grid {GRID_BASE}/bin/asmcmd afd_lslbl || true",
         *diskgroup_commands,
         f"sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg",
     ]
-    return shell_script("Configure ASM AFD labels and diskgroups", lines)
+    return shell_script("Configure ASM diskgroups with ASMLIB", lines)
 
 
 def _udev_rules(config: AutomationConfig) -> str:

@@ -118,15 +118,6 @@ class PrecheckRunner:
                 fail_message="Cannot read kernel version.",
             ),
             Check(
-                name="asmfd_kernel_support",
-                command=(
-                    "kernel=$(uname -r); "
-                    "major=${kernel%%.*}; rest=${kernel#*.}; minor=${rest%%.*}; "
-                    'test "$major" -lt 5 || { test "$major" -eq 5 && test "$minor" -lt 14; }'
-                ),
-                fail_message="ASMFD is not supported on Linux kernel 5.14 or newer; use an ASMFD-compatible kernel or choose another storage driver.",
-            ),
-            Check(
                 name="package_manager",
                 command=f"command -v {package_manager}",
                 fail_message=f"Package manager is not available: {package_manager}",
@@ -140,6 +131,12 @@ class PrecheckRunner:
                 name="preinstall_package",
                 command=f"{package_manager} list {preinstall_package}",
                 fail_message=f"Cannot find package from enabled repo: {preinstall_package}",
+            ),
+            Check(
+                name="asmlib_packages",
+                command=f"{package_manager} list oracleasm-support oracleasmlib",
+                fail_message="Cannot find Oracle ASMLIB v3 packages from enabled repositories; prepare-os installs oracleasm-support and oracleasmlib.",
+                warn_only=True,
             ),
             Check(
                 name="dns_resolver_config",

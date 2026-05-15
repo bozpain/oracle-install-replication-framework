@@ -143,7 +143,7 @@ def asm_table(config: AutomationConfig) -> str:
         for label, path, group, disk in asm_entries(config)
     )
     return (
-        "<table><thead><tr><th>Diskgroup</th><th>AFD Label</th><th>Source</th><th>Udev Symlink</th><th>Redundancy</th></tr></thead>"
+        "<table><thead><tr><th>Diskgroup</th><th>ASMLIB Label</th><th>Source</th><th>Udev Symlink</th><th>Redundancy</th></tr></thead>"
         f"<tbody>{rows}</tbody></table>"
     )
 
