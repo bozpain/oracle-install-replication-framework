@@ -28,13 +28,14 @@ def make_step(
     command: str,
     timeout: int,
     warn_only: bool = False,
+    remote_marker: bool = True,
 ) -> AutomationStep:
     return AutomationStep(
         phase=phase,
         name=name,
         node=node,
         title=title,
-        command=_with_remote_marker(phase, name, command),
+        command=_with_remote_marker(phase, name, command) if remote_marker else command,
         timeout=timeout,
         warn_only=warn_only,
     )
@@ -71,15 +72,15 @@ def _with_remote_marker(phase: str, name: str, command: str) -> str:
     checksum = hashlib.sha256(command.encode("utf-8")).hexdigest()
     script = f"""# oracle-auto remote marker wrapper
 set -euo pipefail
-if test -f {shlex.quote(marker)}; then
-  if grep -q {shlex.quote(checksum)} {shlex.quote(marker)}; then
+if sudo -n test -f {shlex.quote(marker)}; then
+  if sudo -n grep -q {shlex.quote(checksum)} {shlex.quote(marker)}; then
     echo "Already completed remotely: {phase}:{name}"
     exit 0
   fi
   echo "Remote marker checksum changed; rerunning: {phase}:{name}"
 fi
-mkdir -p {shlex.quote(marker_dir)}
+sudo -n mkdir -p {shlex.quote(marker_dir)}
 {command}
-printf '%s\\n' {shlex.quote(checksum)} > {shlex.quote(marker)}
+printf '%s\\n' {shlex.quote(checksum)} | sudo -n tee {shlex.quote(marker)} >/dev/null
 """
     return "bash -lc " + shlex.quote(script)

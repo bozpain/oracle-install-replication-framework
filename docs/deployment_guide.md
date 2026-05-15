@@ -263,7 +263,7 @@ DNS resolver example:
 
 ## 5. ASM Storage
 
-Storage selalu ASM. Input disk wajib memakai `DM_UUID`, bukan `/dev/mapper/mpathX` atau `/dev/sdX`.
+Storage selalu ASM. Untuk deployment produksi, input disk wajib memakai `DM_UUID`, bukan `/dev/mapper/mpathX` atau `/dev/sdX`.
 
 ```mermaid
 flowchart LR
@@ -313,6 +313,7 @@ Example:
 | Stable symlink | Framework membuat `/dev/oracleasm/ocr01`, `data01`, `reco01`, dst |
 | Optional custom name | Disk object boleh memakai `name` |
 | RAC consistency | Shared disk harus konsisten di semua node |
+| Lab path mode | Lab non-multipath boleh memakai object `path`, tetapi path itu harus sudah ada sebagai block device pada setiap node target |
 
 Custom disk name:
 
@@ -324,6 +325,19 @@ Custom disk name:
   }
 ]
 ```
+
+Lab-only path example:
+
+```json
+"data_disks": [
+  {
+    "path": "/dev/oracleasm-src/data",
+    "name": "data01"
+  }
+]
+```
+
+Jika topologi memakai `path`, precheck akan gagal sampai path tersebut benar-benar ada di semua host yang memakai config itu.
 
 Generated udev rule shape:
 

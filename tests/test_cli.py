@@ -8,6 +8,8 @@ from oracle_auto.cli import main
 from oracle_auto.config import load_config
 from oracle_auto.precheck import _secret_env_check
 from oracle_auto.secrets import redact
+from oracle_auto.phase_builders.inventory import inventory_steps
+from oracle_auto.phase_builders.os import prepare_os_steps
 from oracle_auto.phase_builders.storage import prepare_storage_rules_steps
 from oracle_auto.phase_builders.grid import install_grid_steps
 from oracle_auto.phase_builders.database import install_db_software_steps
@@ -138,6 +140,21 @@ class CliTest(unittest.TestCase):
 
         self.assertIn("/etc/oracle-auto/secrets.env", command)
         self.assertIn("sudo -n bash -lc", command)
+
+    def test_remote_marker_uses_sudo_for_stage_state(self):
+        config = load_config(Path("configs/sample-single.json"))
+        command = prepare_os_steps(config)[0].command
+
+        self.assertIn("sudo -n test -f /u01/stage/oracle-auto/state/prepare_os/prepare_os.done", command)
+        self.assertIn("sudo -n mkdir -p /u01/stage/oracle-auto/state/prepare_os", command)
+        self.assertIn("sudo -n tee /u01/stage/oracle-auto/state/prepare_os/prepare_os.done", command)
+
+    def test_inventory_remains_remote_read_only(self):
+        config = load_config(Path("configs/sample-single.json"))
+        command = inventory_steps(config)[0].command
+
+        self.assertNotIn("oracle-auto remote marker wrapper", command)
+        self.assertNotIn("/u01/stage/oracle-auto/state", command)
 
     def test_secret_precheck_uses_sudo_secret_file(self):
         config = load_config(Path("configs/gcp-single-gi-lab.json"))

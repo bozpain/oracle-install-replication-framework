@@ -96,7 +96,7 @@ Automation mengelola:
 
 ## 6. Storage Model
 
-Storage selalu ASM. User memberikan disk `DM_UUID` secara manual di config, bukan `/dev/mapper/mpathX` atau `/dev/sdX`, karena nama device tersebut bisa berubah setelah reboot atau rediscovery.
+Storage selalu ASM. Untuk deployment produksi, user memberikan disk `DM_UUID` secara manual di config, bukan `/dev/mapper/mpathX` atau `/dev/sdX`, karena nama device tersebut bisa berubah setelah reboot atau rediscovery. Lab non-multipath boleh memakai object `path`, tetapi path itu harus sudah ada sebagai block device yang konsisten di semua target host sebelum precheck dijalankan.
 
 - `ocr_disks` untuk diskgroup `OCR`.
 - `data_disks` untuk diskgroup `DATA`.

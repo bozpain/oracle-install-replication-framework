@@ -21,6 +21,7 @@ def inventory_steps(config: AutomationConfig) -> list[AutomationStep]:
             _inventory_script(config),
             timeout=300,
             warn_only=True,
+            remote_marker=False,
         )
         for node in config.all_nodes
     ]
