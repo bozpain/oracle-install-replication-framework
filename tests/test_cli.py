@@ -203,10 +203,14 @@ class CliTest(unittest.TestCase):
         grid_command = install_grid_steps(config)[0].command
         db_command = install_db_software_steps(config)[0].command
 
+        self.assertIn("export ORACLE_HOME=/u01/app/19.0.0/grid", grid_command)
+        self.assertIn("export ORACLE_BASE=/tmp", grid_command)
         self.assertIn("sudo -iu grid env CV_ASSUME_DISTID=OL7", grid_command)
         self.assertIn("ASMSNMP_PASSWORD=", grid_command)
         self.assertIn("chmod 600 /u01/stage/responses/grid-site-a.rsp", grid_command)
-        self.assertNotIn("asmcmd afd_label", grid_command)
+        self.assertIn("asmcmd afd_label DATA01 /dev/oracleasm/data01 --init", grid_command)
+        self.assertLess(grid_command.index("export ORACLE_HOME=/u01/app/19.0.0/grid"), grid_command.index("asmcmd afd_label DATA01"))
+        self.assertLess(grid_command.index("asmcmd afd_label DATA01"), grid_command.index("gridSetup.sh -silent"))
         self.assertIn("p19_30_grid_ru_Linux-x86-64.zip", grid_command)
         self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_grid_ru_linux_x86_64_zip", grid_command)
         self.assertIn('-applyRU "$GRID_PATCH_TOP"', grid_command)
@@ -231,8 +235,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("oracle.install.option=HA_CONFIG", response)
         self.assertIn("oracle.install.asm.SYSASMPassword=$ASMSNMP_PASSWORD", response)
         self.assertIn("oracle.install.asm.monitorPassword=$ASMSNMP_PASSWORD", response)
-        self.assertIn("oracle.install.asm.diskGroup.disks=/dev/oracleasm/data01", response)
-        self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=/dev/oracleasm/*", response)
+        self.assertIn("oracle.install.asm.diskGroup.disks=AFD:DATA01", response)
+        self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=AFD:*", response)
         self.assertNotIn("oracle.install.crs.config.clusterNodeVIPs", response)
         self.assertNotIn("oracle.install.crs.config.clusterNodes", response)
 

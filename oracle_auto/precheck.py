@@ -171,6 +171,12 @@ class PrecheckRunner:
                 fail_message="/u01 is missing or capacity cannot be checked.",
             ),
             Check(
+                name="swap_capacity",
+                command="awk '/SwapTotal/ {exit !($2 >= 524288)}' /proc/meminfo",
+                fail_message="Swap is below 512 MB; prepare-os will create a 1 GiB /swapfile before installation.",
+                warn_only=True,
+            ),
+            Check(
                 name="oracle_user",
                 command="id oracle",
                 fail_message="OS user oracle does not exist yet; prepare-os will create it.",
