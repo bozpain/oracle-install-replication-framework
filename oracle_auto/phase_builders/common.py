@@ -58,6 +58,20 @@ def stage_patch_lines(sources_path: str, patch_file: str, variable: str = "PATCH
     ]
 
 
+def ensure_swap_lines() -> list[str]:
+    return [
+        "echo 'Ensuring at least 512 MiB swap for Oracle installer'",
+        "swap_kb=$(awk '/SwapTotal/ {print $2}' /proc/meminfo)",
+        'if test "${swap_kb:-0}" -lt 524288; then',
+        "  test -f /swapfile || fallocate -l 1G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none",
+        "  chmod 600 /swapfile",
+        "  if ! swapon --show=NAME --noheadings | grep -qx /swapfile; then mkswap /swapfile >/dev/null; swapon /swapfile; fi",
+        "  grep -q '^/swapfile[[:space:]]' /etc/fstab || printf '/swapfile none swap sw 0 0\\n' >> /etc/fstab",
+        "fi",
+        "awk '/SwapTotal/ {print; exit !($2 >= 524288)}' /proc/meminfo",
+    ]
+
+
 def patch_top_assignment(patch_dir: str, variable: str = "PATCH_TOP") -> str:
     return (
         f"{variable}=$(find {patch_dir} -path '*/etc/config/inventory.xml' -type f "

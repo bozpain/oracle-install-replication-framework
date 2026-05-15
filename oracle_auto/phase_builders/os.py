@@ -11,7 +11,7 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig
-from oracle_auto.phase_builders.common import DB_HOME, GRID_BASE, GRID_BASE_DIR, ORACLE_BASE, STAGE, make_step
+from oracle_auto.phase_builders.common import DB_HOME, GRID_BASE, GRID_BASE_DIR, ORACLE_BASE, STAGE, ensure_swap_lines, make_step
 
 
 def prepare_os_steps(config: AutomationConfig) -> list[AutomationStep]:
@@ -54,13 +54,7 @@ def _prepare_os_script(config: AutomationConfig) -> str:
         "systemctl disable --now nftables 2>/dev/null || true",
         "setenforce 0 2>/dev/null || true",
         "test -f /etc/selinux/config && sed -i 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config || true",
-        "swap_kb=$(awk '/SwapTotal/ {print $2}' /proc/meminfo)",
-        'if test "${swap_kb:-0}" -lt 524288; then',
-        "  test -f /swapfile || fallocate -l 1G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none",
-        "  chmod 600 /swapfile",
-        "  if ! swapon --show=NAME --noheadings | grep -qx /swapfile; then mkswap /swapfile >/dev/null; swapon /swapfile; fi",
-        "  grep -q '^/swapfile[[:space:]]' /etc/fstab || printf '/swapfile none swap sw 0 0\\n' >> /etc/fstab",
-        "fi",
+        *ensure_swap_lines(),
         "swapon --show",
         "cp -p /etc/chrony.conf /etc/chrony.conf.oracle-auto.bak.$(date +%Y%m%d%H%M%S) 2>/dev/null || true",
         "sed -i '/^server /s/^/# oracle-auto disabled /; /^pool /s/^/# oracle-auto disabled /' /etc/chrony.conf 2>/dev/null || true",

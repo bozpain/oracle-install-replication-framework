@@ -10,7 +10,7 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
-from oracle_auto.phase_builders.common import GRID_BASE, STAGE, make_step, stage_patch_lines
+from oracle_auto.phase_builders.common import GRID_BASE, STAGE, ensure_swap_lines, make_step, stage_patch_lines
 from oracle_auto.phase_builders.storage import afd_label_command, asm_entries
 from oracle_auto.response_files.grid import grid_response
 
@@ -51,6 +51,7 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         "umask 077",
         _scan_dns_guard(site),
         _hosts_guard(config),
+        *ensure_swap_lines(),
         *_fresh_grid_home_lines(config),
         *_grid_opatch_lines(config),
         *_grid_patch_stage_lines(config),
