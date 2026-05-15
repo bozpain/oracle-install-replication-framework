@@ -129,14 +129,16 @@ class PrecheckRunner:
             ),
             Check(
                 name="preinstall_package",
-                command=f"{package_manager} list {preinstall_package}",
+                command=f"rpm -q {preinstall_package} || {package_manager} list {preinstall_package}",
                 fail_message=f"Cannot find package from enabled repo: {preinstall_package}",
+                timeout=180,
             ),
             Check(
                 name="asmlib_packages",
                 command=f"{package_manager} list oracleasm-support && ({package_manager} list oracleasmlib || echo 'oracleasmlib will be installed from Oracle ASMLIB v3 RPM URL')",
                 fail_message="Cannot find Oracle ASMLIB v3 packages from enabled repositories; prepare-os can enable ol8_addons and install oracleasmlib from Oracle ASMLIB v3 RPM URL.",
                 warn_only=True,
+                timeout=180,
             ),
             Check(
                 name="dns_resolver_config",
