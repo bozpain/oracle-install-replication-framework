@@ -157,6 +157,7 @@ def _grid_config_tools_script(config: AutomationConfig, site: SiteConfig) -> str
     response_file = f"{STAGE}/responses/grid-{site.name}.rsp"
     crs_check = _crs_check_command(config)
     lines = [
+        _asm_password_export(config),
         f"mkdir -p {STAGE}/responses",
         f"cat > {response_file} <<EOF\n{response}\nEOF",
         f"chown grid:oinstall {response_file}",

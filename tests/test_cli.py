@@ -320,6 +320,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("sudo -iu grid asmcmd lsdg || true", root_command)
         self.assertIn("/u01/app/19.0.0/grid/bin/crsctl check has", config_tools_command)
         self.assertIn("/u01/app/19.0.0/grid/bin/asmcmd lsdg", config_tools_command)
+        self.assertIn("ASMSNMP_PASSWORD=", config_tools_command)
         self.assertIn("cat > /u01/stage/responses/grid-site-a.rsp", config_tools_command)
         self.assertIn("oracle.install.asm.diskGroup.disks=ORCL:DATA01", config_tools_command)
         self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=ORCL:*", config_tools_command)
