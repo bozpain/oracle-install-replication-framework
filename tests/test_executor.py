@@ -1,5 +1,7 @@
 import subprocess
 import unittest
+from io import StringIO
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from oracle_auto.config import NodeConfig, SSHConfig
@@ -11,13 +13,20 @@ class SSHExecutorTest(unittest.TestCase):
         executor = SSHExecutor(SSHConfig(user="oracle_auto"))
         node = NodeConfig(host="db1.example.com", public_ip="192.0.2.10")
 
-        with patch("oracle_auto.executor.subprocess.run") as run:
-            run.side_effect = subprocess.TimeoutExpired(
-                cmd=["ssh", "oracle_auto@db1.example.com", "sleep 120"],
-                timeout=60,
-                output="partial stdout",
-                stderr="partial stderr",
-            )
+        class TimedOutProcess:
+            def __init__(self):
+                self.stdout = StringIO("partial stdout\n")
+                self.stderr = StringIO("partial stderr\n")
+
+            def wait(self, timeout=None):
+                if timeout is not None:
+                    raise subprocess.TimeoutExpired(cmd=["ssh"], timeout=timeout)
+                return 124
+
+            def kill(self):
+                pass
+
+        with patch("oracle_auto.executor.subprocess.Popen", return_value=TimedOutProcess()):
             result = executor.run(node, "sleep 120", timeout=60)
 
         self.assertEqual(result.host, "db1.example.com")
@@ -39,16 +48,41 @@ class SSHExecutorTest(unittest.TestCase):
         executor = SSHExecutor(SSHConfig(user="oracle_auto"))
         node = NodeConfig(host="db1.example.com", public_ip="192.0.2.10")
 
-        with patch("oracle_auto.executor.subprocess.run") as run:
-            run.return_value = subprocess.CompletedProcess(
-                args=["ssh"],
-                returncode=0,
-                stdout="ok",
-                stderr="",
-            )
+        class CompletedProcess:
+            def __init__(self):
+                self.stdout = StringIO("ok\n")
+                self.stderr = StringIO("")
+                self.timeout_seen = "unset"
+
+            def wait(self, timeout=None):
+                self.timeout_seen = timeout
+                return 0
+
+        process = CompletedProcess()
+        with patch("oracle_auto.executor.subprocess.Popen", return_value=process):
             executor.run(node, "true", timeout=None)
 
-        self.assertIsNone(run.call_args.kwargs["timeout"])
+        self.assertIsNone(process.timeout_seen)
+
+    def test_output_streams_while_command_runs(self):
+        executor = SSHExecutor(SSHConfig(user="oracle_auto"))
+        node = NodeConfig(host="db1.example.com", public_ip="192.0.2.10")
+
+        class CompletedProcess:
+            def __init__(self):
+                self.stdout = StringIO("line one\nline two\n")
+                self.stderr = StringIO("")
+
+            def wait(self, timeout=None):
+                return 0
+
+        buffer = StringIO()
+        with patch("oracle_auto.executor.subprocess.Popen", return_value=CompletedProcess()):
+            with redirect_stdout(buffer):
+                result = executor.run(node, "true", timeout=None)
+
+        self.assertEqual(result.stdout, "line one\nline two")
+        self.assertEqual(buffer.getvalue(), "line one\nline two\n")
 
 
 if __name__ == "__main__":

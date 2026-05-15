@@ -157,6 +157,13 @@ class CliTest(unittest.TestCase):
 
         self.assertIsNone(verify_installer_steps(config)[0].timeout)
 
+    def test_verify_installer_prints_zip_progress(self):
+        config = load_config(Path("configs/sample-single.json"))
+        command = verify_installer_steps(config)[0].command
+
+        self.assertIn("Integrity check: LINUX.X64_193000_grid_home.zip", command)
+        self.assertIn("Integrity check: p19_30_ojvm_ru_Linux-x86-64.zip", command)
+
     def test_storage_rules_contain_dm_uuid_rule(self):
         config = load_config(Path("configs/sample-rac-dg.json"))
         command = prepare_storage_rules_steps(config)[0].command

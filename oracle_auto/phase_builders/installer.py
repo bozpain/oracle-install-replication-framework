@@ -34,7 +34,14 @@ def _verify_installer_script(config: AutomationConfig) -> str:
         files.append(config.installer.opatch_zip)
     files.extend(patch.file for patch in config.installer.patches)
     checks = [f"test -s {sources}/{shlex.quote(file)}" for file in files]
-    integrity_checks = [f"unzip -t {sources}/{shlex.quote(file)} >/dev/null" for file in files]
+    integrity_checks = [
+        line
+        for file in files
+        for line in (
+            f"echo 'Integrity check: {file}'",
+            f"unzip -t {sources}/{shlex.quote(file)} >/dev/null",
+        )
+    ]
     lines = [
         f"test -d {sources}",
         f"test -r {sources}",

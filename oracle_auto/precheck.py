@@ -314,7 +314,10 @@ def _installer_check(config: AutomationConfig) -> str:
 
 def _installer_integrity_check(config: AutomationConfig) -> str:
     return " && ".join(
-        f"unzip -t {shlex.quote(config.installer.sources_path + '/' + file)} >/dev/null"
+        (
+            f"printf 'Integrity check: %s\\n' {shlex.quote(file)} && "
+            f"unzip -t {shlex.quote(config.installer.sources_path + '/' + file)} >/dev/null"
+        )
         for file in _installer_files(config)
     )
 
