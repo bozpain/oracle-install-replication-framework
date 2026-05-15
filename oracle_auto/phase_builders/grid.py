@@ -47,6 +47,7 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
     response = grid_response(config, site)
     lines = [
         _asm_password_export(config),
+        "export CV_ASSUME_DISTID=OL7",
         f"mkdir -p {STAGE}/responses",
         "umask 077",
         _scan_dns_guard(site),
