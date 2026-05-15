@@ -29,7 +29,7 @@ class AutomationStep:
     node: NodeConfig
     command: str
     title: str
-    timeout: int = 600
+    timeout: int | None = 600
     warn_only: bool = False
 
     @property

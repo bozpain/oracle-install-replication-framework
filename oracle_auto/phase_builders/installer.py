@@ -21,7 +21,7 @@ def verify_installer_steps(config: AutomationConfig) -> list[AutomationStep]:
             node,
             "Verify Oracle installer and patch ZIP files",
             _verify_installer_script(config),
-            timeout=300,
+            timeout=None,
         )
         for node in config.all_nodes
     ]

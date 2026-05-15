@@ -10,6 +10,7 @@ from oracle_auto.executor import CommandResult
 from oracle_auto.precheck import _secret_env_check
 from oracle_auto.secrets import redact
 from oracle_auto.phase_builders.inventory import inventory_steps
+from oracle_auto.phase_builders.installer import verify_installer_steps
 from oracle_auto.phase_builders.os import prepare_os_steps
 from oracle_auto.phase_builders.storage import prepare_storage_rules_steps
 from oracle_auto.phase_builders.grid import install_grid_steps
@@ -150,6 +151,11 @@ class CliTest(unittest.TestCase):
             AutomationRunner(RecordingExecutor(), MemoryState()).run([step])
 
         self.assertIn("RUN   verify-installer:db01:verify_installer", buffer.getvalue())
+
+    def test_verify_installer_has_no_framework_timeout(self):
+        config = load_config(Path("configs/sample-single.json"))
+
+        self.assertIsNone(verify_installer_steps(config)[0].timeout)
 
     def test_storage_rules_contain_dm_uuid_rule(self):
         config = load_config(Path("configs/sample-rac-dg.json"))

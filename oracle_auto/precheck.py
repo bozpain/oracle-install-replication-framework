@@ -45,7 +45,7 @@ class Check:
     command: str
     fail_message: str
     warn_only: bool = False
-    timeout: int = 60
+    timeout: int | None = 60
 
 
 class PrecheckRunner:
@@ -158,7 +158,7 @@ class PrecheckRunner:
                 name="installer_zip_integrity",
                 command=_installer_integrity_check(self.config),
                 fail_message="One or more configured installer/patch ZIP files failed unzip integrity testing.",
-                timeout=300,
+                timeout=None,
             ),
             Check(
                 name="installer_zip_contents",

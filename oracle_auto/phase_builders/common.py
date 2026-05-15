@@ -26,7 +26,7 @@ def make_step(
     node: NodeConfig,
     title: str,
     command: str,
-    timeout: int,
+    timeout: int | None,
     warn_only: bool = False,
     remote_marker: bool = True,
 ) -> AutomationStep:

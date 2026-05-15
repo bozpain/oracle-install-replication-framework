@@ -32,7 +32,7 @@ class SSHExecutor:
         self.config = config
         self.dry_run = dry_run
 
-    def run(self, node: NodeConfig, command: str, timeout: int = 60) -> CommandResult:
+    def run(self, node: NodeConfig, command: str, timeout: int | None = 60) -> CommandResult:
         user = node.ssh_user or self.config.user
         target = f"{user}@{node.host}"
 
@@ -83,6 +83,10 @@ class SSHExecutor:
             str(self.config.port),
             "-o",
             f"ConnectTimeout={self.config.connect_timeout}",
+            "-o",
+            f"ServerAliveInterval={self.config.server_alive_interval}",
+            "-o",
+            f"ServerAliveCountMax={self.config.server_alive_count_max}",
             "-o",
             "BatchMode=yes",
             "-o",

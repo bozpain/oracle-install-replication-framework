@@ -38,6 +38,8 @@ class SSHConfig:
     port: int = 22
     key_file: str | None = None
     connect_timeout: int = 10
+    server_alive_interval: int = 30
+    server_alive_count_max: int = 6
     strict_host_key_checking: str = "accept-new"
 
 
@@ -475,6 +477,8 @@ def _parse_ssh(data: Any) -> SSHConfig:
         port=int(data.get("port", 22)),
         key_file=_optional_str(data.get("key_file")),
         connect_timeout=int(data.get("connect_timeout", 10)),
+        server_alive_interval=int(data.get("server_alive_interval", 30)),
+        server_alive_count_max=int(data.get("server_alive_count_max", 6)),
         strict_host_key_checking=str(data.get("strict_host_key_checking", "accept-new")),
     )
 
