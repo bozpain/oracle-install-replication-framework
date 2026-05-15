@@ -171,6 +171,8 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
         f"test ! -e {shlex.quote(path)} || test -b {shlex.quote(path)}"
         for _label, path, _group, _disk in entries
     ]
+    managed_names = {path.rsplit("/", 1)[-1] for _label, path, _group, _disk in entries}
+    managed_name_args = " ".join(shlex.quote(name) for name in sorted(managed_names))
     lines = [
         "command -v udevadm",
         *install_asmlib_lines(config.os.package_manager),
@@ -181,6 +183,12 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
         *uuid_checks,
         *path_checks,
         "mkdir -p /dev/oracleasm",
+        (
+            f"for item in /dev/oracleasm/*; do test -e \"$item\" || continue; name=$(basename \"$item\"); "
+            f"case \" {managed_name_args} \" in *\" $name \"*) ;; *) "
+            "if test -L \"$item\"; then echo \"Removing unmanaged ASM symlink: $item\"; rm -f \"$item\"; fi ;; "
+            "esac; done"
+        ),
         *collision_checks,
         *(
             [
@@ -197,10 +205,12 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
         *disk_checks,
         "ls -l /dev/oracleasm",
         "oracleasm configure -u grid -g asmdba -e -s y -m 2048",
-        "systemctl enable --now oracleasm || oracleasm init",
-        "oracleasm status",
+        "systemctl restart oracleasm || oracleasm init",
+        "systemctl enable oracleasm || true",
+        "oracleasm status || true",
         *[asmlib_label_command(label, path) for label, path, _group, _disk in entries],
         "oracleasm listdisks",
+        "oracleasm status",
     ]
     return shell_script("Prepare ASMLIB disks", lines)
 
