@@ -11,8 +11,8 @@ def grid_response(config: AutomationConfig, site: SiteConfig) -> str:
     install_option = "CRS_CONFIG" if config.install_type == "rac" else "HA_CONFIG"
     initial_group = "OCR" if config.install_type == "rac" else "DATA"
     initial_disks = ",".join(
-        path
-        for _label, path, group, _disk in asm_entries(config)
+        f"AFD:{label}"
+        for label, _path, group, _disk in asm_entries(config)
         if group == initial_group
     )
     lines = [
