@@ -106,6 +106,7 @@ def _prepare_storage_rules_script(config: AutomationConfig) -> str:
         (
             f"ln -sfn \"$(readlink -f {shlex.quote(source)})\" {shlex.quote(path)} && "
             f"chown -h grid:asmadmin {shlex.quote(path)} && "
+            f"chown grid:asmadmin \"$(readlink -f {shlex.quote(source)})\" && "
             f"chmod 0660 \"$(readlink -f {shlex.quote(source)})\""
         )
         for path, source in path_entries

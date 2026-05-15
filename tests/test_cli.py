@@ -219,6 +219,13 @@ class CliTest(unittest.TestCase):
         self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_db_ru_linux_x86_64_zip", db_command)
         self.assertIn('-applyRU "$DB_PATCH_TOP"', db_command)
 
+    def test_path_backed_asm_devices_are_owned_by_grid(self):
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        command = prepare_storage_rules_steps(config)[0].command
+
+        self.assertIn('chown grid:asmadmin "$(readlink -f /dev/oracleasm-src/data)"', command)
+        self.assertIn('chown grid:asmadmin "$(readlink -f /dev/oracleasm-src/reco)"', command)
+
     def test_single_gi_grid_response_omits_cluster_only_fields(self):
         config = load_config(Path("configs/sample-single.json"))
         response = grid_response(config, config.primary_site)
