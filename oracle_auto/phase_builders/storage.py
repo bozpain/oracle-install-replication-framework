@@ -70,6 +70,13 @@ def storage_mapping_text(config: AutomationConfig) -> str:
     return "\n".join(rows)
 
 
+def afd_discovery_string(config: AutomationConfig) -> str:
+    paths = [path for _label, path, _group, _disk in asm_entries(config)]
+    if paths and all(path.startswith("/dev/oracleasm/") for path in paths):
+        return "/dev/oracleasm/*"
+    return ",".join(paths)
+
+
 def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
     disk_list = ",".join(f"'AFD:{label}'" for label in labels)
     return (
@@ -185,6 +192,7 @@ def _configure_asm_storage_script(config: AutomationConfig) -> str:
         f"sudo -iu grid {GRID_BASE}/bin/crsctl check crs",
         f"sudo -iu grid {GRID_BASE}/bin/asmcmd afd_state || true",
         *label_commands,
+        f"sudo -iu grid {GRID_BASE}/bin/asmcmd afd_dsset {shlex.quote(afd_discovery_string(config))}",
         f"sudo -iu grid {GRID_BASE}/bin/asmcmd afd_lslbl || true",
         *diskgroup_commands,
         f"sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg",

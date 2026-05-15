@@ -11,7 +11,7 @@ import shlex
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
 from oracle_auto.phase_builders.common import GRID_BASE, STAGE, ensure_swap_lines, make_step, stage_patch_lines
-from oracle_auto.phase_builders.storage import afd_label_command, asm_entries
+from oracle_auto.phase_builders.storage import afd_discovery_string, afd_label_command, asm_entries
 from oracle_auto.response_files.grid import grid_response
 
 
@@ -116,6 +116,7 @@ def _initial_afd_label_lines(config: AutomationConfig) -> list[str]:
         f"export PATH={GRID_BASE}/bin:$PATH",
         f"test -x {GRID_BASE}/bin/asmcmd",
     ]
+    lines.append(f"{GRID_BASE}/bin/asmcmd afd_dsset {shlex.quote(afd_discovery_string(config))}")
     for label, path in entries:
         quoted_path = shlex.quote(path)
         lines.append(f"printf 'ASM candidate %s -> ' {quoted_path}; readlink -f {quoted_path}")
@@ -124,6 +125,7 @@ def _initial_afd_label_lines(config: AutomationConfig) -> list[str]:
         lines.append(f"test \"$(blockdev --getsize64 {quoted_path})\" -ge 8388608")
         lines.append(afd_label_command(label, path, initial=True))
     lines.append(f"{GRID_BASE}/bin/asmcmd afd_lslbl")
+    lines.append(f"{GRID_BASE}/bin/asmcmd afd_lslbl | awk '{{print $1}}' | grep -qx {shlex.quote(entries[0][0])}" if entries else "true")
     lines.append("unset ORACLE_BASE")
     return lines
 
