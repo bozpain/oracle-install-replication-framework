@@ -230,6 +230,17 @@ class CliTest(unittest.TestCase):
         self.assertIn("sudo -n wipefs", _disk_signature_check(config))
         self.assertIn("sudo -n blockdev", _disk_size_check(config))
 
+    def test_precheck_rejects_kernel_5_14_or_newer_for_asmfd(self):
+        from oracle_auto.precheck import PrecheckRunner
+
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
+        checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
+
+        self.assertIn("asmfd_kernel_support", checks)
+        self.assertIn('test "$major" -lt 5', checks["asmfd_kernel_support"].command)
+        self.assertIn("ASMFD is not supported on Linux kernel 5.14 or newer", checks["asmfd_kernel_support"].fail_message)
+
     def test_install_steps_apply_targeted_ru_patches(self):
         config = load_config(Path("configs/sample-single.json"))
         grid_command = install_grid_steps(config)[0].command
