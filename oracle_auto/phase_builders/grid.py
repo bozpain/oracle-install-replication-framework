@@ -70,23 +70,31 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         f"chmod 600 {STAGE}/responses/grid-{site.name}.rsp",
         f"mkdir -p {STAGE}/logs",
         f"GRID_SETUP_LOG={STAGE}/logs/gridSetup-{site.name}.out",
-        "if test ! -f /etc/oracle/olr.loc && test -x "
-        f"{GRID_BASE}/root.sh && ls {GRID_BASE}/install/response/grid_*.rsp >/dev/null 2>&1; then",
-        "  echo 'Grid software already installed; skipping software setup and continuing with root scripts/config tools.'",
-        "else",
-        "set +e",
-        f"sudo -iu grid env CV_ASSUME_DISTID=OL7 ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/gridSetup.sh -silent -waitforcompletion -responseFile {STAGE}/responses/grid-{site.name}.rsp{_grid_patch_arg(config)} -ignorePrereqFailure 2>&1 | tee \"$GRID_SETUP_LOG\"",
-        "grid_setup_rc=${PIPESTATUS[0]}",
-        "set -e",
-        "if test \"$grid_setup_rc\" -ne 0; then",
-        "  if grep -Eq 'Successfully Setup Software|execute the following script|executeConfigTools' \"$GRID_SETUP_LOG\" && test -x "
-        f"{GRID_BASE}/root.sh; then",
-        "    echo 'Grid software setup completed; root scripts and config tools will run in following steps.'",
-        "  else",
-        "    exit \"$grid_setup_rc\"",
+        "GRID_RU_APPLIED=false",
+        f"if test -x {GRID_BASE}/OPatch/opatch; then",
+        f"  if sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches | grep -Eq '^({_grid_patch_id_regex(config)});'; then",
+        "    GRID_RU_APPLIED=true",
         "  fi",
         "fi",
+        "if test ! -f /etc/oracle/olr.loc && test -x "
+        f"{GRID_BASE}/root.sh && ls {GRID_BASE}/install/response/grid_*.rsp >/dev/null 2>&1 && test \"$GRID_RU_APPLIED\" = true; then",
+        "  echo 'Grid software and RU already installed; skipping software setup and continuing with root scripts/config tools.'",
+        "else",
+        "  echo 'Running Grid software setup with RU apply when configured.'",
+        "  set +e",
+        f"  sudo -iu grid env CV_ASSUME_DISTID=OL7 ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/gridSetup.sh -silent -waitforcompletion -responseFile {STAGE}/responses/grid-{site.name}.rsp{_grid_patch_arg(config)} -ignorePrereqFailure 2>&1 | tee \"$GRID_SETUP_LOG\"",
+        "  grid_setup_rc=${PIPESTATUS[0]}",
+        "  set -e",
+        "  if test \"$grid_setup_rc\" -ne 0; then",
+        "    if grep -Eq 'Successfully Setup Software|execute the following script|executeConfigTools' \"$GRID_SETUP_LOG\" && test -x "
+        f"{GRID_BASE}/root.sh; then",
+        "      echo 'Grid software setup completed; root scripts and config tools will run in following steps.'",
+        "    else",
+        "      exit \"$grid_setup_rc\"",
+        "    fi",
+        "  fi",
         "fi",
+        *_grid_ru_validation_lines(config),
     ]
     return shell_script(f"Install Grid Infrastructure for {site.name}", lines)
 
@@ -108,7 +116,7 @@ def _fresh_grid_home_lines(config: AutomationConfig) -> list[str]:
     return [
         "if test ! -f /etc/oracle/olr.loc && test -x "
         f"{GRID_BASE}/gridSetup.sh && ls {GRID_BASE}/install/response/grid_*.rsp >/dev/null 2>&1; then "
-        "echo 'Grid software appears installed; preserving home for root scripts/config tools'; "
+        "echo 'Grid software appears installed; preserving home; RU validation will decide whether setup must run'; "
         "elif test ! -f /etc/oracle/olr.loc && test -x "
         f"{GRID_BASE}/gridSetup.sh; then echo 'Resetting unconfigured Grid home before install'; "
         f"find {GRID_BASE} -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +; fi",
@@ -134,6 +142,34 @@ def _grid_patch_arg(config: AutomationConfig) -> str:
     return ' -applyRU "$GRID_PATCH_TOP"'
 
 
+def _grid_patch_id_regex(config: AutomationConfig) -> str:
+    if config.installer.grid_patch is None:
+        return "NO_PATCH_CONFIGURED"
+    patch_id = getattr(config.installer.grid_patch, "patch_id", None)
+    if patch_id:
+        return shlex.quote(str(patch_id)).strip("'")
+    return str(config.installer.grid_patch.file).split("/")[-1].split("_")[0]
+
+
+def _grid_ru_validation_lines(config: AutomationConfig) -> list[str]:
+    if config.installer.grid_patch is None:
+        return [
+            "echo 'No Grid RU configured; skipping RU validation.'",
+        ]
+
+    patch_id = _grid_patch_id_regex(config)
+    return [
+        "echo 'Validating Grid RU patch inventory before root scripts/config tools.'",
+        f"sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches",
+        f"sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches | grep -Eq '^({patch_id});'",
+        f"sudo -iu grid {GRID_BASE}/bin/oraversion -version || true",
+        f"if sudo -iu grid {GRID_BASE}/bin/oraversion -version 2>/dev/null | grep -q '19.3.0.0.0'; then",
+        "  echo 'ERROR: Grid home still reports 19.3.0.0.0 after RU apply. Refusing to continue.' >&2",
+        "  exit 1",
+        "fi",
+    ]
+
+
 def _asm_password_export(config: AutomationConfig) -> str:
     return (
         f'ASMSNMP_PASSWORD="${{{config.secrets.asmsnmp_password_env}:?'
@@ -148,7 +184,7 @@ def _grid_root_script() -> str:
         f"test -x {GRID_BASE}/root.sh",
         f"if sudo -iu grid {GRID_BASE}/bin/crsctl check crs >/dev/null 2>&1; then echo 'Grid appears active; skipping root.sh rerun.'; else {GRID_BASE}/root.sh; fi",
         f"sudo -iu grid {GRID_BASE}/bin/crsctl check crs || true",
-        "sudo -iu grid asmcmd lsdg || true",
+        f"sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg || true",
     ]
     return shell_script("Run Grid root scripts", lines)
 
@@ -159,6 +195,7 @@ def _grid_config_tools_script(config: AutomationConfig, site: SiteConfig) -> str
     crs_check = _crs_check_command(config)
     lines = [
         _asm_password_export(config),
+        *_grid_ru_validation_lines(config),
         f"mkdir -p {STAGE}/responses",
         f"cat > {response_file} <<EOF\n{response}\nEOF",
         f"chown grid:oinstall {response_file}",
@@ -209,31 +246,28 @@ def _crs_check_command(config: AutomationConfig) -> str:
 def _single_gi_direct_asmca_lines(config: AutomationConfig) -> list[str]:
     if config.install_type != "single-gi":
         return []
+
     initial_group = "DATA"
     initial_disks = ",".join(
         asm_disk_spec(label)
         for label, _path, group, _disk in asm_entries(config)
         if group == initial_group
     )
-    fallback_disks = ",".join(
-        path
-        for _label, path, group, _disk in asm_entries(config)
-        if group == initial_group
-    )
+
     return [
         f"  if sudo -iu grid {GRID_BASE}/bin/crsctl check has >/dev/null 2>&1 && ! sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
-        "    echo 'Running ASMCA directly with ASMLIB logical disk string to avoid stale OUI config replay'",
+        "    echo 'Running ASMCA directly with ASMLIB logical disk string'",
+        "    echo 'ASM disk string: " + asm_discovery_string(config) + "'",
+        "    echo 'ASM disk list: " + initial_disks + "'",
         "    set +e",
         f"    sudo -iu grid env ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/bin/asmca -silent -configureASM -sysAsmPassword \"$ASMSNMP_PASSWORD\" -asmsnmpPassword \"$ASMSNMP_PASSWORD\" -diskString {shlex.quote(asm_discovery_string(config))} -diskGroupName {initial_group} -diskList {shlex.quote(initial_disks)} -redundancy {shlex.quote(config.asm.redundancy)} -au_size 1",
         "    direct_asmca_rc=$?",
         "    set -e",
         f"    if test \"$direct_asmca_rc\" -ne 0 && ! sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
-        "      echo 'ASMLIB logical discovery failed; disabling iofilter before retrying ASMCA with /dev/oracleasm device paths'",
-        "      oracleasm configure -u grid -g asmdba -e -s y -m 2048",
-        "      systemctl restart oracleasm || oracleasm init",
-        "      oracleasm scandisks",
+        "      echo 'ERROR: ASMCA failed using ASMLIB logical discovery. Not retrying with device paths.' >&2",
         "      oracleasm status || true",
-        f"      sudo -iu grid env ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/bin/asmca -silent -configureASM -sysAsmPassword \"$ASMSNMP_PASSWORD\" -asmsnmpPassword \"$ASMSNMP_PASSWORD\" -diskString 'ORCL:*' -diskGroupName {initial_group} -diskList {shlex.quote(fallback_disks)} -redundancy {shlex.quote(config.asm.redundancy)} -au_size 1",
+        "      oracleasm listdisks || true",
+        "      exit \"$direct_asmca_rc\"",
         "    fi",
         "  fi",
     ]
