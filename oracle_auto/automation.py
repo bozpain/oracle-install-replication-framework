@@ -93,6 +93,7 @@ class AutomationRunner:
                 results.append(result)
                 continue
 
+            print(f"RUN   {step.phase}:{step.node.host}:{step.name}  {step.title}", flush=True)
             self.state.mark_running(step.state_key)
             command_result = self.executor.run(step.node, step.command, timeout=step.timeout)
             result = self._to_step_result(step, command_result)

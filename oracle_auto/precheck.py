@@ -78,6 +78,7 @@ class PrecheckRunner:
                     )
                     continue
 
+                print(f"RUN   precheck:{node.host}:{check.name}", flush=True)
                 self.state.mark_running(step)
                 result = self.executor.run(node, check.command, timeout=check.timeout)
                 item = self._to_precheck_item(check, result)

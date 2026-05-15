@@ -95,6 +95,41 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(result.status, "DRYRUN")
 
+    def test_runner_prints_step_start_before_execution(self):
+        step = AutomationStep(
+            phase="verify-installer",
+            name="verify_installer",
+            node=NodeConfig(host="db01", public_ip="192.0.2.10"),
+            command="true",
+            title="Verify installer files",
+        )
+
+        class RecordingExecutor:
+            def run(self, node, command, timeout=60):
+                return CommandResult(node.host, command, 0, "ok", "")
+
+        class MemoryState:
+            def is_done(self, key):
+                return False
+
+            def mark_running(self, key):
+                pass
+
+            def mark_done(self, key, details):
+                pass
+
+            def mark_failed(self, key, details):
+                pass
+
+        import io
+        from contextlib import redirect_stdout
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            AutomationRunner(RecordingExecutor(), MemoryState()).run([step])
+
+        self.assertIn("RUN   verify-installer:db01:verify_installer", buffer.getvalue())
+
     def test_storage_rules_contain_dm_uuid_rule(self):
         config = load_config(Path("configs/sample-rac-dg.json"))
         command = prepare_storage_rules_steps(config)[0].command
