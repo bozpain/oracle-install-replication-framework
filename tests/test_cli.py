@@ -17,6 +17,7 @@ from oracle_auto.phase_builders.storage import prepare_storage_rules_steps
 from oracle_auto.phase_builders.grid import install_grid_steps
 from oracle_auto.phase_builders.database import install_db_software_steps
 from oracle_auto.phase_builders.patching import apply_ojvm_patch_steps
+from oracle_auto.response_files.grid import grid_response
 
 
 class CliTest(unittest.TestCase):
@@ -204,6 +205,8 @@ class CliTest(unittest.TestCase):
 
         self.assertIn("export ORACLE_HOME=/u01/app/19.0.0/grid", grid_command)
         self.assertIn("export ORACLE_BASE=/u01/app/grid", grid_command)
+        self.assertIn("ASMSNMP_PASSWORD=", grid_command)
+        self.assertIn("chmod 600 /u01/stage/responses/grid-site-a.rsp", grid_command)
         self.assertIn("asmcmd afd_label DATA01 /dev/oracleasm/data01 --init", grid_command)
         self.assertLess(grid_command.index("export ORACLE_HOME=/u01/app/19.0.0/grid"), grid_command.index("asmcmd afd_label DATA01"))
         self.assertLess(grid_command.index("asmcmd afd_label DATA01"), grid_command.index("gridSetup.sh -silent"))
@@ -213,6 +216,24 @@ class CliTest(unittest.TestCase):
         self.assertIn("p19_30_db_ru_Linux-x86-64.zip", db_command)
         self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_db_ru_linux_x86_64_zip", db_command)
         self.assertIn('-applyRU "$DB_PATCH_TOP"', db_command)
+
+    def test_single_gi_grid_response_omits_cluster_only_fields(self):
+        config = load_config(Path("configs/sample-single.json"))
+        response = grid_response(config, config.primary_site)
+
+        self.assertIn("oracle.install.option=HA_CONFIG", response)
+        self.assertIn("oracle.install.asm.SYSASMPassword=$ASMSNMP_PASSWORD", response)
+        self.assertIn("oracle.install.asm.monitorPassword=$ASMSNMP_PASSWORD", response)
+        self.assertNotIn("oracle.install.crs.config.clusterNodeVIPs", response)
+        self.assertNotIn("oracle.install.crs.config.clusterNodes", response)
+
+    def test_rac_grid_response_embeds_vips_in_cluster_nodes(self):
+        config = load_config(Path("configs/sample-rac-dg.json"))
+        response = grid_response(config, config.primary_site)
+
+        self.assertIn("oracle.install.option=CRS_CONFIG", response)
+        self.assertIn("oracle.install.crs.config.clusterNodes=db1-site-a.example.com:db1-site-a-vip.example.com", response)
+        self.assertNotIn("oracle.install.crs.config.clusterNodeVIPs", response)
 
     def test_ojvm_patch_runs_before_database_creation_phase(self):
         config = load_config(Path("configs/sample-single.json"))

@@ -46,14 +46,17 @@ def install_grid_steps(config: AutomationConfig) -> list[AutomationStep]:
 def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
     response = grid_response(config, site)
     lines = [
+        _asm_password_export(config),
         f"mkdir -p {STAGE}/responses",
+        "umask 077",
         _scan_dns_guard(site),
         _hosts_guard(config),
         f"test -x {GRID_BASE}/gridSetup.sh || sudo -iu grid unzip -oq {shlex.quote(config.installer.sources_path)}/{shlex.quote(config.installer.grid_zip)} -d {GRID_BASE}",
         *_grid_patch_stage_lines(config),
         *_initial_afd_label_lines(config),
-        f"cat > {STAGE}/responses/grid-{site.name}.rsp <<'EOF'\n{response}\nEOF",
+        f"cat > {STAGE}/responses/grid-{site.name}.rsp <<EOF\n{response}\nEOF",
         f"chown grid:oinstall {STAGE}/responses/grid-{site.name}.rsp",
+        f"chmod 600 {STAGE}/responses/grid-{site.name}.rsp",
         f"sudo -iu grid {GRID_BASE}/gridSetup.sh -silent -waitforcompletion -responseFile {STAGE}/responses/grid-{site.name}.rsp{_grid_patch_arg(config)} -ignorePrereqFailure",
     ]
     return shell_script(f"Install Grid Infrastructure for {site.name}", lines)
@@ -69,6 +72,14 @@ def _grid_patch_arg(config: AutomationConfig) -> str:
     if config.installer.grid_patch is None:
         return ""
     return ' -applyRU "$GRID_PATCH_TOP"'
+
+
+def _asm_password_export(config: AutomationConfig) -> str:
+    return (
+        f'ASMSNMP_PASSWORD="${{{config.secrets.asmsnmp_password_env}:?'
+        f'Set {config.secrets.asmsnmp_password_env} on target before running install-grid}}"\n'
+        "export ASMSNMP_PASSWORD"
+    )
 
 
 def _initial_afd_label_lines(config: AutomationConfig) -> list[str]:
