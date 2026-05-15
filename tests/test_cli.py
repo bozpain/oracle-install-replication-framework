@@ -205,7 +205,7 @@ class CliTest(unittest.TestCase):
 
         self.assertIn("export ORACLE_HOME=/u01/app/19.0.0/grid", grid_command)
         self.assertIn("export ORACLE_BASE=/u01/app/grid", grid_command)
-        self.assertIn("export CV_ASSUME_DISTID=OL7", grid_command)
+        self.assertIn("sudo -iu grid env CV_ASSUME_DISTID=OL7", grid_command)
         self.assertIn("ASMSNMP_PASSWORD=", grid_command)
         self.assertIn("chmod 600 /u01/stage/responses/grid-site-a.rsp", grid_command)
         self.assertIn("asmcmd afd_label DATA01 /dev/oracleasm/data01 --init", grid_command)
@@ -215,7 +215,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_grid_ru_linux_x86_64_zip", grid_command)
         self.assertIn('-applyRU "$GRID_PATCH_TOP"', grid_command)
         self.assertIn("p19_30_db_ru_Linux-x86-64.zip", db_command)
-        self.assertIn("export CV_ASSUME_DISTID=OL7", db_command)
+        self.assertIn("sudo -iu oracle env CV_ASSUME_DISTID=OL7", db_command)
         self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_db_ru_linux_x86_64_zip", db_command)
         self.assertIn('-applyRU "$DB_PATCH_TOP"', db_command)
 

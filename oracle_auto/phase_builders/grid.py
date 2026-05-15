@@ -47,7 +47,6 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
     response = grid_response(config, site)
     lines = [
         _asm_password_export(config),
-        "export CV_ASSUME_DISTID=OL7",
         f"mkdir -p {STAGE}/responses",
         "umask 077",
         _scan_dns_guard(site),
@@ -58,7 +57,7 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         f"cat > {STAGE}/responses/grid-{site.name}.rsp <<EOF\n{response}\nEOF",
         f"chown grid:oinstall {STAGE}/responses/grid-{site.name}.rsp",
         f"chmod 600 {STAGE}/responses/grid-{site.name}.rsp",
-        f"sudo -iu grid {GRID_BASE}/gridSetup.sh -silent -waitforcompletion -responseFile {STAGE}/responses/grid-{site.name}.rsp{_grid_patch_arg(config)} -ignorePrereqFailure",
+        f"sudo -iu grid env CV_ASSUME_DISTID=OL7 {GRID_BASE}/gridSetup.sh -silent -waitforcompletion -responseFile {STAGE}/responses/grid-{site.name}.rsp{_grid_patch_arg(config)} -ignorePrereqFailure",
     ]
     return shell_script(f"Install Grid Infrastructure for {site.name}", lines)
 

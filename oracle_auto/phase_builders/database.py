@@ -58,13 +58,12 @@ def create_database_steps(config: AutomationConfig) -> list[AutomationStep]:
 def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> str:
     response = db_home_response()
     lines = [
-        "export CV_ASSUME_DISTID=OL7",
         f"mkdir -p {STAGE}/responses",
         f"test -x {DB_HOME}/runInstaller || sudo -iu oracle unzip -oq {shlex.quote(config.installer.sources_path)}/{shlex.quote(config.installer.db_zip)} -d {DB_HOME}",
         *_db_patch_stage_lines(config),
         f"cat > {STAGE}/responses/dbhome-{site.name}.rsp <<'EOF'\n{response}\nEOF",
         f"chown oracle:oinstall {STAGE}/responses/dbhome-{site.name}.rsp",
-        f"sudo -iu oracle {DB_HOME}/runInstaller -silent -waitforcompletion -responseFile {STAGE}/responses/dbhome-{site.name}.rsp{_db_patch_arg(config)} -ignorePrereqFailure",
+        f"sudo -iu oracle env CV_ASSUME_DISTID=OL7 {DB_HOME}/runInstaller -silent -waitforcompletion -responseFile {STAGE}/responses/dbhome-{site.name}.rsp{_db_patch_arg(config)} -ignorePrereqFailure",
     ]
     return shell_script(f"Install Database home for {site.name}", lines)
 
