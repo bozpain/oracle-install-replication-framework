@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
@@ -444,6 +445,7 @@ def _execute_precheck(args, config: AutomationConfig) -> list[StepResult]:
 def _execute_phase(args, config: AutomationConfig, steps: list[AutomationStep]) -> list[StepResult]:
     state = NoopStateStore() if args.dry_run else StateStore(Path(args.state_dir), config.run_id)
     executor = SSHExecutor(config.ssh, dry_run=args.dry_run)
+    executable_steps = _with_remote_resume_override(steps) if args.no_resume else steps
     runner = AutomationRunner(
         executor,
         state=state,
@@ -452,7 +454,14 @@ def _execute_phase(args, config: AutomationConfig, steps: list[AutomationStep]) 
         log_dir=Path(args.log_dir) / config.run_id,
         parallel_by_host=args.command in PARALLEL_HOST_PHASES,
     )
-    return runner.run(steps)
+    return runner.run(executable_steps)
+
+
+def _with_remote_resume_override(steps: list[AutomationStep]) -> list[AutomationStep]:
+    return [
+        replace(step, command=f"ORACLE_AUTO_NO_REMOTE_RESUME=1 {step.command}")
+        for step in steps
+    ]
 
 
 def _start_progress_if_needed(args, config: AutomationConfig):

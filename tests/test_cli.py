@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 
 from oracle_auto.automation import AutomationRunner, AutomationStep, shell_script
-from oracle_auto.cli import main
+from oracle_auto.cli import _with_remote_resume_override, main
 from oracle_auto.config import NodeConfig, load_config
 from oracle_auto.executor import CommandResult
 from oracle_auto.precheck import _secret_env_check
@@ -16,7 +16,7 @@ from oracle_auto.phase_builders.installer import verify_installer_steps
 from oracle_auto.phase_builders.os import prepare_os_steps
 from oracle_auto.phase_builders.storage import prepare_storage_rules_steps
 from oracle_auto.phase_builders.grid import install_grid_steps
-from oracle_auto.phase_builders.database import install_db_software_steps
+from oracle_auto.phase_builders.database import create_database_steps, install_db_software_steps
 from oracle_auto.phase_builders.patching import apply_ojvm_patch_steps
 from oracle_auto.response_files.grid import grid_response
 from oracle_auto.state import NoopStateStore
@@ -489,6 +489,19 @@ class CliTest(unittest.TestCase):
         self.assertIn("p19_30_ojvm_ru_Linux-x86-64.zip", steps[0].command)
         self.assertIn('OPatch/opatch apply -silent "$PATCH_TOP"', steps[0].command)
 
+    def test_create_database_validates_asm_before_dbca(self):
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        command = create_database_steps(config)[0].command
+
+        self.assertIn("Validating ASM diskgroups before DBCA.", command)
+        self.assertIn("/u01/app/19.0.0/grid/bin/crsctl check has", command)
+        self.assertIn("/u01/app/19.0.0/grid/bin/asmcmd lsdg", command)
+        self.assertIn("ASM diskgroup $diskgroup is missing. Run configure-asm-storage before create-database.", command)
+        self.assertIn("for diskgroup in DATA RECO", command)
+        self.assertIn("ORACLE_HOME=/u01/app/oracle/product/19.0.0/dbhome_1", command)
+        self.assertIn("GRID_HOME=/u01/app/19.0.0/grid", command)
+        self.assertLess(command.index("Validating ASM diskgroups before DBCA."), command.index("dbca -silent -createDatabase"))
+
     def test_doctor_command_runs(self):
         tmp = self._test_dir("doctor")
         code = main([
@@ -530,6 +543,15 @@ class CliTest(unittest.TestCase):
         self.assertIn("sudo -n test -f /u01/stage/oracle-auto/state/prepare_os/prepare_os.done", command)
         self.assertIn("sudo -n mkdir -p /u01/stage/oracle-auto/state/prepare_os", command)
         self.assertIn("sudo -n tee /u01/stage/oracle-auto/state/prepare_os/prepare_os.done", command)
+        self.assertIn("ORACLE_AUTO_NO_REMOTE_RESUME", command)
+
+    def test_no_resume_bypasses_remote_marker(self):
+        config = load_config(Path("configs/sample-single.json"))
+        step = prepare_os_steps(config)[0]
+        command = _with_remote_resume_override([step])[0].command
+
+        self.assertTrue(command.startswith("ORACLE_AUTO_NO_REMOTE_RESUME=1 "))
+        self.assertIn("Remote marker bypass requested; rerunning", command)
 
     def test_prepare_os_sets_grid_and_oracle_profiles(self):
         config = load_config(Path("configs/gcp-single-gi-lab.json"))

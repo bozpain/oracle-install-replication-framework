@@ -12,7 +12,9 @@ from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
 from oracle_auto.phase_builders.common import (
     DB_HOME,
+    GRID_BASE,
     INVENTORY_LOCATION,
+    ORACLE_BASE,
     STAGE,
     ensure_swap_lines,
     make_step,
@@ -20,6 +22,7 @@ from oracle_auto.phase_builders.common import (
     oracle_user_group_lines,
     stage_patch_lines,
 )
+from oracle_auto.phase_builders.storage import asm_sid_detection_lines, grid_env_command
 from oracle_auto.response_files.database import db_home_response, dbca_response
 
 
@@ -236,16 +239,43 @@ def _create_database_script(config: AutomationConfig) -> str:
         f"cat > {STAGE}/responses/dbca-primary.rsp <<EOF\n{response}\nEOF",
         f"chown oracle:oinstall {STAGE}/responses/dbca-primary.rsp",
         f"chmod 600 {STAGE}/responses/dbca-primary.rsp",
+        *_asm_diskgroup_precheck_lines(config),
         f"if sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {unique} >/dev/null 2>&1; then",
         f"  echo 'Database {unique} already registered in srvctl; skipping DBCA createDatabase.'",
         "else",
-        f"  sudo -iu oracle {DB_HOME}/bin/dbca -silent -createDatabase -responseFile {STAGE}/responses/dbca-primary.rsp",
+        f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} GRID_HOME={GRID_BASE} PATH={DB_HOME}/bin:{GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib:{GRID_BASE}/lib {DB_HOME}/bin/dbca -silent -createDatabase -responseFile {STAGE}/responses/dbca-primary.rsp",
         "fi",
         f"shred -u {STAGE}/responses/dbca-primary.rsp 2>/dev/null || rm -f {STAGE}/responses/dbca-primary.rsp",
         f"sudo -iu oracle {DB_HOME}/bin/srvctl status database -db {unique} || true",
         f"sudo -iu oracle bash -lc \"export ORACLE_SID={unique}; sqlplus -s / as sysdba <<'SQL'\nALTER DATABASE FORCE LOGGING;\nARCHIVE LOG LIST;\nSELECT name, open_mode, database_role FROM v\\$database;\nSQL\"",
     ]
     return shell_script("Create primary database", lines)
+
+
+def _asm_diskgroup_precheck_lines(config: AutomationConfig) -> list[str]:
+    crs_check = "crs" if config.install_type == "rac" else "has"
+    return [
+        "echo 'Validating ASM diskgroups before DBCA.'",
+        f"sudo -iu grid {GRID_BASE}/bin/crsctl check {crs_check}",
+        *asm_sid_detection_lines(),
+        "ASM_LSDG_LOG=$(mktemp /tmp/oracle-auto-asm-lsdg.XXXXXX)",
+        "set +e",
+        f"{grid_env_command(f'{GRID_BASE}/bin/asmcmd lsdg')} 2>&1 | tee \"$ASM_LSDG_LOG\"",
+        "asm_lsdg_rc=${PIPESTATUS[0]}",
+        "set -e",
+        "if test \"$asm_lsdg_rc\" -ne 0; then",
+        "  echo 'ERROR: ASM diskgroups are not visible to Grid. Run configure-asm-storage before create-database.' >&2",
+        "  cat \"$ASM_LSDG_LOG\" >&2",
+        "  exit \"$asm_lsdg_rc\"",
+        "fi",
+        "for diskgroup in DATA RECO; do",
+        "  if ! awk 'NR > 1 {print $NF}' \"$ASM_LSDG_LOG\" | grep -qx \"$diskgroup\"; then",
+        "    echo \"ERROR: ASM diskgroup $diskgroup is missing. Run configure-asm-storage before create-database.\" >&2",
+        "    cat \"$ASM_LSDG_LOG\" >&2",
+        "    exit 1",
+        "  fi",
+        "done",
+    ]
 
 
 def _secret_exports(config: AutomationConfig) -> str:

@@ -167,11 +167,14 @@ def _with_remote_marker(phase: str, name: str, command: str) -> str:
     script = f"""# oracle-auto remote marker wrapper
 set -euo pipefail
 if sudo -n test -f {shlex.quote(marker)}; then
-  if sudo -n grep -q {shlex.quote(checksum)} {shlex.quote(marker)}; then
+  if test "${{ORACLE_AUTO_NO_REMOTE_RESUME:-0}}" = "1"; then
+    echo "Remote marker bypass requested; rerunning: {phase}:{name}"
+  elif sudo -n grep -q {shlex.quote(checksum)} {shlex.quote(marker)}; then
     echo "Already completed remotely: {phase}:{name}"
     exit 0
+  else
+    echo "Remote marker checksum changed; rerunning: {phase}:{name}"
   fi
-  echo "Remote marker checksum changed; rerunning: {phase}:{name}"
 fi
 sudo -n mkdir -p {shlex.quote(marker_dir)}
 {command}
