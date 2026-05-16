@@ -494,13 +494,18 @@ class CliTest(unittest.TestCase):
         command = create_database_steps(config)[0].command
 
         self.assertIn("Validating ASM diskgroups before DBCA.", command)
+        self.assertIn("Validating Database root script before DBCA.", command)
+        self.assertIn("Database root script marker is missing; running root.sh before DBCA.", command)
         self.assertIn("/u01/app/19.0.0/grid/bin/crsctl check has", command)
         self.assertIn("/u01/app/19.0.0/grid/bin/asmcmd lsdg", command)
+        self.assertIn("/u01/app/oracle/product/19.0.0/dbhome_1/bin/asmcmd lsdg", command)
+        self.assertIn("ASM diskgroups are not visible to oracle user", command)
         self.assertIn("ASM diskgroup $diskgroup is missing. Run configure-asm-storage before create-database.", command)
         self.assertIn('sub(/\\/$/, "", name)', command)
         self.assertIn("for diskgroup in DATA RECO", command)
         self.assertIn("ORACLE_HOME=/u01/app/oracle/product/19.0.0/dbhome_1", command)
         self.assertIn("GRID_HOME=/u01/app/19.0.0/grid", command)
+        self.assertIn("-storageType ASM -diskGroupName DATA -datafileDestination +DATA -recoveryAreaDestination +RECO", command)
         self.assertLess(command.index("Validating ASM diskgroups before DBCA."), command.index("dbca -silent -createDatabase"))
 
     def test_doctor_command_runs(self):

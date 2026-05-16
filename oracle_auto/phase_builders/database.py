@@ -42,14 +42,15 @@ def install_db_software_steps(config: AutomationConfig) -> list[AutomationStep]:
         )
         for node in site.nodes:
             steps.append(
-                make_step(
-                    "install-db-software",
-                    f"db_root_script_{site.name}_{node.short_name}",
-                    node,
-                    f"Run Database root script for {node.host}",
-                    _db_root_script(),
-                    timeout=1200,
-                )
+            make_step(
+                "install-db-software",
+                f"db_root_script_{site.name}_{node.short_name}",
+                node,
+                f"Run Database root script for {node.host}",
+                _db_root_script(),
+                timeout=1200,
+                remote_marker=False,
+            )
             )
     return steps
 
@@ -239,17 +240,31 @@ def _create_database_script(config: AutomationConfig) -> str:
         f"cat > {STAGE}/responses/dbca-primary.rsp <<EOF\n{response}\nEOF",
         f"chown oracle:oinstall {STAGE}/responses/dbca-primary.rsp",
         f"chmod 600 {STAGE}/responses/dbca-primary.rsp",
+        *_db_root_script_precheck_lines(),
         *_asm_diskgroup_precheck_lines(config),
         f"if sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {unique} >/dev/null 2>&1; then",
         f"  echo 'Database {unique} already registered in srvctl; skipping DBCA createDatabase.'",
         "else",
-        f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} GRID_HOME={GRID_BASE} PATH={DB_HOME}/bin:{GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib:{GRID_BASE}/lib {DB_HOME}/bin/dbca -silent -createDatabase -responseFile {STAGE}/responses/dbca-primary.rsp",
+        f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} GRID_HOME={GRID_BASE} ORACLE_SID={unique} ASM_DISCOVERY_STRING='ORCL:*' PATH={DB_HOME}/bin:{GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib:{GRID_BASE}/lib {DB_HOME}/bin/dbca -silent -createDatabase -responseFile {STAGE}/responses/dbca-primary.rsp -storageType ASM -diskGroupName DATA -datafileDestination +DATA -recoveryAreaDestination +RECO -asmsnmpPassword \"$ASMSNMP_PASSWORD\"",
         "fi",
         f"shred -u {STAGE}/responses/dbca-primary.rsp 2>/dev/null || rm -f {STAGE}/responses/dbca-primary.rsp",
         f"sudo -iu oracle {DB_HOME}/bin/srvctl status database -db {unique} || true",
         f"sudo -iu oracle bash -lc \"export ORACLE_SID={unique}; sqlplus -s / as sysdba <<'SQL'\nALTER DATABASE FORCE LOGGING;\nARCHIVE LOG LIST;\nSELECT name, open_mode, database_role FROM v\\$database;\nSQL\"",
     ]
     return shell_script("Create primary database", lines)
+
+
+def _db_root_script_precheck_lines() -> list[str]:
+    return [
+        "echo 'Validating Database root script before DBCA.'",
+        f"test -x {DB_HOME}/root.sh",
+        f"if test ! -f {DB_HOME}/install/root_script_ran.marker; then",
+        "  echo 'Database root script marker is missing; running root.sh before DBCA.'",
+        f"  {DB_HOME}/root.sh",
+        f"  mkdir -p {DB_HOME}/install",
+        f"  touch {DB_HOME}/install/root_script_ran.marker",
+        "fi",
+    ]
 
 
 def _asm_diskgroup_precheck_lines(config: AutomationConfig) -> list[str]:
@@ -272,6 +287,23 @@ def _asm_diskgroup_precheck_lines(config: AutomationConfig) -> list[str]:
         "  if ! awk 'NR > 1 {name=$NF; sub(/\\/$/, \"\", name); print name}' \"$ASM_LSDG_LOG\" | grep -qx \"$diskgroup\"; then",
         "    echo \"ERROR: ASM diskgroup $diskgroup is missing. Run configure-asm-storage before create-database.\" >&2",
         "    cat \"$ASM_LSDG_LOG\" >&2",
+        "    exit 1",
+        "  fi",
+        "done",
+        "ORACLE_ASM_LSDG_LOG=$(mktemp /tmp/oracle-auto-oracle-asm-lsdg.XXXXXX)",
+        "set +e",
+        f"sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} ORACLE_SID=\"$ASM_SID\" GRID_HOME={GRID_BASE} PATH={DB_HOME}/bin:{GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib:{GRID_BASE}/lib {DB_HOME}/bin/asmcmd lsdg 2>&1 | tee \"$ORACLE_ASM_LSDG_LOG\"",
+        "oracle_asm_lsdg_rc=${PIPESTATUS[0]}",
+        "set -e",
+        "if test \"$oracle_asm_lsdg_rc\" -ne 0; then",
+        "  echo 'ERROR: ASM diskgroups are not visible to oracle user. Check oracle membership in asmdba and DB root.sh completion.' >&2",
+        "  cat \"$ORACLE_ASM_LSDG_LOG\" >&2",
+        "  exit \"$oracle_asm_lsdg_rc\"",
+        "fi",
+        "for diskgroup in DATA RECO; do",
+        "  if ! awk 'NR > 1 {name=$NF; sub(/\\/$/, \"\", name); print name}' \"$ORACLE_ASM_LSDG_LOG\" | grep -qx \"$diskgroup\"; then",
+        "    echo \"ERROR: ASM diskgroup $diskgroup is not visible to oracle user.\" >&2",
+        "    cat \"$ORACLE_ASM_LSDG_LOG\" >&2",
         "    exit 1",
         "  fi",
         "done",
