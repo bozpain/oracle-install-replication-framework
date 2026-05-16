@@ -275,10 +275,21 @@ class CliTest(unittest.TestCase):
         config = load_config(Path("configs/sample-single.json"))
         command = verify_installer_steps(config)[0].command
 
-        self.assertIn("Integrity check: LINUX.X64_193000_grid_home.zip", command)
-        self.assertIn("Integrity check: p_ojvm_19.30_linux_x86-64.zip", command)
+        self.assertIn("verify_zip_integrity LINUX.X64_193000_grid_home.zip", command)
+        self.assertIn("verify_zip_integrity p_ojvm_19.30_linux_x86-64.zip", command)
+        self.assertIn("Integrity check: $file", command)
         self.assertIn("Content check: gridSetup.sh", command)
         self.assertNotIn("grep -q 'gridSetup.sh'", command)
+
+    def test_verify_installer_caches_zip_integrity_per_file(self):
+        config = load_config(Path("configs/sample-single.json"))
+        command = verify_installer_steps(config)[0].command
+
+        self.assertIn("VERIFY_CACHE_DIR=/u01/stage/installer-checks/zip-integrity", command)
+        self.assertIn('Integrity check: $file (cached)', command)
+        self.assertIn("stat -c", command)
+        self.assertIn("%s:%Y", command)
+        self.assertIn("verify_zip_integrity LINUX.X64_193000_grid_home.zip", command)
 
     def test_precheck_keeps_installer_checks_lightweight(self):
         from oracle_auto.precheck import PrecheckRunner

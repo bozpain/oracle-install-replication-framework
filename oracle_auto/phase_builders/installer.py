@@ -44,18 +44,30 @@ def _verify_installer_script(config: AutomationConfig) -> str:
         "  *) echo \"Unsupported ASMLIB architecture: $arch\" >&2; exit 1 ;;",
         "esac",
     ]
-    integrity_checks = [
-        line
-        for file in files
-        for line in (
-            f"echo 'Integrity check: {file}'",
-            f"unzip -t {sources}/{shlex.quote(file)} >/dev/null",
-        )
+    verify_cache = f"{STAGE}/installer-checks/zip-integrity"
+    integrity_helpers = [
+        f"VERIFY_CACHE_DIR={verify_cache}",
+        "mkdir -p \"$VERIFY_CACHE_DIR\"",
+        "verify_zip_integrity() {",
+        "  file=\"$1\"",
+        f"  path={sources}/\"$file\"",
+        "  marker=\"$VERIFY_CACHE_DIR/$(printf '%s' \"$file\" | sed 's/[^A-Za-z0-9_.-]/_/g').ok\"",
+        "  signature=$(stat -c '%s:%Y' \"$path\")",
+        "  if test -r \"$marker\" && grep -qx \"$signature\" \"$marker\"; then",
+        "    echo \"Integrity check: $file (cached)\"",
+        "    return 0",
+        "  fi",
+        "  echo \"Integrity check: $file\"",
+        "  unzip -t \"$path\" >/dev/null",
+        "  printf '%s\\n' \"$signature\" > \"$marker\"",
+        "}",
     ]
+    integrity_checks = [f"verify_zip_integrity {shlex.quote(file)}" for file in files]
     lines = [
         f"test -d {sources}",
         f"test -r {sources}",
         *checks,
+        *integrity_helpers,
         *integrity_checks,
         "echo 'Content check: gridSetup.sh'",
         f"unzip -l {sources}/{shlex.quote(config.installer.grid_zip)} | grep 'gridSetup.sh' >/dev/null",
