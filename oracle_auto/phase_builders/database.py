@@ -69,6 +69,7 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
         *ensure_swap_lines(),
         f"test -x {DB_HOME}/runInstaller || sudo -iu oracle unzip -oq {shlex.quote(config.installer.sources_path)}/{shlex.quote(config.installer.db_zip)} -d {DB_HOME}",
         *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
+        *_db_opatch_lines(config),
         *_db_patch_stage_lines(config),
         f"cat > {STAGE}/responses/dbhome-{site.name}.rsp <<'EOF'\n{response}\nEOF",
         f"chown oracle:oinstall {STAGE}/responses/dbhome-{site.name}.rsp",
@@ -87,18 +88,32 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
         "else",
         "  echo 'Running Database software setup with RU apply when configured.'",
         "  set +e",
-        f"  sudo -iu oracle env CV_ASSUME_DISTID=OL7 {DB_HOME}/runInstaller -silent -waitforcompletion -responseFile {STAGE}/responses/dbhome-{site.name}.rsp{_db_patch_arg(config)} -ignorePrereqFailure 2>&1 | tee \"$DB_INSTALL_LOG\"",
+        f"  sudo -iu oracle env CV_ASSUME_DISTID=OL7 ORACLE_HOME={DB_HOME} ORACLE_BASE=/u01/app/oracle {DB_HOME}/runInstaller -silent -waitforcompletion -responseFile {STAGE}/responses/dbhome-{site.name}.rsp{_db_patch_arg(config)} -ignorePrereqFailure 2>&1 | tee \"$DB_INSTALL_LOG\"",
         "  db_install_rc=${PIPESTATUS[0]}",
         "  set -e",
         "  if test \"$db_install_rc\" -ne 0; then",
         "    echo \"ERROR: Database software setup failed. See $DB_INSTALL_LOG\" >&2",
         "    grep -HniE 'SEVERE|ERROR|FATAL|INS-|OPATCH|applyRU|failed|failure' \"$DB_INSTALL_LOG\" || true",
+        f"    find {DB_HOME}/cfgtoollogs/opatchauto -type f -name '*.log' -printf '%T@ %p\\n' 2>/dev/null | sort -nr | head -3 | cut -d' ' -f2- | while read -r log_file; do echo \"--- Recent OPatch log: $log_file\" >&2; grep -HniE 'SEVERE|ERROR|FATAL|failed|failure|conflict|prereq' \"$log_file\" | tail -20 >&2 || true; done",
         "    exit \"$db_install_rc\"",
         "  fi",
         "fi",
         *_db_ru_validation_lines(config),
     ]
     return shell_script(f"Install Database home for {site.name}", lines)
+
+
+def _db_opatch_lines(config: AutomationConfig) -> list[str]:
+    if not config.installer.opatch_zip:
+        return []
+    opatch_zip = f"{config.installer.sources_path}/{config.installer.opatch_zip}"
+    return [
+        f"test -s {shlex.quote(opatch_zip)}",
+        "echo 'Updating Database OPatch before Database RU apply.'",
+        f"sudo -iu oracle unzip -oq {shlex.quote(opatch_zip)} -d {DB_HOME}",
+        *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
+        f"sudo -iu oracle {DB_HOME}/OPatch/opatch version",
+    ]
 
 
 def _db_patch_stage_lines(config: AutomationConfig) -> list[str]:
