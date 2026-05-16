@@ -242,6 +242,23 @@ def _apply_db_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
 
 
 def _apply_ojvm_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
+    if patch.patch_id:
+        inventory_validation = [
+            f"OJVM_PATCH_ID={shlex.quote(patch.patch_id)}",
+            "echo \"Validating OJVM patch $OJVM_PATCH_ID in DB home patch list.\"",
+            "OJVM_PATCH_INVENTORY_LOG=$(mktemp /tmp/oracle-auto-ojvm-inventory.XXXXXX)",
+            f"sudo -iu oracle {DB_HOME}/OPatch/opatch lspatches 2>&1 | tee \"$OJVM_PATCH_INVENTORY_LOG\"",
+            "if ! grep -Eq \"^$OJVM_PATCH_ID([;[:space:]]|$)\" \"$OJVM_PATCH_INVENTORY_LOG\"; then",
+            "  echo \"ERROR: OJVM patch $OJVM_PATCH_ID is not visible in DB home patch list after apply.\" >&2",
+            "  cat \"$OJVM_PATCH_INVENTORY_LOG\" >&2",
+            "  exit 1",
+            "fi",
+        ]
+    else:
+        inventory_validation = [
+            "echo 'No OJVM patch_id configured; collecting DB home inventory after OJVM apply.'",
+            f"sudo -iu oracle {DB_HOME}/OPatch/opatch lsinventory",
+        ]
     lines = [
         *_db_home_opatch_repair_lines(),
         *stage_patch_lines(config.installer.sources_path, patch.file, patch_id=patch.patch_id),
@@ -257,6 +274,7 @@ def _apply_ojvm_patch_script(config: AutomationConfig, patch: PatchConfig) -> st
         "    exit \"$patch_rc\"",
         "  fi",
         "fi",
+        *inventory_validation,
     ]
     return shell_script(f"Apply OJVM patch {patch.label}", lines)
 

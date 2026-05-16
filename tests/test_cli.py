@@ -685,6 +685,9 @@ class CliTest(unittest.TestCase):
         self.assertEqual(len(steps), 2)
         self.assertIn("p_ojvm_19.30_linux_x86-64.zip", steps[0].command)
         self.assertIn('OPatch/opatch apply -silent "$PATCH_TOP"', steps[0].command)
+        self.assertIn("Validating OJVM patch $OJVM_PATCH_ID in DB home patch list.", steps[0].command)
+        self.assertIn("OPatch/opatch lspatches", steps[0].command)
+        self.assertIn("is not visible in DB home patch list after apply", steps[0].command)
 
     def test_create_database_validates_asm_before_dbca(self):
         config = load_config(Path("configs/gcp-single-gi-lab.json"))
