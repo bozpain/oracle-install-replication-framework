@@ -235,8 +235,8 @@ def _grid_config_tools_script(config: AutomationConfig, site: SiteConfig) -> str
         "  config_tools_stamp=$(mktemp /tmp/oracle-auto-grid-config-tools.XXXXXX)",
         "  touch \"$config_tools_stamp\"",
         "  GRID_CONFIG_TOOLS_COMPLETE=false",
-        *_single_gi_direct_asmca_lines(config),
         *_single_gi_existing_asm_skip_lines(config),
+        *_single_gi_direct_asmca_lines(config),
         f"  if test \"$GRID_CONFIG_TOOLS_COMPLETE\" = true || (sudo -iu grid {crs_check} >/dev/null 2>&1 && sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1); then",
         "    echo 'Grid ASM configuration complete; skipping OUI executeConfigTools replay.'",
         "  else",
@@ -280,14 +280,20 @@ def _single_gi_direct_asmca_lines(config: AutomationConfig) -> list[str]:
     )
 
     return [
-        f"  if sudo -iu grid {GRID_BASE}/bin/crsctl check has >/dev/null 2>&1 && ! sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
+        f"  if test \"$GRID_CONFIG_TOOLS_COMPLETE\" != true && sudo -iu grid {GRID_BASE}/bin/crsctl check has >/dev/null 2>&1 && ! sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
         "    echo 'Running ASMCA directly with ASMLIB logical disk string'",
         "    echo 'ASM disk string: " + asm_discovery_string(config) + "'",
         "    echo 'ASM disk list: " + initial_disks + "'",
+        "    DIRECT_ASMCA_LOG=$(mktemp /tmp/oracle-auto-direct-asmca.XXXXXX)",
         "    set +e",
-        f"    sudo -iu grid env ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/bin/asmca -silent -configureASM -sysAsmPassword \"$ASMSNMP_PASSWORD\" -asmsnmpPassword \"$ASMSNMP_PASSWORD\" -diskString {shlex.quote(asm_discovery_string(config))} -diskGroupName {initial_group} -diskList {shlex.quote(initial_disks)} -redundancy {shlex.quote(config.asm.redundancy)} -au_size 1",
-        "    direct_asmca_rc=$?",
+        f"    sudo -iu grid env ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/bin/asmca -silent -configureASM -sysAsmPassword \"$ASMSNMP_PASSWORD\" -asmsnmpPassword \"$ASMSNMP_PASSWORD\" -diskString {shlex.quote(asm_discovery_string(config))} -diskGroupName {initial_group} -diskList {shlex.quote(initial_disks)} -redundancy {shlex.quote(config.asm.redundancy)} -au_size 1 2>&1 | tee \"$DIRECT_ASMCA_LOG\"",
+        "    direct_asmca_rc=${PIPESTATUS[0]}",
         "    set -e",
+        "    if test \"$direct_asmca_rc\" -ne 0 && grep -q 'DBT-30017.*Disk group DATA already exists' \"$DIRECT_ASMCA_LOG\"; then",
+        "      echo 'ASMCA reports DATA already exists; treating single-GI ASM config as complete.'",
+        "      GRID_CONFIG_TOOLS_COMPLETE=true",
+        "      direct_asmca_rc=0",
+        "    fi",
         f"    if test \"$direct_asmca_rc\" -ne 0 && ! sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
         "      echo 'ERROR: ASMCA failed using ASMLIB logical discovery. Not retrying with device paths.' >&2",
         "      oracleasm status || true",
@@ -302,7 +308,7 @@ def _single_gi_existing_asm_skip_lines(config: AutomationConfig) -> list[str]:
     if config.install_type != "single-gi":
         return []
     return [
-        f"  if sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg 2>/dev/null | awk 'NR > 1 {{print $NF}}' | grep -qx DATA; then",
+        f"  if sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg DATA >/dev/null 2>&1 || sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg 2>/dev/null | awk 'NR > 1 {{print $NF}}' | grep -qx DATA; then",
         "    echo 'Single-GI ASM DATA diskgroup already exists; treating ASM config tools as complete and skipping OUI ASMCA replay.'",
         "    GRID_CONFIG_TOOLS_COMPLETE=true",
         "  fi",

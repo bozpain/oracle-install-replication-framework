@@ -20,7 +20,7 @@ def validate_deployment_steps(config: AutomationConfig) -> list[AutomationStep]:
                 "validate_grid_asm",
                 node,
                 "Validate Grid Infrastructure and ASM",
-                _validate_grid_asm_script(),
+                _validate_grid_asm_script(config),
                 timeout=600,
                 warn_only=True,
             )
@@ -38,9 +38,10 @@ def validate_deployment_steps(config: AutomationConfig) -> list[AutomationStep]:
     return steps
 
 
-def _validate_grid_asm_script() -> str:
+def _validate_grid_asm_script(config: AutomationConfig) -> str:
+    crs_check = "crs" if config.install_type == "rac" else "has"
     lines = [
-        f"sudo -iu grid {GRID_BASE}/bin/crsctl check crs",
+        f"sudo -iu grid {GRID_BASE}/bin/crsctl check {crs_check}",
         f"sudo -iu grid {GRID_BASE}/bin/crsctl stat res -t",
         "sudo -iu grid asmcmd lsdg",
     ]
@@ -57,4 +58,3 @@ def _validate_database_script(config: AutomationConfig) -> str:
         f"sudo -iu oracle bash -lc \"export ORACLE_SID={primary_unique}; sqlplus -s / as sysdba <<'SQL'\nSELECT name, open_mode, database_role FROM v\\$database;\n{dg_sql}\nSQL\"",
     ]
     return shell_script("Validate database", lines)
-

@@ -74,15 +74,27 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
         f"chown oracle:oinstall {STAGE}/responses/dbhome-{site.name}.rsp",
         f"mkdir -p {STAGE}/logs",
         f"DB_INSTALL_LOG={STAGE}/logs/dbInstall-{site.name}.out",
-        "echo 'Running Database software setup with RU apply when configured.'",
-        "set +e",
-        f"sudo -iu oracle env CV_ASSUME_DISTID=OL7 {DB_HOME}/runInstaller -silent -waitforcompletion -responseFile {STAGE}/responses/dbhome-{site.name}.rsp{_db_patch_arg(config)} -ignorePrereqFailure 2>&1 | tee \"$DB_INSTALL_LOG\"",
-        "db_install_rc=${PIPESTATUS[0]}",
-        "set -e",
-        "if test \"$db_install_rc\" -ne 0; then",
-        "  echo \"ERROR: Database software setup failed. See $DB_INSTALL_LOG\" >&2",
-        "  grep -HniE 'SEVERE|ERROR|FATAL|INS-|OPATCH|applyRU|failed|failure' \"$DB_INSTALL_LOG\" || true",
-        "  exit \"$db_install_rc\"",
+        "DB_SOFTWARE_READY=false",
+        f"if test -x {DB_HOME}/bin/oraversion; then",
+        f"  db_version=$(sudo -iu oracle {DB_HOME}/bin/oraversion -compositeVersion 2>/dev/null || sudo -iu oracle {DB_HOME}/bin/oraversion -version 2>/dev/null || true)",
+        "  if test -n \"$db_version\"; then",
+        "    echo \"Existing Database Oracle version: $db_version\"",
+        *_db_existing_version_ready_lines(config),
+        "  fi",
+        "fi",
+        "if test \"$DB_SOFTWARE_READY\" = true; then",
+        "  echo 'Database software already installed with expected version; skipping runInstaller.'",
+        "else",
+        "  echo 'Running Database software setup with RU apply when configured.'",
+        "  set +e",
+        f"  sudo -iu oracle env CV_ASSUME_DISTID=OL7 {DB_HOME}/runInstaller -silent -waitforcompletion -responseFile {STAGE}/responses/dbhome-{site.name}.rsp{_db_patch_arg(config)} -ignorePrereqFailure 2>&1 | tee \"$DB_INSTALL_LOG\"",
+        "  db_install_rc=${PIPESTATUS[0]}",
+        "  set -e",
+        "  if test \"$db_install_rc\" -ne 0; then",
+        "    echo \"ERROR: Database software setup failed. See $DB_INSTALL_LOG\" >&2",
+        "    grep -HniE 'SEVERE|ERROR|FATAL|INS-|OPATCH|applyRU|failed|failure' \"$DB_INSTALL_LOG\" || true",
+        "    exit \"$db_install_rc\"",
+        "  fi",
         "fi",
         *_db_ru_validation_lines(config),
     ]
@@ -104,6 +116,17 @@ def _db_patch_arg(config: AutomationConfig) -> str:
     if config.installer.db_patch is None:
         return ""
     return ' -applyRU "$DB_PATCH_TOP"'
+
+
+def _db_existing_version_ready_lines(config: AutomationConfig) -> list[str]:
+    if config.installer.db_patch is None:
+        return ["    DB_SOFTWARE_READY=true"]
+    return [
+        "    case \"$db_version\" in",
+        "      *19.3.0.0.0*) ;;",
+        "      *) DB_SOFTWARE_READY=true ;;",
+        "    esac",
+    ]
 
 
 def _db_ru_validation_lines(config: AutomationConfig) -> list[str]:
@@ -149,7 +172,11 @@ def _create_database_script(config: AutomationConfig) -> str:
         f"cat > {STAGE}/responses/dbca-primary.rsp <<EOF\n{response}\nEOF",
         f"chown oracle:oinstall {STAGE}/responses/dbca-primary.rsp",
         f"chmod 600 {STAGE}/responses/dbca-primary.rsp",
-        f"sudo -iu oracle {DB_HOME}/bin/dbca -silent -createDatabase -responseFile {STAGE}/responses/dbca-primary.rsp",
+        f"if sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {unique} >/dev/null 2>&1; then",
+        f"  echo 'Database {unique} already registered in srvctl; skipping DBCA createDatabase.'",
+        "else",
+        f"  sudo -iu oracle {DB_HOME}/bin/dbca -silent -createDatabase -responseFile {STAGE}/responses/dbca-primary.rsp",
+        "fi",
         f"shred -u {STAGE}/responses/dbca-primary.rsp 2>/dev/null || rm -f {STAGE}/responses/dbca-primary.rsp",
         f"sudo -iu oracle {DB_HOME}/bin/srvctl status database -db {unique} || true",
         f"sudo -iu oracle bash -lc \"export ORACLE_SID={unique}; sqlplus -s / as sysdba <<'SQL'\nALTER DATABASE FORCE LOGGING;\nARCHIVE LOG LIST;\nSELECT name, open_mode, database_role FROM v\\$database;\nSQL\"",

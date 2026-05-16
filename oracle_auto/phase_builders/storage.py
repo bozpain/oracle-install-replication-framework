@@ -188,6 +188,7 @@ def _prepare_storage_rules_script(config: AutomationConfig, node: NodeConfig) ->
 def _configure_asm_storage_script(config: AutomationConfig, node: NodeConfig) -> str:
     site = config.site_for_node(node)
     entries = asm_entries(config, site, node)
+    crs_check = f"{GRID_BASE}/bin/crsctl check {'crs' if config.install_type == 'rac' else 'has'}"
     disk_checks = [f"test -b {shlex.quote(path)}" for _label, path, _group, _disk in entries]
     signature_checks = [
         f"test -z \"$(wipefs -n {shlex.quote(path)} 2>/dev/null | awk 'NR>1')\""
@@ -210,7 +211,7 @@ def _configure_asm_storage_script(config: AutomationConfig, node: NodeConfig) ->
         "oracleasm scandisks",
         "oracleasm listdisks",
         f"test -x {GRID_BASE}/bin/sqlplus",
-        f"sudo -iu grid {GRID_BASE}/bin/crsctl check crs",
+        f"sudo -iu grid {crs_check}",
         *diskgroup_commands,
         f"sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg",
     ]

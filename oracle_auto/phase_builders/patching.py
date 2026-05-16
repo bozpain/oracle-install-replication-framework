@@ -200,7 +200,18 @@ def _apply_grid_patch_script(config: AutomationConfig, patch: PatchConfig) -> st
     lines = [
         *oracle_home_inventory_pointer_lines(GRID_BASE, "grid"),
         patch_top_assignment(patch_dir, patch_id=patch.patch_id),
-        f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" -oh {GRID_BASE}",
+        "GRID_PATCH_APPLY_LOG=$(mktemp /tmp/oracle-auto-grid-patch.XXXXXX)",
+        "set +e",
+        f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" -oh {GRID_BASE} 2>&1 | tee \"$GRID_PATCH_APPLY_LOG\"",
+        "patch_rc=${PIPESTATUS[0]}",
+        "set -e",
+        "if test \"$patch_rc\" -ne 0; then",
+        "  if grep -qiE 'already.*(applied|installed)|no patches need|not needed' \"$GRID_PATCH_APPLY_LOG\"; then",
+        "    echo 'Grid patch already applied; continuing.'",
+        "  else",
+        "    exit \"$patch_rc\"",
+        "  fi",
+        "fi",
     ]
     return shell_script(f"Apply Grid patch {patch.label}", lines)
 
@@ -210,7 +221,18 @@ def _apply_db_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     lines = [
         *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
         patch_top_assignment(patch_dir, patch_id=patch.patch_id),
-        f"sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
+        "DB_PATCH_APPLY_LOG=$(mktemp /tmp/oracle-auto-db-patch.XXXXXX)",
+        "set +e",
+        f"sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\" 2>&1 | tee \"$DB_PATCH_APPLY_LOG\"",
+        "patch_rc=${PIPESTATUS[0]}",
+        "set -e",
+        "if test \"$patch_rc\" -ne 0; then",
+        "  if grep -qiE 'already.*(applied|installed)|no patches need|not needed' \"$DB_PATCH_APPLY_LOG\"; then",
+        "    echo 'Database patch already applied; continuing.'",
+        "  else",
+        "    exit \"$patch_rc\"",
+        "  fi",
+        "fi",
     ]
     return shell_script(f"Apply Database patch {patch.label}", lines)
 
@@ -219,7 +241,18 @@ def _apply_ojvm_patch_script(config: AutomationConfig, patch: PatchConfig) -> st
     lines = [
         *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
         *stage_patch_lines(config.installer.sources_path, patch.file, patch_id=patch.patch_id),
-        f"sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
+        "OJVM_PATCH_APPLY_LOG=$(mktemp /tmp/oracle-auto-ojvm-patch.XXXXXX)",
+        "set +e",
+        f"sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\" 2>&1 | tee \"$OJVM_PATCH_APPLY_LOG\"",
+        "patch_rc=${PIPESTATUS[0]}",
+        "set -e",
+        "if test \"$patch_rc\" -ne 0; then",
+        "  if grep -qiE 'already.*(applied|installed)|no patches need|not needed' \"$OJVM_PATCH_APPLY_LOG\"; then",
+        "    echo 'OJVM patch already applied; continuing.'",
+        "  else",
+        "    exit \"$patch_rc\"",
+        "  fi",
+        "fi",
     ]
     return shell_script(f"Apply OJVM patch {patch.label}", lines)
 
