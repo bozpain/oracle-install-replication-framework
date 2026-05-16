@@ -514,6 +514,21 @@ class CliTest(unittest.TestCase):
         self.assertIn("sudo -n mkdir -p /u01/stage/oracle-auto/state/prepare_os", command)
         self.assertIn("sudo -n tee /u01/stage/oracle-auto/state/prepare_os/prepare_os.done", command)
 
+    def test_prepare_os_sets_grid_and_oracle_profiles(self):
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        primary_command = prepare_os_steps(config)[0].command
+        standby_command = prepare_os_steps(config)[1].command
+
+        self.assertIn("# BEGIN ORACLE-AUTO GRID PROFILE", primary_command)
+        self.assertIn("export ORACLE_HOME=/u01/app/19.0.0/grid", primary_command)
+        self.assertIn("export PATH=$ORACLE_HOME/bin:$DB_HOME/bin:$PATH", primary_command)
+        self.assertIn("export ORACLE_SID=+ASM", primary_command)
+        self.assertIn("# BEGIN ORACLE-AUTO ORACLE PROFILE", primary_command)
+        self.assertIn("export ORACLE_HOME=/u01/app/oracle/product/19.0.0/dbhome_1", primary_command)
+        self.assertIn("export PATH=$ORACLE_HOME/bin:$GRID_HOME/bin:$PATH", primary_command)
+        self.assertIn("export ORACLE_SID=ORCL_A", primary_command)
+        self.assertIn("export ORACLE_SID=ORCL_B", standby_command)
+
     def test_inventory_remains_remote_read_only(self):
         config = load_config(Path("configs/sample-single.json"))
         command = inventory_steps(config)[0].command

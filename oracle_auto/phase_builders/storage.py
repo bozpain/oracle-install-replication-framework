@@ -12,7 +12,7 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import ASMDiskConfig, AutomationConfig, NodeConfig, SiteConfig
-from oracle_auto.phase_builders.common import GRID_BASE, install_asmlib_lines, make_step
+from oracle_auto.phase_builders.common import GRID_BASE, GRID_BASE_DIR, install_asmlib_lines, make_step
 
 
 ASMEntry = tuple[str, str, str, ASMDiskConfig]
@@ -110,14 +110,44 @@ def asm_disk_spec(label: str) -> str:
     return f"ORCL:{label}"
 
 
+def grid_env_command(command: str) -> str:
+    return (
+        "sudo -iu grid env "
+        f"ORACLE_HOME={GRID_BASE} "
+        f"ORACLE_BASE={GRID_BASE_DIR} "
+        'ORACLE_SID="$ASM_SID" '
+        f"PATH={GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin "
+        f"LD_LIBRARY_PATH={GRID_BASE}/lib "
+        f"{command}"
+    )
+
+
+def asm_sid_detection_lines() -> list[str]:
+    return [
+        "ASM_SID=$(ps -ef | awk '/[a]sm_pmon_/ {sub(/^.*asm_pmon_/, \"\", $0); print $0; exit}')",
+        "if test -z \"$ASM_SID\"; then",
+        "  echo 'ASM instance process not detected yet; attempting to start ASM resource.'",
+        f"  sudo -iu grid env ORACLE_HOME={GRID_BASE} ORACLE_BASE={GRID_BASE_DIR} PATH={GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={GRID_BASE}/lib {GRID_BASE}/bin/srvctl start asm || true",
+        "  sleep 5",
+        "  ASM_SID=$(ps -ef | awk '/[a]sm_pmon_/ {sub(/^.*asm_pmon_/, \"\", $0); print $0; exit}')",
+        "fi",
+        "test -n \"$ASM_SID\"",
+        "echo \"Using ASM SID: $ASM_SID\"",
+    ]
+
+
 def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
     disk_list = ",".join(f"'{asm_disk_spec(label)}'" for label in labels)
     return (
-        f"sudo -iu grid {GRID_BASE}/bin/sqlplus -s / as sysasm <<'SQL'\n"
+        f"{grid_env_command(f'{GRID_BASE}/bin/sqlplus -s / as sysasm')} <<'SQL'\n"
         "WHENEVER SQLERROR EXIT SQL.SQLCODE\n"
+        "SET SERVEROUTPUT ON\n"
         f"DECLARE\n  existing NUMBER;\nBEGIN\n  SELECT COUNT(*) INTO existing FROM v$asm_diskgroup WHERE name = '{name}';\n"
         "  IF existing = 0 THEN\n"
+        f"    DBMS_OUTPUT.PUT_LINE('Creating diskgroup {name} with ASMLIB disks: {', '.join(labels)}');\n"
         f"    EXECUTE IMMEDIATE q'[CREATE DISKGROUP {name} {redundancy} REDUNDANCY DISK {disk_list} ATTRIBUTE 'compatible.asm'='19.0','compatible.rdbms'='19.0','compatible.advm'='19.0']';\n"
+        "  ELSE\n"
+        f"    DBMS_OUTPUT.PUT_LINE('Diskgroup {name} already exists; skipping create.');\n"
         "  END IF;\nEND;\n/\nSQL"
     )
 
@@ -212,7 +242,9 @@ def _configure_asm_storage_script(config: AutomationConfig, node: NodeConfig) ->
         "oracleasm listdisks",
         f"test -x {GRID_BASE}/bin/sqlplus",
         f"sudo -iu grid {crs_check}",
+        *asm_sid_detection_lines(),
+        grid_env_command(f"{GRID_BASE}/bin/srvctl status asm") + " || true",
         *diskgroup_commands,
-        f"sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg",
+        grid_env_command(f"{GRID_BASE}/bin/asmcmd lsdg"),
     ]
     return shell_script("Configure ASM diskgroups with ASMLIB", lines)
