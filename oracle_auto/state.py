@@ -27,6 +27,9 @@ class StateBackend(Protocol):
     def mark_failed(self, step: str, details: dict[str, Any] | None = None) -> None:
         ...
 
+    def mark_warning(self, step: str, details: dict[str, Any] | None = None) -> None:
+        ...
+
 
 class StateStore:
     def __init__(self, state_dir: Path, run_id: str):
@@ -48,6 +51,9 @@ class StateStore:
 
     def mark_failed(self, step: str, details: dict[str, Any] | None = None) -> None:
         self._mark(step, "failed", details)
+
+    def mark_warning(self, step: str, details: dict[str, Any] | None = None) -> None:
+        self._mark(step, "warning", details)
 
     def _mark(self, step: str, status: str, details: dict[str, Any] | None = None) -> None:
         with self._lock:
@@ -84,4 +90,7 @@ class NoopStateStore:
         return None
 
     def mark_failed(self, step: str, details: dict[str, Any] | None = None) -> None:
+        return None
+
+    def mark_warning(self, step: str, details: dict[str, Any] | None = None) -> None:
         return None

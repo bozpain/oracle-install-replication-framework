@@ -319,6 +319,52 @@ class CliTest(unittest.TestCase):
         self.assertIn("local RPM in configured sources_path", checks["asmlib_packages"].command)
         self.assertTrue(checks["asmlib_packages"].warn_only)
 
+    def test_precheck_warnings_are_retried_on_resume(self):
+        from oracle_auto.precheck import PrecheckRunner
+
+        class FakeExecutor:
+            def __init__(self):
+                self.asmlib_calls = 0
+
+            def run(self, node, command, timeout=60):
+                if "oracleasm-support" in command:
+                    self.asmlib_calls += 1
+                    return CommandResult(node.host, command, 1, "", "No matching Packages to list")
+                return CommandResult(node.host, command, 0, "ok", "")
+
+        class MemoryState:
+            def __init__(self):
+                self.statuses = {}
+
+            def is_done(self, key):
+                return self.statuses.get(key) == "done"
+
+            def mark_running(self, key):
+                self.statuses[key] = "running"
+
+            def mark_done(self, key, details):
+                self.statuses[key] = "done"
+
+            def mark_failed(self, key, details):
+                self.statuses[key] = "failed"
+
+            def mark_warning(self, key, details):
+                self.statuses[key] = "warning"
+
+        config = load_config(Path("configs/sample-single.json"))
+        executor = FakeExecutor()
+        state = MemoryState()
+
+        PrecheckRunner(config, executor, state=state).run()
+        PrecheckRunner(config, executor, state=state).run()
+
+        warning_steps = [
+            key for key, status in state.statuses.items()
+            if key.endswith(":asmlib_packages") and status == "warning"
+        ]
+        self.assertEqual(len(warning_steps), 2)
+        self.assertEqual(executor.asmlib_calls, 4)
+
     def test_precheck_dnf_checks_have_no_framework_timeout(self):
         from oracle_auto.precheck import PrecheckRunner
 

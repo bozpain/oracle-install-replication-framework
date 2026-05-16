@@ -11,7 +11,7 @@ def render_progress_line(state_path: Path) -> str:
     state = _load_state(state_path)
     steps = state.get("steps", {})
 
-    counts = {"done": 0, "failed": 0, "running": 0}
+    counts = {"done": 0, "warning": 0, "failed": 0, "running": 0}
     current: list[str] = []
     for step_name, step in steps.items():
         status = str(step.get("status") or "")
@@ -22,7 +22,7 @@ def render_progress_line(state_path: Path) -> str:
 
     current_text = ", ".join(current) if current else "-"
     return (
-        f"[PROGRESS] done={counts['done']} failed={counts['failed']} "
+        f"[PROGRESS] done={counts['done']} warning={counts['warning']} failed={counts['failed']} "
         f"running={counts['running']} seen={len(steps)} | current={current_text}"
     )
 

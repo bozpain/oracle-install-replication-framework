@@ -94,6 +94,8 @@ class PrecheckRunner:
 
             if item.status == "FAIL":
                 self.state.mark_failed(step, item.to_dict())
+            elif item.status == "WARN":
+                self.state.mark_warning(step, item.to_dict())
             else:
                 self.state.mark_done(step, item.to_dict())
 
