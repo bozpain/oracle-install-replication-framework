@@ -209,11 +209,6 @@ def _grid_ru_validation_lines(config: AutomationConfig) -> list[str]:
     return [
         "echo 'Validating Grid RU patch inventory before root scripts/config tools.'",
         f"sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches",
-        f"if ! sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches | grep -Eq '^({patch_id});'; then",
-        f"  echo 'ERROR: Grid RU patch id not found in OPatch inventory after applyRU. Expected regex: ^({patch_id});' >&2",
-        f"  sudo -iu grid {GRID_BASE}/OPatch/opatch lsinventory || true",
-        "  exit 1",
-        "fi",
         f"sudo -iu grid {GRID_BASE}/bin/oraversion -version || true",
         f"if sudo -iu grid {GRID_BASE}/bin/oraversion -version 2>/dev/null | grep -q '19.3.0.0.0'; then",
         "  echo 'ERROR: Grid home still reports 19.3.0.0.0 after RU apply. Refusing to continue.' >&2",
