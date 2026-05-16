@@ -85,7 +85,12 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
 def _db_patch_stage_lines(config: AutomationConfig) -> list[str]:
     if config.installer.db_patch is None:
         return []
-    return stage_patch_lines(config.installer.sources_path, config.installer.db_patch.file, "DB_PATCH_TOP")
+    return stage_patch_lines(
+        config.installer.sources_path,
+        config.installer.db_patch.file,
+        "DB_PATCH_TOP",
+        patch_id=config.installer.db_patch.patch_id,
+    )
 
 
 def _db_patch_arg(config: AutomationConfig) -> str:

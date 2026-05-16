@@ -82,7 +82,8 @@
     "grid_patch": {
       "name": "19.30 Grid RU",
       "type": "ru",
-      "file": "p19_30_grid_ru_Linux-x86-64.zip"
+      "file": "p19_30_grid_ru_Linux-x86-64.zip",
+      "patch_id": "38629535"
     },
     "db_patch": {
       "name": "19.30 Database RU",

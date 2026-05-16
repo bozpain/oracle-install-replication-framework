@@ -49,7 +49,12 @@ def safe_name(value: str) -> str:
     return "".join(char if char.isalnum() else "_" for char in value).strip("_").lower()
 
 
-def stage_patch_lines(sources_path: str, patch_file: str, variable: str = "PATCH_TOP") -> list[str]:
+def stage_patch_lines(
+    sources_path: str,
+    patch_file: str,
+    variable: str = "PATCH_TOP",
+    patch_id: str | None = None,
+) -> list[str]:
     patch_zip = f"{sources_path}/{patch_file}"
     patch_dir = f"{STAGE}/patches/{safe_name(patch_file)}"
     return [
@@ -59,7 +64,7 @@ def stage_patch_lines(sources_path: str, patch_file: str, variable: str = "PATCH
         f"chmod a+rx {STAGE} {STAGE}/patches {patch_dir}",
         f"unzip -oq {shlex.quote(patch_zip)} -d {patch_dir}",
         f"chmod -R a+rX {patch_dir}",
-        patch_top_assignment(patch_dir, variable),
+        patch_top_assignment(patch_dir, variable, patch_id=patch_id),
         f"test -d \"${variable}\"",
         f'echo "Detected patch top: ${variable}"',
     ]
@@ -100,10 +105,15 @@ def install_asmlib_lines(package_manager: str) -> list[str]:
     ]
 
 
-def patch_top_assignment(patch_dir: str, variable: str = "PATCH_TOP") -> str:
+def patch_top_assignment(patch_dir: str, variable: str = "PATCH_TOP", patch_id: str | None = None) -> str:
+    preferred = ""
+    if patch_id:
+        preferred = f"if test -d {patch_dir}/{shlex.quote(str(patch_id))}; then {variable}={patch_dir}/{shlex.quote(str(patch_id))}; fi\n"
     return (
-        f"{variable}=$(find {patch_dir} -path '*/etc/config/inventory.xml' -type f "
-        "-print | sed 's#/etc/config/inventory.xml##' | sort | head -1)\n"
+        f"{variable}=\n"
+        f"{preferred}"
+        f"if test -z \"${variable}\"; then {variable}=$(find {patch_dir} -path '*/etc/config/inventory.xml' -type f "
+        "-print | sed 's#/etc/config/inventory.xml##' | sort | head -1); fi\n"
         f"if test -z \"${variable}\"; then {variable}=$(find {patch_dir} -mindepth 1 -maxdepth 1 -type d | sort | head -1); fi\n"
         f"test -n \"${variable}\""
     )

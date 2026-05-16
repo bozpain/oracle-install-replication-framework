@@ -363,17 +363,17 @@ class CliTest(unittest.TestCase):
         config = load_config(Path("configs/gcp-single-gi-lab.json"))
         command = prepare_storage_rules_steps(config)[0].command
 
-        self.assertIn("test -b /dev/disk/by-id/google-primary-data1", command)
-        self.assertIn("test -b /dev/disk/by-id/google-primary-reco1", command)
-        self.assertIn("chown -h grid:asmdba /dev/disk/by-id/google-primary-data1", command)
-        self.assertIn("sudo -iu grid test -r /dev/disk/by-id/google-primary-data1", command)
-        self.assertNotIn("/dev/disk/by-id/google-standby-data1", command)
+        self.assertIn("test -b /dev/disk/by-id/scsi-0Google_PersistentDisk_data-part2", command)
+        self.assertIn("test -b /dev/disk/by-id/scsi-0Google_PersistentDisk_reco-part1", command)
+        self.assertIn("chown -h grid:asmdba /dev/disk/by-id/scsi-0Google_PersistentDisk_data-part2", command)
+        self.assertIn("sudo -iu grid test -r /dev/disk/by-id/scsi-0Google_PersistentDisk_data-part2", command)
+        self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_data2-part2", command)
         self.assertIn("oracleasm configure -u grid -g asmdba -e -s y -m 2048", command)
         self.assertIn("systemctl restart oracleasm || oracleasm init", command)
         self.assertIn("oracleasm status || true", command)
         self.assertLess(
             command.index("oracleasm querydisk DATA1"),
-            command.rindex("sudo -iu grid test -r /dev/disk/by-id/google-primary-data1"),
+            command.rindex("sudo -iu grid test -r /dev/disk/by-id/scsi-0Google_PersistentDisk_data-part2"),
         )
         self.assertIn("ASMLIB v3 kernel interface: UEK driverless/io_uring", command)
         self.assertIn("/boot/vmlinuz-5.15.0-320.202.8.2.el8uek.x86_64", command)
@@ -389,9 +389,17 @@ class CliTest(unittest.TestCase):
         config = load_config(Path("configs/gcp-single-gi-lab.json"))
         command = prepare_storage_rules_steps(config)[1].command
 
-        self.assertIn("test -b /dev/disk/by-id/google-standby-data1", command)
+        self.assertIn("test -b /dev/disk/by-id/scsi-0Google_PersistentDisk_data2-part2", command)
         self.assertIn("oracleasm createdisk DATA1", command)
-        self.assertNotIn("/dev/disk/by-id/google-primary-data1", command)
+        self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_data-part2", command)
+
+    def test_configured_grid_patch_id_selects_ru_bundle_top(self):
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        command = install_grid_steps(config)[0].command
+
+        self.assertIn("GRID_PATCH_TOP=/u01/stage/patches/p19_30_grid_ru_linux_x86_64_zip/38629535", command)
+        self.assertIn("grep -Eq", command)
+        self.assertIn("^(38629535);", command)
 
     def test_multipath_alias_path_is_labeled_with_asmlib(self):
         import json

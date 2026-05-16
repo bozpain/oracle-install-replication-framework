@@ -100,7 +100,12 @@ def _grid_patch_stage_lines(config: AutomationConfig) -> list[str]:
     if config.installer.grid_patch is None:
         return []
     return [
-        *stage_patch_lines(config.installer.sources_path, config.installer.grid_patch.file, "GRID_PATCH_TOP"),
+        *stage_patch_lines(
+            config.installer.sources_path,
+            config.installer.grid_patch.file,
+            "GRID_PATCH_TOP",
+            patch_id=config.installer.grid_patch.patch_id,
+        ),
         'ls -ld "$GRID_PATCH_TOP"',
         'namei -l "$GRID_PATCH_TOP" || true',
         'sudo -iu grid test -d "$GRID_PATCH_TOP"',

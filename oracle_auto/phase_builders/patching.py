@@ -183,7 +183,7 @@ def _analyze_patch_script(config: AutomationConfig, target: str, patch: PatchCon
 def _apply_grid_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     patch_dir = _patch_dir(patch)
     lines = [
-        patch_top_assignment(patch_dir),
+        patch_top_assignment(patch_dir, patch_id=patch.patch_id),
         f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" -oh {GRID_BASE}",
     ]
     return shell_script(f"Apply Grid patch {patch.label}", lines)
@@ -192,7 +192,7 @@ def _apply_grid_patch_script(config: AutomationConfig, patch: PatchConfig) -> st
 def _apply_db_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     patch_dir = _patch_dir(patch)
     lines = [
-        patch_top_assignment(patch_dir),
+        patch_top_assignment(patch_dir, patch_id=patch.patch_id),
         f"sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
     ]
     return shell_script(f"Apply Database patch {patch.label}", lines)
