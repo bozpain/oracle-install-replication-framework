@@ -144,7 +144,7 @@ def patch_inventory_steps(config: AutomationConfig) -> list[AutomationStep]:
                 "patch-inventory",
                 "patch_inventory",
                 node,
-                "Collect OPatch inventory",
+                "Collect Oracle home version summary",
                 _patch_inventory_script(),
                 timeout=600,
             )
@@ -236,10 +236,10 @@ def _patch_inventory_script() -> str:
     lines = [
         *oracle_home_inventory_pointer_lines(GRID_BASE, "grid"),
         *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
-        f"sudo -iu grid {GRID_BASE}/OPatch/opatch lsinventory || true",
-        f"sudo -iu oracle {DB_HOME}/OPatch/opatch lsinventory",
+        f"sudo -iu grid {GRID_BASE}/bin/oraversion -compositeVersion || sudo -iu grid {GRID_BASE}/bin/oraversion -version || true",
+        f"sudo -iu oracle {DB_HOME}/bin/oraversion -compositeVersion || sudo -iu oracle {DB_HOME}/bin/oraversion -version",
     ]
-    return shell_script("Collect patch inventory", lines)
+    return shell_script("Collect Oracle home version summary", lines)
 
 
 def _configured_patches(config: AutomationConfig) -> list[tuple[str, PatchConfig]]:

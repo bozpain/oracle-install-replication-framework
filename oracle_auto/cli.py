@@ -177,7 +177,7 @@ def build_parser() -> argparse.ArgumentParser:
         "apply-db-patch": "Apply the configured Database patch to Database home.",
         "apply-ojvm-patch": "Apply the configured OJVM patch to Database home before database creation.",
         "datapatch": "Run datapatch on the primary database home.",
-        "patch-inventory": "Collect OPatch inventory.",
+        "patch-inventory": "Collect Oracle home version summary.",
         "apply-patch": "Apply OPatch and configured patches.",
         "create-database": "Create the primary database with DBCA silent.",
         "setup-active-dataguard": "Configure and duplicate Active Data Guard standby.",

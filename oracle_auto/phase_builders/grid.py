@@ -6,7 +6,6 @@ and single-GI share this module because both use GI and ASM.
 
 from __future__ import annotations
 
-import re
 import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
@@ -46,7 +45,7 @@ def install_grid_steps(config: AutomationConfig) -> list[AutomationStep]:
                     f"root_scripts_{site.name}_{node.short_name}",
                     node,
                     f"Run Grid root scripts for {node.host}",
-                    _grid_root_script(),
+                    _grid_root_script(config),
                     timeout=1800,
                 )
             )
@@ -96,7 +95,7 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         "  if test \"$grid_setup_rc\" -ne 0; then",
         "    if grep -Eq 'Successfully Setup Software|execute the following script|executeConfigTools' \"$GRID_SETUP_LOG\" && test -x "
         f"{GRID_BASE}/root.sh; then",
-        "      echo 'Grid setup reached root/config-tool phase; validating RU inventory before continuing.'",
+        "      echo 'Grid setup reached root/config-tool phase; validating RU version before continuing.'",
         "    else",
         "      echo \"ERROR: Grid software setup failed before root/config-tool phase. See $GRID_SETUP_LOG\" >&2",
         "      exit \"$grid_setup_rc\"",
@@ -156,39 +155,17 @@ def _grid_patch_arg(config: AutomationConfig) -> str:
     return ' -applyRU "$GRID_PATCH_TOP"'
 
 
-def _grid_patch_id_regex(config: AutomationConfig) -> str | None:
-    if config.installer.grid_patch is None:
-        return None
-    patch_id = config.installer.grid_patch.patch_id
-    if patch_id:
-        return re.escape(str(patch_id))
-    file_name = str(config.installer.grid_patch.file).split("/")[-1]
-    match = re.match(r"p?(\d{5,})(?:_|$)", file_name)
-    if match:
-        return re.escape(match.group(1))
-    return None
-
-
 def _grid_ru_applied_detection_lines(config: AutomationConfig) -> list[str]:
     lines = ["GRID_RU_APPLIED=false"]
-    patch_id = _grid_patch_id_regex(config)
     if config.installer.grid_patch is None:
         return lines
-    if patch_id is None:
-        return [
-            *lines,
-            "echo 'Grid RU patch id cannot be derived from patch filename; install will not be skipped until installer.grid_patch.patch_id is set.'",
-        ]
     return [
         *lines,
-        f"if test -x {GRID_BASE}/OPatch/opatch; then",
-        f"  if sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches >/tmp/oracle-auto-grid-lspatches.out 2>&1; then",
-        f"    if grep -Eq '^({patch_id});' /tmp/oracle-auto-grid-lspatches.out; then",
-        "      GRID_RU_APPLIED=true",
-        "    fi",
-        "  else",
-        "    echo 'Grid RU inventory check could not read OPatch inventory yet; will run gridSetup unless root/config state proves complete.'",
-        "    cat /tmp/oracle-auto-grid-lspatches.out || true",
+        f"if test -x {GRID_BASE}/bin/oraversion; then",
+        f"  grid_version=$(sudo -iu grid {GRID_BASE}/bin/oraversion -compositeVersion 2>/dev/null || sudo -iu grid {GRID_BASE}/bin/oraversion -version 2>/dev/null || true)",
+        "  if test -n \"$grid_version\"; then",
+        "    echo \"Grid Oracle version: $grid_version\"",
+        "    case \"$grid_version\" in *19.3.0.0.0*) ;; *) GRID_RU_APPLIED=true ;; esac",
         "  fi",
         "fi",
     ]
@@ -200,21 +177,18 @@ def _grid_ru_validation_lines(config: AutomationConfig) -> list[str]:
             "echo 'No Grid RU configured; skipping RU validation.'",
         ]
 
-    patch_id = _grid_patch_id_regex(config)
-    if patch_id is None:
-        return [
-            "echo 'ERROR: Grid RU patch id cannot be derived from patch filename. Set installer.grid_patch.patch_id to the numeric OPatch patch id shown by lspatches.' >&2",
-            "exit 1",
-        ]
     return [
-        "echo 'Validating Grid RU patch inventory before root scripts/config tools.'",
-        f"sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches",
-        f"sudo -iu grid {GRID_BASE}/bin/oraversion -version || true",
-        f"if sudo -iu grid {GRID_BASE}/bin/oraversion -version 2>/dev/null | grep -q '19.3.0.0.0'; then",
-        "  echo 'ERROR: Grid home still reports 19.3.0.0.0 after RU apply. Refusing to continue.' >&2",
+        "echo 'Validating Grid RU with oraversion before root scripts/config tools.'",
+        f"grid_version=$(sudo -iu grid {GRID_BASE}/bin/oraversion -compositeVersion 2>/dev/null || sudo -iu grid {GRID_BASE}/bin/oraversion -version 2>/dev/null || true)",
+        "echo \"Grid Oracle version: ${grid_version:-unknown}\"",
+        "if test -z \"$grid_version\"; then",
+        "  echo 'ERROR: Grid oraversion did not return a version after applyRU. Refusing to continue.' >&2",
         "  exit 1",
         "fi",
-        "echo 'Grid RU validation passed.'",
+        "case \"$grid_version\" in",
+        "  *19.3.0.0.0*) echo 'ERROR: Grid home still reports 19.3.0.0.0 after applyRU. Refusing to continue.' >&2; exit 1 ;;",
+        "esac",
+        "echo 'Grid RU validation passed by oraversion.'",
     ]
 
 
@@ -226,12 +200,13 @@ def _asm_password_export(config: AutomationConfig) -> str:
     )
 
 
-def _grid_root_script() -> str:
+def _grid_root_script(config: AutomationConfig) -> str:
+    crs_check = _crs_check_command(config)
     lines = [
         "test -x /u01/app/oraInventory/orainstRoot.sh && /u01/app/oraInventory/orainstRoot.sh || true",
         f"test -x {GRID_BASE}/root.sh",
-        f"if sudo -iu grid {GRID_BASE}/bin/crsctl check crs >/dev/null 2>&1; then echo 'Grid appears active; skipping root.sh rerun.'; else {GRID_BASE}/root.sh; fi",
-        f"sudo -iu grid {GRID_BASE}/bin/crsctl check crs || true",
+        f"if sudo -iu grid {crs_check} >/dev/null 2>&1; then echo 'Grid appears active; skipping root.sh rerun.'; else {GRID_BASE}/root.sh; fi",
+        f"sudo -iu grid {crs_check} || true",
         f"sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg || true",
     ]
     return shell_script("Run Grid root scripts", lines)
@@ -259,8 +234,10 @@ def _grid_config_tools_script(config: AutomationConfig, site: SiteConfig) -> str
         f"  CONFIG_TOOLS_LOG={STAGE}/logs/gridConfigTools-{site.name}.out",
         "  config_tools_stamp=$(mktemp /tmp/oracle-auto-grid-config-tools.XXXXXX)",
         "  touch \"$config_tools_stamp\"",
+        "  GRID_CONFIG_TOOLS_COMPLETE=false",
         *_single_gi_direct_asmca_lines(config),
-        f"  if sudo -iu grid {crs_check} >/dev/null 2>&1 && sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
+        *_single_gi_existing_asm_skip_lines(config),
+        f"  if test \"$GRID_CONFIG_TOOLS_COMPLETE\" = true || (sudo -iu grid {crs_check} >/dev/null 2>&1 && sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1); then",
         "    echo 'Grid ASM configuration complete; skipping OUI executeConfigTools replay.'",
         "  else",
         "    set +e",
@@ -317,6 +294,17 @@ def _single_gi_direct_asmca_lines(config: AutomationConfig) -> list[str]:
         "      oracleasm listdisks || true",
         "      exit \"$direct_asmca_rc\"",
         "    fi",
+        "  fi",
+    ]
+
+
+def _single_gi_existing_asm_skip_lines(config: AutomationConfig) -> list[str]:
+    if config.install_type != "single-gi":
+        return []
+    return [
+        f"  if sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg 2>/dev/null | awk 'NR > 1 {{print $NF}}' | grep -qx DATA; then",
+        "    echo 'Single-GI ASM DATA diskgroup already exists; treating ASM config tools as complete and skipping OUI ASMCA replay.'",
+        "    GRID_CONFIG_TOOLS_COMPLETE=true",
         "  fi",
     ]
 

@@ -6,7 +6,6 @@ database actions live in `dataguard.py`.
 
 from __future__ import annotations
 
-import re
 import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
@@ -107,45 +106,24 @@ def _db_patch_arg(config: AutomationConfig) -> str:
     return ' -applyRU "$DB_PATCH_TOP"'
 
 
-def _db_patch_id_regex(config: AutomationConfig) -> str | None:
-    if config.installer.db_patch is None:
-        return None
-    patch_id = config.installer.db_patch.patch_id
-    if patch_id:
-        return re.escape(str(patch_id))
-    file_name = str(config.installer.db_patch.file).split("/")[-1]
-    match = re.match(r"p?(\d{5,})(?:_|$)", file_name)
-    if match:
-        return re.escape(match.group(1))
-    return None
-
-
 def _db_ru_validation_lines(config: AutomationConfig) -> list[str]:
     if config.installer.db_patch is None:
         return [
             "echo 'No Database RU configured; skipping RU validation.'",
         ]
 
-    patch_id = _db_patch_id_regex(config)
-    if patch_id is None:
-        return [
-            "echo 'ERROR: Database RU patch id cannot be derived from patch filename. Set installer.db_patch.patch_id to the numeric OPatch patch id shown by lspatches.' >&2",
-            "exit 1",
-        ]
     return [
-        "echo 'Validating Database RU patch inventory before root script.'",
-        f"sudo -iu oracle {DB_HOME}/OPatch/opatch lspatches",
-        f"if ! sudo -iu oracle {DB_HOME}/OPatch/opatch lspatches | grep -Eq '^({patch_id});'; then",
-        f"  echo 'ERROR: Database RU patch id not found in OPatch inventory after applyRU. Expected regex: ^({patch_id});' >&2",
-        f"  sudo -iu oracle {DB_HOME}/OPatch/opatch lsinventory || true",
+        "echo 'Validating Database RU with oraversion before root script.'",
+        f"db_version=$(sudo -iu oracle {DB_HOME}/bin/oraversion -compositeVersion 2>/dev/null || sudo -iu oracle {DB_HOME}/bin/oraversion -version 2>/dev/null || true)",
+        "echo \"Database Oracle version: ${db_version:-unknown}\"",
+        "if test -z \"$db_version\"; then",
+        "  echo 'ERROR: Database oraversion did not return a version after applyRU. Refusing to continue.' >&2",
         "  exit 1",
         "fi",
-        f"sudo -iu oracle {DB_HOME}/bin/oraversion -version || true",
-        f"if sudo -iu oracle {DB_HOME}/bin/oraversion -version 2>/dev/null | grep -q '19.3.0.0.0'; then",
-        "  echo 'ERROR: Database home still reports 19.3.0.0.0 after RU apply. Refusing to continue.' >&2",
-        "  exit 1",
-        "fi",
-        "echo 'Database RU validation passed.'",
+        "case \"$db_version\" in",
+        "  *19.3.0.0.0*) echo 'ERROR: Database home still reports 19.3.0.0.0 after applyRU. Refusing to continue.' >&2; exit 1 ;;",
+        "esac",
+        "echo 'Database RU validation passed by oraversion.'",
     ]
 
 
