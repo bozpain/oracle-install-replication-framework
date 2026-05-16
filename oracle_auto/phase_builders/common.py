@@ -97,15 +97,16 @@ def stage_patch_lines(
     patch_id: str | None = None,
 ) -> list[str]:
     patch_zip = f"{sources_path}/{patch_file}"
-    patch_dir = f"{STAGE}/patches/{safe_name(patch_file)}"
+    patch_dir = f"{sources_path}/{patch_id}" if patch_id else sources_path
+    cleanup_lines = [f"rm -rf {shlex.quote(patch_dir)}"] if patch_id else []
     return [
         f"test -s {shlex.quote(patch_zip)}",
-        f"rm -rf {patch_dir}",
-        f"mkdir -p {patch_dir}",
-        f"chmod a+rx {STAGE} {STAGE}/patches {patch_dir}",
-        f"unzip -oq {shlex.quote(patch_zip)} -d {patch_dir}",
-        f"chmod -R a+rX {patch_dir}",
-        patch_top_assignment(patch_dir, variable, patch_id=patch_id),
+        f"mkdir -p {shlex.quote(sources_path)}",
+        f"chmod a+rx {shlex.quote(sources_path)}",
+        *cleanup_lines,
+        f"unzip -oq {shlex.quote(patch_zip)} -d {shlex.quote(sources_path)}",
+        f"chmod -R a+rX {shlex.quote(patch_dir)}",
+        patch_top_assignment(patch_dir, variable, prefer_self=patch_id is not None),
         f"test -d \"${variable}\"",
         f'echo "Detected patch top: ${variable}"',
     ]
@@ -146,10 +147,17 @@ def install_asmlib_lines(package_manager: str) -> list[str]:
     ]
 
 
-def patch_top_assignment(patch_dir: str, variable: str = "PATCH_TOP", patch_id: str | None = None) -> str:
+def patch_top_assignment(
+    patch_dir: str,
+    variable: str = "PATCH_TOP",
+    patch_id: str | None = None,
+    prefer_self: bool = False,
+) -> str:
     preferred = ""
+    if prefer_self:
+        preferred += f"if test -d {patch_dir}; then {variable}={patch_dir}; fi\n"
     if patch_id:
-        preferred = f"if test -d {patch_dir}/{shlex.quote(str(patch_id))}; then {variable}={patch_dir}/{shlex.quote(str(patch_id))}; fi\n"
+        preferred += f"if test -d {patch_dir}/{shlex.quote(str(patch_id))}; then {variable}={patch_dir}/{shlex.quote(str(patch_id))}; fi\n"
     return (
         f"{variable}=\n"
         f"{preferred}"

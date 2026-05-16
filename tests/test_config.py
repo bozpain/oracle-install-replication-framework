@@ -43,9 +43,15 @@ class ConfigTest(unittest.TestCase):
         assert config.installer.grid_patch is not None
         assert config.installer.db_patch is not None
         assert config.installer.ojvm_patch is not None
-        self.assertEqual(config.installer.grid_patch.file, "p19_30_grid_ru_Linux-x86-64.zip")
-        self.assertEqual(config.installer.db_patch.file, "p19_30_db_ru_Linux-x86-64.zip")
-        self.assertEqual(config.installer.ojvm_patch.file, "p19_30_ojvm_ru_Linux-x86-64.zip")
+        self.assertEqual(config.installer.grid_patch.file, "p_gi_19.30_linux_x86-64.zip")
+        self.assertEqual(config.installer.db_patch.file, "p_dbru_19.30_linux_x86-64.zip")
+        self.assertEqual(config.installer.ojvm_patch.file, "p_ojvm_19.30_linux_x86-64.zip")
+        self.assertEqual(config.installer.grid_patch.patch_id, "38629535")
+        self.assertEqual(config.installer.db_patch.patch_id, "38632161")
+        self.assertEqual(config.installer.ojvm_patch.patch_id, "38523609")
+        self.assertIsNotNone(config.installer.patch_manifest)
+        assert config.installer.patch_manifest is not None
+        self.assertEqual(config.installer.patch_manifest.patch_id, "19.30")
 
     def test_duplicate_public_ip_rejected(self):
         with self.assertRaises(ConfigError):
@@ -76,9 +82,16 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "ocr_disks is only used"):
             load_config(self._write_config("single-with-ocr", data))
 
-    def test_patch_id_is_parsed_when_configured(self):
+    def test_legacy_patch_id_is_parsed_when_configured(self):
         data = json.loads(Path("configs/sample-single.json").read_text(encoding="utf-8"))
-        data["installer"]["grid_patch"]["patch_id"] = "37642901"
+        data["installer"].pop("patch_manifest")
+        data["installer"]["opatch_zip"] = "p6880880_190000_Linux-x86-64.zip"
+        data["installer"]["grid_patch"] = {
+            "name": "Legacy Grid RU",
+            "type": "ru",
+            "file": "legacy_grid_ru.zip",
+            "patch_id": "37642901",
+        }
 
         config = load_config(self._write_config("patch-id", data))
 
@@ -99,6 +112,29 @@ class ConfigTest(unittest.TestCase):
             config.asm.data_disks[0].path_for(site_name=config.standby_site.name, node_host=standby.host),
             "/dev/disk/by-id/scsi-0Google_PersistentDisk_data2-part2",
         )
+
+    def test_asm_disk_id_serial_and_id_wwn_are_parsed(self):
+        data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))
+        data["asm"]["data_disks"] = [{"id_serial": "scsi-3600ABCDEF001", "name": "DATA01"}]
+        data["asm"]["reco_disks"] = [{"ID_WWN": "0x600abcdef002", "name": "RECO01"}]
+
+        config = load_config(self._write_config("asm-byid", data))
+
+        data_disk = config.asm.data_disks[0]
+        reco_disk = config.asm.reco_disks[0]
+        self.assertEqual(data_disk.id_serial, "scsi-3600ABCDEF001")
+        self.assertEqual(data_disk.source_for(), "ID_SERIAL=scsi-3600ABCDEF001")
+        self.assertEqual(data_disk.path_for(), "/dev/disk/by-id/scsi-3600ABCDEF001")
+        self.assertEqual(reco_disk.id_wwn, "0x600abcdef002")
+        self.assertEqual(reco_disk.source_for(), "ID_WWN=0x600abcdef002")
+        self.assertEqual(reco_disk.path_for(), "/dev/disk/by-id/wwn-0x600abcdef002")
+
+    def test_asm_disk_id_serial_rejects_device_path(self):
+        data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))
+        data["asm"]["data_disks"] = [{"id_serial": "/dev/disk/by-id/scsi-3600ABCDEF001", "name": "DATA01"}]
+
+        with self.assertRaisesRegex(ConfigError, "id_serial must contain ID_SERIAL only"):
+            load_config(self._write_config("bad-id-serial", data))
 
     def test_unknown_site_specific_asm_path_key_is_rejected(self):
         data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))

@@ -290,7 +290,16 @@ def _asm_diskgroup_precheck_lines(config: AutomationConfig) -> list[str]:
         "    exit 1",
         "  fi",
         "done",
-        "echo 'Skipping oracle-user asmcmd validation; Grid ASM validation already passed.'",
+        "ORACLE_ASM_LSDG_LOG=$(mktemp /tmp/oracle-auto-oracle-asm-lsdg.XXXXXX)",
+        "set +e",
+        f"sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} GRID_HOME={GRID_BASE} ORACLE_SID=\"$ASM_SID\" PATH={DB_HOME}/bin:{GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib:{GRID_BASE}/lib {DB_HOME}/bin/asmcmd lsdg 2>&1 | tee \"$ORACLE_ASM_LSDG_LOG\"",
+        "oracle_asm_lsdg_rc=${PIPESTATUS[0]}",
+        "set -e",
+        "if test \"$oracle_asm_lsdg_rc\" -ne 0; then",
+        "  echo 'ERROR: ASM diskgroups are not visible to oracle user. Run install-db-software and verify OS group membership before create-database.' >&2",
+        "  cat \"$ORACLE_ASM_LSDG_LOG\" >&2",
+        "  exit \"$oracle_asm_lsdg_rc\"",
+        "fi",
     ]
 
 

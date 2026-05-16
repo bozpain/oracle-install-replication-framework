@@ -209,7 +209,7 @@ Review blok berikut sebelum menjalankan command:
 | 📡 `dns` | Resolver dan search domain |
 | 🟦 `primary_site` | Site primary dan node list |
 | 🟩 `standby_site` | Optional standby site |
-| 💽 `asm` | Diskgroup dan disk persistent path / `DM_UUID` |
+| 💽 `asm` | Diskgroup dan disk source: `DM_UUID`, `ID_SERIAL`, `ID_WWN`, atau persistent path |
 | 📦 `installer` | ZIP installer, OPatch, patch list |
 | 🟢 `dataguard` | Manual atau Broker |
 | 🔒 `secrets` | Nama environment variable password |
@@ -263,26 +263,31 @@ DNS resolver example:
 
 ## 5. ASM Storage
 
-Storage selalu ASM. Untuk deployment produksi, input disk wajib memakai persistent path seperti `/dev/disk/by-id/...`, stable multipath alias seperti `/dev/mapper/ora_data01`, atau `DM_UUID` yang akan dinormalisasi ke `/dev/disk/by-id/dm-uuid-mpath-...`, bukan `/dev/mapper/mpathX` atau `/dev/sdX`. Jika primary dan standby punya by-id yang berbeda, gunakan `site_paths` supaya label ASMLib tetap sama tetapi source device path dipilih sesuai site yang sedang dieksekusi.
+Storage selalu ASM. Saat `prepare-storage-rules`, framework mendeteksi `multipath -ll` di target host. Kalau multipath aktif, host dianggap physical/multipath dan disk harus dikonfigurasi dengan `uuid`/`DM_UUID`; framework menulis `/etc/udev/rules.d/99-oracle-asm.rules`, membuat symlink `/dev/asm/<LABEL>`, reload udev, lalu memberi label ASMLib dari symlink tersebut. Kalau multipath tidak aktif, framework memakai input non-multipath (`ID_SERIAL`, `ID_WWN`, atau persistent `path`) dan langsung menjalankan `oracleasm createdisk <LABEL> <resolved-device>`.
+
+ASM discovery tetap `ORCL:*`, dan diskgroup tetap memakai disk list `ORCL:<LABEL>` seperti `ORCL:DATA01`, `ORCL:DATA02`, `ORCL:RECO01`.
 
 ```mermaid
 flowchart LR
-    uuid["🔢 DM_UUID<br/>stable multipath id"]
-    path["🔗 persistent path<br/>by-id or mapper alias"]
-    label["💽 ASMLib v3 label<br/>ORCL:DATA01"]
-    dg["💽 ASM Diskgroup<br/>OCR / DATA / RECO"]
+    detect["Detect multipath"]
+    uuid["DM_UUID<br/>physical multipath"]
+    byid["ID_SERIAL / ID_WWN / path<br/>non-multipath"]
+    udev["udev /dev/asm/LABEL"]
+    label["ASMLib label<br/>ORCL:DATA01"]
+    dg["ASM Diskgroup<br/>OCR / DATA / RECO"]
 
-    uuid --> path --> label --> dg
+    detect --> uuid --> udev --> label --> dg
+    detect --> byid --> label
 
     classDef amber fill:#FEF3C7,stroke:#D97706,color:#78350F
     classDef blue fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef green fill:#DCFCE7,stroke:#16A34A,color:#14532D
-    class uuid,path amber
-    class label blue
+    class detect,uuid,byid amber
+    class udev,label blue
     class dg green
 ```
 
-Example:
+Physical multipath example:
 
 ```json
 "asm": {
@@ -305,14 +310,47 @@ Example:
 
 ### 💽 Storage Rules
 
+This generates udev rules with this shape:
+
+```text
+KERNEL=="dm-*", ENV{DM_UUID}=="mpath-360060e8008a3cf000050a3cf00000104", SYMLINK+="asm/DATA01", OWNER:="grid", GROUP:="asmadmin", MODE="0660"
+KERNEL=="dm-*", ENV{DM_UUID}=="mpath-360060e8008a3cf000050a3cf00000105", SYMLINK+="asm/DATA02", OWNER:="grid", GROUP:="asmadmin", MODE="0660"
+```
+
+Non-multipath example:
+
+```json
+"asm": {
+  "redundancy": "EXTERNAL",
+  "data_disks": [
+    {
+      "id_serial": "scsi-3600ABCDEF001",
+      "name": "DATA01"
+    },
+    {
+      "id_wwn": "0x600abcdef002",
+      "name": "DATA02"
+    }
+  ],
+  "reco_disks": [
+    {
+      "ID_SERIAL": "scsi-3600ABCDEF003",
+      "name": "RECO01"
+    }
+  ]
+}
+```
+
 | Rule | Detail |
 |---|---|
-| No duplicate disk | UUID tidak boleh duplikat antar diskgroup |
-| Prefix normalized | Input boleh dengan atau tanpa `mpath-` |
-| Persistent path | Framework memakai `path`, `site_paths`, atau `node_paths` dari config (`/dev/disk/by-id/...` atau `/dev/mapper/<alias>`) atau derived `/dev/disk/by-id/dm-uuid-mpath-...` |
+| Multipath detection | `multipath -ll` aktif berarti mode physical/multipath |
+| Multipath input | Gunakan `uuid`/`DM_UUID`; input boleh dengan atau tanpa prefix `mpath-` |
+| Multipath rules | Framework menulis `99-oracle-asm.rules`, `udevadm control --reload-rules`, dan `udevadm trigger` |
+| Non-multipath input | Gunakan `id_serial`, `ID_SERIAL`, `id_wwn`, `ID_WWN`, atau persistent `path` |
+| ASMLib label | `oracleasm createdisk <LABEL> <resolved-device>` |
 | Optional custom name | Disk object boleh memakai `name` |
 | RAC consistency | Shared disk harus konsisten di semua node |
-| Path mode | Object `path` harus menunjuk block device stabil yang sudah ada pada setiap node target |
+| ASM discovery | Selalu `ORCL:*`; diskgroup memakai `ORCL:<LABEL>` |
 
 Custom disk name:
 
@@ -336,7 +374,7 @@ Path example:
 ]
 ```
 
-Jika topologi memakai `path`, precheck akan gagal sampai path tersebut benar-benar ada di semua host yang memakai config itu.
+Jika topologi memakai `path`, precheck akan gagal sampai path tersebut benar-benar ada di semua host yang memakai config itu. Untuk non-multipath yang lebih portable, pilih `id_serial` atau `id_wwn` dari `udevadm info --query=property --name <device>`.
 
 Per-site path example:
 
@@ -383,28 +421,30 @@ Operator menyalin file ZIP manual ke target server. Framework memverifikasi file
   "sources_path": "/u01/sources",
   "grid_zip": "LINUX.X64_193000_grid_home.zip",
   "db_zip": "LINUX.X64_193000_db_home.zip",
-  "opatch_zip": "p6880880_190000_Linux-x86-64.zip",
-  "grid_patch": {
-    "name": "19.30 Grid RU",
-    "type": "ru",
-    "file": "p37642901_190000_Linux-x86-64.zip",
-    "patch_id": "37642901"
-  },
-  "db_patch": {
-    "name": "19.30 Database RU",
-    "type": "ru",
-    "file": "p37642901_190000_Linux-x86-64.zip",
-    "patch_id": "37642901"
-  },
-  "ojvm_patch": {
-    "name": "19.30 OJVM RU",
-    "type": "ojvm",
-    "file": "p19_30_ojvm_ru_Linux-x86-64.zip"
-  }
+  "patch_manifest": "19.30"
 }
 ```
 
-`grid_patch` dipakai oleh `gridSetup.sh -applyRU` saat install Grid. `db_patch` dipakai oleh `runInstaller -applyRU` saat install Database home. Setelah installer selesai, framework wajib memvalidasi `OPatch/opatch lspatches` dan `oraversion`; status sukses baru dicetak setelah RU terlihat di inventory. `patch_id` opsional jika nama ZIP sudah memakai pola Oracle `p<patch_id>_...`, tetapi disarankan diisi eksplisit supaya validasi tidak menebak. `ojvm_patch` dipasang dengan OPatch setelah DB home selesai dan sebelum DBCA membuat database baru.
+`patch_manifest` mengarah ke `manifests/<patch_set>.yaml` dan mengikuti naming Oracle Patch Framework:
+
+```yaml
+patch_id: "19.30"
+description: "Oracle 19c RU 19.30 + OJVM + OPatch"
+
+opatch_zip: "p6880880_190000_Linux-x86-64.zip"
+gi_zip: "p_gi_19.30_linux_x86-64.zip"
+dbru_zip: "p_dbru_19.30_linux_x86-64.zip"
+ojvm_zip: "p_ojvm_19.30_linux_x86-64.zip"
+
+opatch_dir: "OPatch"
+gi_dir: "38629535"
+dbru_dir: "38632161"
+ojvm_dir: "38523609"
+
+pre_datapatch_sql: "pre_datapatch.sql"
+```
+
+Semua patch ZIP dibaca dari `/u01/sources`, diekstrak langsung ke `/u01/sources`, lalu `gridSetup.sh -applyRU` memakai `/u01/sources/<gi_dir>` dan `runInstaller -applyRU` memakai `/u01/sources/<dbru_dir>`. Untuk naik patch berikutnya, tambahkan `manifests/19.31.yaml` dengan ZIP dan direktori patch yang benar, lalu ubah `version.patch_set` dan `installer.patch_manifest` ke `19.31`.
 
 ---
 
@@ -507,7 +547,7 @@ python main.py inventory --config configs/my-deployment.json --dry-run
 python main.py inventory --config configs/my-deployment.json
 ```
 
-Inventory membantu review OS, network, DNS, storage persistent path / `DM_UUID`, dan isi `/u01/sources`.
+Inventory membantu review OS, network, DNS, ASM disk source, dan isi `/u01/sources`.
 
 ### 🔎 Precheck
 
@@ -524,7 +564,7 @@ Precheck memvalidasi:
 | 🐧 OS | Oracle Linux version, kernel, package manager, repo, preinstall package |
 | 📡 Network | DNS resolver, `/etc/hosts`, SCAN resolution, FQDN |
 | 📦 Installer | ZIP file existence, integrity, source path |
-| 💽 Storage | persistent path visibility, disk sizes, ASMLib readiness, multipath |
+| 💽 Storage | ASM disk source visibility, disk sizes, ASMLib readiness, multipath |
 | 🧱 Services | chrony/time sync, SELinux status |
 | 🟢 RAC hints | Private interconnect and SCAN record count |
 
@@ -665,9 +705,10 @@ Menyiapkan storage rules sebelum GI/ASM bergantung pada device:
 
 | Action | Detail |
 |---|---|
-| Resolve path | Dari `path` config (`/dev/disk/by-id/...` atau `/dev/mapper/<alias>`) atau derived `DM_UUID` |
-| Permission | Set owner/group/mode pada resolved block device |
-| Label | `oracleasm createdisk <LABEL> <resolved-path>` |
+| Detect mode | `multipath -ll` menentukan mode physical/multipath atau direct ASMLib |
+| Multipath | Tulis `/etc/udev/rules.d/99-oracle-asm.rules` dari `DM_UUID`, reload udev, trigger udev |
+| Non-multipath | Resolve `ID_SERIAL` / `ID_WWN` / `path` ke block device |
+| Label | `oracleasm createdisk <LABEL> <resolved-device>` |
 
 ```bash
 python main.py prepare-storage-rules --config configs/my-deployment.json --allow-storage-changes
@@ -688,7 +729,7 @@ Menyiapkan ASM storage setelah GI tooling tersedia:
 | Action | Detail |
 |---|---|
 | Validate ASMLib | `oracleasm scandisks` dan `oracleasm listdisks` |
-| Disk discovery | ASM memakai `ORCL:*` dan disk list `ORCL:<LABEL>` |
+| Disk discovery | `alter system set asm_diskstring='ORCL:*' scope=both;` dan disk list `ORCL:<LABEL>` |
 | Create diskgroup | `OCR`, `DATA`, `RECO` |
 | Validate diskgroup | Diskgroup terlihat pada target |
 
@@ -969,10 +1010,10 @@ Untuk install sungguhan, lebih aman berhenti di failure pertama, perbaiki, lalu 
 
 | Check | Detail |
 |---|---|
-| UUID | `DM_UUID` benar |
-| persistent path | `/dev/disk/by-id/...` atau `/dev/mapper/<alias>` ada dan resolve ke block device |
+| Multipath UUID | `DM_UUID` benar dan udev `/dev/asm/<LABEL>` terbentuk |
+| Non-multipath source | `ID_SERIAL`, `ID_WWN`, atau persistent path resolve ke block device |
 | ASMLib | `oracleasm listdisks` menampilkan label yang diharapkan |
-| Multipath | Path sehat dan konsisten |
+| Multipath | Multipath sehat dan konsisten |
 | RAC | Disk shared konsisten di semua node |
 
 ### 📦 Patch Gagal

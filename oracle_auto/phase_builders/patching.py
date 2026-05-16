@@ -198,10 +198,11 @@ def _analyze_patch_script(config: AutomationConfig, target: str, patch: PatchCon
 
 
 def _apply_grid_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
-    patch_dir = _patch_dir(patch)
+    patch_dir = _patch_dir(config, patch)
     lines = [
         *oracle_home_inventory_pointer_lines(GRID_BASE, "grid"),
-        patch_top_assignment(patch_dir, patch_id=patch.patch_id),
+        *stage_patch_lines(config.installer.sources_path, patch.file, patch_id=patch.patch_id),
+        patch_top_assignment(patch_dir, prefer_self=patch.patch_id is not None),
         "GRID_PATCH_APPLY_LOG=$(mktemp /tmp/oracle-auto-grid-patch.XXXXXX)",
         "set +e",
         f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" -oh {GRID_BASE} 2>&1 | tee \"$GRID_PATCH_APPLY_LOG\"",
@@ -219,10 +220,11 @@ def _apply_grid_patch_script(config: AutomationConfig, patch: PatchConfig) -> st
 
 
 def _apply_db_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
-    patch_dir = _patch_dir(patch)
+    patch_dir = _patch_dir(config, patch)
     lines = [
         *_db_home_opatch_repair_lines(),
-        patch_top_assignment(patch_dir, patch_id=patch.patch_id),
+        *stage_patch_lines(config.installer.sources_path, patch.file, patch_id=patch.patch_id),
+        patch_top_assignment(patch_dir, prefer_self=patch.patch_id is not None),
         "DB_PATCH_APPLY_LOG=$(mktemp /tmp/oracle-auto-db-patch.XXXXXX)",
         "set +e",
         f"sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\" 2>&1 | tee \"$DB_PATCH_APPLY_LOG\"",
@@ -325,5 +327,7 @@ def _configured_patches(config: AutomationConfig) -> list[tuple[str, PatchConfig
     return patches
 
 
-def _patch_dir(patch: PatchConfig) -> str:
-    return f"/u01/stage/patches/{safe_name(patch.file)}"
+def _patch_dir(config: AutomationConfig, patch: PatchConfig) -> str:
+    if patch.patch_id:
+        return f"{config.installer.sources_path}/{patch.patch_id}"
+    return config.installer.sources_path

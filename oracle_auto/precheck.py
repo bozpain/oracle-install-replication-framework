@@ -239,9 +239,9 @@ class PrecheckRunner:
                 fail_message="One or more required Oracle automation secret environment variables are missing on target.",
             ),
             Check(
-                name="asm_disk_uuids_visible",
+                name="asm_disks_visible",
                 command=_disk_check(self.config, node),
-                fail_message="One or more configured ASM disk UUID/path values are not visible.",
+                fail_message="One or more configured ASM disk source values are not visible.",
             ),
             Check(
                 name="multipath_health",

@@ -10,7 +10,7 @@ Framework ini dibuat untuk mempercepat deployment Oracle yang biasanya panjang, 
 2. Precheck target host.
 3. Persiapan OS fresh install.
 4. Verifikasi installer dan patch yang sudah disalin manual.
-5. Persiapan persistent device path dari `DM_UUID`, `/dev/disk/by-id/...`, atau `/dev/mapper/<alias>`.
+5. Persiapan ASM storage: multipath aktif memakai udev `/dev/asm/<LABEL>` dari `DM_UUID`; non-multipath memakai `ID_SERIAL`/`ID_WWN`/by-id untuk ASMLib.
 6. Instalasi Grid Infrastructure.
 7. Konfigurasi ASMLib v3 dan diskgroup.
 8. Instalasi Oracle Database software.
@@ -96,7 +96,7 @@ Automation mengelola:
 
 ## 6. Storage Model
 
-Storage selalu ASM. Untuk deployment produksi, user memberikan persistent path `/dev/disk/by-id/...`, stable multipath alias `/dev/mapper/<alias>`, atau disk `DM_UUID` secara manual di config, bukan `/dev/mapper/mpathX` atau `/dev/sdX`, karena nama device generik tersebut bisa berubah setelah reboot atau rediscovery. Jika memakai `DM_UUID`, framework menurunkannya menjadi `/dev/disk/by-id/dm-uuid-mpath-...`. Lab non-multipath boleh memakai object `path`, `site_paths`, atau `node_paths`; path itu harus sudah ada sebagai block device pada target host sebelum precheck dijalankan.
+Storage selalu ASM. `prepare-storage-rules` mendeteksi `multipath -ll` pada target host. Kalau multipath aktif, server dianggap physical/multipath dan config disk memakai `uuid`/`DM_UUID`; framework membuat udev symlink `/dev/asm/<LABEL>` dari `/etc/udev/rules.d/99-oracle-asm.rules`. Kalau multipath tidak aktif, config disk memakai `ID_SERIAL`, `ID_WWN`, atau persistent `path` dan framework langsung menjalankan `oracleasm createdisk`.
 
 - `ocr_disks` untuk diskgroup `OCR`.
 - `data_disks` untuk diskgroup `DATA`.
@@ -107,13 +107,13 @@ Automation melakukan:
 
 - Normalisasi input UUID menjadi `DM_UUID=mpath-<uuid>` jika prefix `mpath-` belum ada.
 - Validasi duplicate IP public/private/VIP, duplicate generated hostname, duplicate SCAN, duplicate disk UUID, duplicate ASMLib label, dan minimum disk count sesuai redundancy.
-- Resolve persistent device path dari `path`, `site_paths`, atau `node_paths` config, default `/dev/disk/by-id/dm-uuid-mpath-<uuid>` untuk input `DM_UUID`.
-- Set owner `grid`, group `asmdba`, dan mode `0660` pada resolved block device.
-- Validasi persistent path sudah menjadi block device.
-- Label disk dengan ASMLib v3 memakai `oracleasm createdisk <LABEL> <resolved-path>`.
+- Mode multipath: tulis udev rule `KERNEL=="dm-*", ENV{DM_UUID}=="mpath-...", SYMLINK+="asm/<LABEL>", OWNER:="grid", GROUP:="asmadmin", MODE="0660"`, lalu `udevadm control --reload-rules` dan `udevadm trigger`.
+- Mode non-multipath: resolve `ID_SERIAL`, `ID_WWN`, atau `path` ke block device.
+- Label disk dengan ASMLib v3 memakai `oracleasm createdisk <LABEL> <resolved-device>`.
+- Set ASM diskstring tetap `ORCL:*`.
 - Create diskgroup `OCR`, `DATA`, dan `RECO`.
 - Validasi diskgroup terlihat pada target.
-- Report mapping `DM_UUID`, persistent device path, ASMLib label `ORCL:<LABEL>`, dan diskgroup.
+- Report mapping source disk, ASMLib label `ORCL:<LABEL>`, dan diskgroup.
 - Generate plan/runbook juga menampilkan storage mapping sebelum eksekusi supaya DBA bisa review disk yang akan disentuh.
 
 ## 7. Installer and Patch Model
@@ -224,7 +224,7 @@ Report berisi:
 - Topology.
 - Generated hostname.
 - DNS resolver dan SCAN validation.
-- ASM DM_UUID, persistent device path, ASMLib label, and diskgroup mapping.
+- ASM source disk, ASMLib label, and diskgroup mapping.
 - Installer and patch list.
 - Execution result.
 - Error and warning summary.

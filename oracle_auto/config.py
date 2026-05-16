@@ -111,6 +111,8 @@ class SiteConfig:
 @dataclass(frozen=True)
 class ASMDiskConfig:
     uuid: str | None = None
+    id_serial: str | None = None
+    id_wwn: str | None = None
     path: str | None = None
     site_paths: dict[str, str] = field(default_factory=dict)
     node_paths: dict[str, str] = field(default_factory=dict)
@@ -135,11 +137,15 @@ class ASMDiskConfig:
             return self.path
         if self.uuid:
             return f"/dev/disk/by-id/dm-uuid-{self.dm_uuid}"
+        if self.id_wwn:
+            return f"/dev/disk/by-id/{self.id_wwn if self.id_wwn.startswith('wwn-') else 'wwn-' + self.id_wwn}"
+        if self.id_serial:
+            return f"/dev/disk/by-id/{self.id_serial}"
         if self.site_paths:
             return next(iter(self.site_paths.values()))
         if self.node_paths:
             return next(iter(self.node_paths.values()))
-        raise ConfigError("ASM disk does not define a path, site_paths, node_paths, or DM_UUID.")
+        raise ConfigError("ASM disk does not define a path, site_paths, node_paths, DM_UUID, ID_SERIAL, or ID_WWN.")
 
     def source_for(self, site_name: str | None = None, node_host: str | None = None) -> str:
         if node_host and node_host in self.node_paths:
@@ -148,7 +154,13 @@ class ASMDiskConfig:
             return self.site_paths[site_name]
         if self.path:
             return self.path
-        return self.dm_uuid
+        if self.uuid:
+            return f"DM_UUID={self.dm_uuid}"
+        if self.id_serial:
+            return f"ID_SERIAL={self.id_serial}"
+        if self.id_wwn:
+            return f"ID_WWN={self.id_wwn}"
+        return self.path_for(site_name=site_name, node_host=node_host)
 
     def final_path(self, group: str, index: int, site_name: str | None = None, node_host: str | None = None) -> str:
         return self.path_for(site_name=site_name, node_host=node_host)
@@ -190,6 +202,22 @@ class PatchConfig:
 
 
 @dataclass(frozen=True)
+class PatchManifest:
+    patch_id: str
+    description: str
+    opatch_zip: str
+    gi_zip: str
+    dbru_zip: str
+    ojvm_zip: str
+    opatch_dir: str
+    gi_dir: str
+    dbru_dir: str
+    ojvm_dir: str
+    pre_datapatch_sql: str | None = None
+    source: str | None = None
+
+
+@dataclass(frozen=True)
 class InstallerConfig:
     sources_path: str = "/u01/sources"
     grid_zip: str = ""
@@ -198,6 +226,7 @@ class InstallerConfig:
     grid_patch: PatchConfig | None = None
     db_patch: PatchConfig | None = None
     ojvm_patch: PatchConfig | None = None
+    patch_manifest: PatchManifest | None = None
 
     @property
     def patches(self) -> list[PatchConfig]:
@@ -302,7 +331,8 @@ def _parse_config(data: dict[str, Any], path: Path) -> AutomationConfig:
         primary_site = _parse_site("primary_site", data["primary_site"])
         asm = _parse_asm(data["asm"])
         dns = _parse_dns(data["dns"])
-        installer = _parse_installer(data["installer"])
+        version = _parse_version(data.get("version", {}))
+        installer = _parse_installer(data["installer"], version, path)
     except KeyError as exc:
         raise ConfigError(f"Missing required config key: {exc.args[0]}") from exc
 
@@ -310,7 +340,6 @@ def _parse_config(data: dict[str, Any], path: Path) -> AutomationConfig:
     if data.get("standby_site") is not None:
         standby_site = _parse_site("standby_site", data["standby_site"])
 
-    version = _parse_version(data.get("version", {}))
     os_config = _parse_os(data.get("os", {}), version)
     ssh = _parse_ssh(data.get("ssh", {}))
     dataguard = _parse_dataguard(data.get("dataguard", {}))
@@ -394,29 +423,164 @@ def _parse_dns(data: Any) -> DNSConfig:
     )
 
 
-def _parse_installer(data: Any) -> InstallerConfig:
+def _parse_installer(data: Any, version: VersionConfig, config_path: Path) -> InstallerConfig:
     if not isinstance(data, dict):
         raise ConfigError("installer must be an object/mapping.")
-    legacy_patches = _parse_legacy_patches(data.get("patches", []))
-    grid_patch = _parse_optional_patch(data.get("grid_patch"), "installer.grid_patch")
-    db_patch = _parse_optional_patch(data.get("db_patch"), "installer.db_patch")
-    ojvm_patch = _parse_optional_patch(data.get("ojvm_patch"), "installer.ojvm_patch")
-    if legacy_patches:
-        if grid_patch is None:
-            grid_patch = legacy_patches[0]
-        if db_patch is None:
-            db_patch = legacy_patches[1] if len(legacy_patches) > 1 else legacy_patches[0]
-        if ojvm_patch is None and len(legacy_patches) > 2:
-            ojvm_patch = legacy_patches[2]
+
+    manifest = _parse_patch_manifest(data, version, config_path)
+    if manifest is not None:
+        grid_patch = PatchConfig(
+            file=manifest.gi_zip,
+            name=f"{manifest.patch_id} Grid RU",
+            patch_id=manifest.gi_dir,
+            type="ru",
+            description=manifest.description,
+        )
+        db_patch = PatchConfig(
+            file=manifest.dbru_zip,
+            name=f"{manifest.patch_id} Database RU",
+            patch_id=manifest.dbru_dir,
+            type="ru",
+            description=manifest.description,
+        )
+        ojvm_patch = PatchConfig(
+            file=manifest.ojvm_zip,
+            name=f"{manifest.patch_id} OJVM RU",
+            patch_id=manifest.ojvm_dir,
+            type="ojvm",
+            description=manifest.description,
+        )
+        opatch_zip = manifest.opatch_zip
+    else:
+        legacy_patches = _parse_legacy_patches(data.get("patches", []))
+        grid_patch = _parse_optional_patch(data.get("grid_patch"), "installer.grid_patch")
+        db_patch = _parse_optional_patch(data.get("db_patch"), "installer.db_patch")
+        ojvm_patch = _parse_optional_patch(data.get("ojvm_patch"), "installer.ojvm_patch")
+        if legacy_patches:
+            if grid_patch is None:
+                grid_patch = legacy_patches[0]
+            if db_patch is None:
+                db_patch = legacy_patches[1] if len(legacy_patches) > 1 else legacy_patches[0]
+            if ojvm_patch is None and len(legacy_patches) > 2:
+                ojvm_patch = legacy_patches[2]
+        opatch_zip = _optional_str(data.get("opatch_zip"))
+
     return InstallerConfig(
         sources_path=str(data.get("sources_path", "/u01/sources")),
         grid_zip=str(data.get("grid_zip", "")),
         db_zip=str(data.get("db_zip", "")),
-        opatch_zip=_optional_str(data.get("opatch_zip")),
+        opatch_zip=opatch_zip,
         grid_patch=grid_patch,
         db_patch=db_patch,
         ojvm_patch=ojvm_patch,
+        patch_manifest=manifest,
     )
+
+
+def _parse_patch_manifest(data: dict[str, Any], version: VersionConfig, config_path: Path) -> PatchManifest | None:
+    manifest_selector = _optional_str(data.get("patch_manifest") or data.get("manifest"))
+    legacy_patch_keys = {"opatch_zip", "patches", "grid_patch", "db_patch", "ojvm_patch"}
+    if manifest_selector is None and not any(key in data for key in legacy_patch_keys):
+        manifest_selector = version.patch_set
+    if manifest_selector is None:
+        return None
+
+    manifest_path = _resolve_manifest_path(manifest_selector, config_path)
+    if not manifest_path.exists():
+        raise ConfigError(f"Patch manifest not found: {manifest_path}")
+    raw = _load_manifest_mapping(manifest_path)
+    manifest = _manifest_from_mapping(raw, manifest_path)
+    if manifest.patch_id != version.patch_set:
+        raise ConfigError(
+            f"Patch manifest patch_id mismatch: version.patch_set={version.patch_set}, manifest.patch_id={manifest.patch_id}"
+        )
+    return manifest
+
+
+def _resolve_manifest_path(selector: str, config_path: Path) -> Path:
+    path = Path(selector)
+    if path.is_absolute():
+        return path
+    if path.suffix.lower() in {".yaml", ".yml"} or "/" in selector or "\\" in selector:
+        return (config_path.parent / path).resolve()
+    framework_root = Path(__file__).resolve().parents[1]
+    return framework_root / "manifests" / f"{selector}.yaml"
+
+
+def _load_manifest_mapping(path: Path) -> dict[str, Any]:
+    raw = path.read_text(encoding="utf-8")
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        return _load_simple_yaml_mapping(raw, path)
+    data = yaml.safe_load(raw)
+    if not isinstance(data, dict):
+        raise ConfigError(f"Patch manifest root must be an object/mapping: {path}")
+    return data
+
+
+def _load_simple_yaml_mapping(raw: str, path: Path) -> dict[str, str]:
+    data: dict[str, str] = {}
+    for line_no, line in enumerate(raw.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if ":" not in stripped:
+            raise ConfigError(f"Unsupported manifest YAML syntax at {path}:{line_no}")
+        key, value = stripped.split(":", 1)
+        value = value.split(" #", 1)[0].strip()
+        if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+            value = value[1:-1]
+        data[key.strip()] = value
+    return data
+
+
+def _manifest_from_mapping(data: dict[str, Any], path: Path) -> PatchManifest:
+    required = [
+        "patch_id",
+        "description",
+        "opatch_zip",
+        "gi_zip",
+        "dbru_zip",
+        "ojvm_zip",
+        "opatch_dir",
+        "gi_dir",
+        "dbru_dir",
+        "ojvm_dir",
+    ]
+    missing = [key for key in required if not _optional_str(data.get(key))]
+    if missing:
+        raise ConfigError(f"Patch manifest {path} missing required key(s): {', '.join(missing)}")
+    for key in [*required, "pre_datapatch_sql"]:
+        value = _optional_str(data.get(key))
+        if value:
+            _validate_safe_manifest_value(key, value, path)
+    return PatchManifest(
+        patch_id=str(data["patch_id"]),
+        description=str(data["description"]),
+        opatch_zip=str(data["opatch_zip"]),
+        gi_zip=str(data["gi_zip"]),
+        dbru_zip=str(data["dbru_zip"]),
+        ojvm_zip=str(data["ojvm_zip"]),
+        opatch_dir=str(data["opatch_dir"]),
+        gi_dir=str(data["gi_dir"]),
+        dbru_dir=str(data["dbru_dir"]),
+        ojvm_dir=str(data["ojvm_dir"]),
+        pre_datapatch_sql=_optional_str(data.get("pre_datapatch_sql")),
+        source=str(path),
+    )
+
+
+def _validate_safe_manifest_value(key: str, value: str, path: Path) -> None:
+    try:
+        _validate_safe_relative_value(key, value)
+    except ConfigError as exc:
+        raise ConfigError(f"Patch manifest {path} has unsafe {key}: {value}")
+
+
+def _validate_safe_relative_value(label: str, value: str) -> None:
+    if value in {".", ".."} or "/" in value or "\\" in value or ".." in value:
+        raise ConfigError(f"{label} must be a safe relative file or directory name: {value}")
 
 
 def _parse_legacy_patches(data: Any) -> list[PatchConfig]:
@@ -553,6 +717,8 @@ def _validate_config(config: AutomationConfig) -> None:
         raise ConfigError("installer.grid_zip is required.")
     if not config.installer.db_zip:
         raise ConfigError("installer.db_zip is required.")
+    for label, value in _installer_relative_values(config):
+        _validate_safe_relative_value(label, value)
 
     if config.install_type == "rac":
         _validate_rac_site(config.primary_site, "primary_site")
@@ -589,6 +755,20 @@ def _validate_config(config: AutomationConfig) -> None:
     duplicated_labels = _duplicates(_asm_label_names(config))
     if duplicated_labels:
         raise ConfigError(f"Duplicate ASM ASMLIB label name(s) in config: {', '.join(duplicated_labels)}")
+
+
+def _installer_relative_values(config: AutomationConfig) -> list[tuple[str, str]]:
+    values = [
+        ("installer.grid_zip", config.installer.grid_zip),
+        ("installer.db_zip", config.installer.db_zip),
+    ]
+    if config.installer.opatch_zip:
+        values.append(("installer.opatch_zip", config.installer.opatch_zip))
+    for patch in config.installer.patches:
+        values.append((f"installer.{patch.type}_patch.file", patch.file))
+        if patch.patch_id:
+            values.append((f"installer.{patch.type}_patch.patch_id", patch.patch_id))
+    return values
 
 
 def _validate_rac_site(site: SiteConfig, label: str) -> None:
@@ -709,10 +889,14 @@ def _parse_asm_disk_list(value: list[Any], name: str) -> list[ASMDiskConfig]:
         location = f"{name}[{index}]"
         if isinstance(item, str):
             uuid = item
+            id_serial = None
+            id_wwn = None
             path = None
             disk_name = None
         elif isinstance(item, dict):
             uuid = _optional_str(item.get("uuid"))
+            id_serial = _optional_str(item.get("id_serial") or item.get("ID_SERIAL"))
+            id_wwn = _optional_str(item.get("id_wwn") or item.get("ID_WWN") or item.get("wwn"))
             path = _optional_str(item.get("path"))
             site_paths = _optional_path_mapping(item.get("site_paths"), f"{location}.site_paths")
             node_paths = _optional_path_mapping(item.get("node_paths"), f"{location}.node_paths")
@@ -724,16 +908,30 @@ def _parse_asm_disk_list(value: list[Any], name: str) -> list[ASMDiskConfig]:
             site_paths = {}
             node_paths = {}
 
-        if not uuid and not path and not site_paths and not node_paths:
-            raise ConfigError(f"{location}.uuid, {location}.path, {location}.site_paths, or {location}.node_paths is required.")
+        if not uuid and not id_serial and not id_wwn and not path and not site_paths and not node_paths:
+            raise ConfigError(f"{location}.uuid, {location}.id_serial, {location}.id_wwn, {location}.path, {location}.site_paths, or {location}.node_paths is required.")
         if uuid and uuid.startswith("/dev/"):
             raise ConfigError(f"{location}.uuid must contain DM_UUID only, not a device path.")
+        if id_serial and "/" in id_serial:
+            raise ConfigError(f"{location}.id_serial must contain ID_SERIAL only, not a device path.")
+        if id_wwn and "/" in id_wwn:
+            raise ConfigError(f"{location}.id_wwn must contain ID_WWN only, not a device path.")
         if path and not path.startswith("/dev/"):
             raise ConfigError(f"{location}.path must be an absolute /dev path.")
         if disk_name and ("/" in disk_name or disk_name.startswith(".")):
             raise ConfigError(f"{location}.name must be a simple symlink name.")
 
-        disks.append(ASMDiskConfig(uuid=uuid, path=path, site_paths=site_paths, node_paths=node_paths, name=disk_name))
+        disks.append(
+            ASMDiskConfig(
+                uuid=uuid,
+                id_serial=id_serial,
+                id_wwn=id_wwn,
+                path=path,
+                site_paths=site_paths,
+                node_paths=node_paths,
+                name=disk_name,
+            )
+        )
     return disks
 
 

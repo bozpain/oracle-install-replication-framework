@@ -24,7 +24,7 @@ Framework ini fokus pada deployment fresh install dengan standar enterprise:
 | -------------- | ----------------------------------------------------------------------------------------- |
 | 🧭 Planning    | Validasi config, topology, execution plan, dan runbook per phase                          |
 | 🖥️ Platform    | Oracle Linux baseline, user `grid`/`oracle`, DNS, hosts, chrony, SELinux, firewall        |
-| 💽 Storage     | ASM berbasis persistent path (`/dev/disk/by-id` atau `/dev/mapper/<alias>`), ASMLib v3 label `ORCL:*`, diskgroup `OCR`, `DATA`, `RECO` |
+| 💽 Storage     | ASM auto-mode: multipath aktif pakai udev `/dev/asm/<LABEL>` dari `DM_UUID`, non-multipath pakai `ID_SERIAL`/`ID_WWN`/by-id, ASMLib v3 label `ORCL:*` |
 | 🧱 Database    | Grid Infrastructure, ASM, Oracle Database software, DBCA primary database                 |
 | 🟢 Replication | Active Data Guard dan optional Data Guard Broker                                          |
 | 🛡️ Operations  | Dry-run, resume state, guardrail flag, diagnostics, role operation, HTML report           |
@@ -156,7 +156,7 @@ Seluruh urutan deployment, flag destructive guardrail, dry-run penuh, dan produc
 | 🐍 Control runtime | Python `3.12`                                                            |
 | 🐧 Target OS       | Oracle Linux `8.10`                                                      |
 | 🟥 Oracle stack    | Grid Infrastructure + Database `19c`                                     |
-| 🧩 Patch baseline  | `19.30`, expandable untuk RU/OJVM/one-off berikutnya                     |
+| 🧩 Patch baseline  | Manifest-driven `19.30`; tambah `manifests/19.31.yaml` untuk patch berikutnya |
 | 💽 Storage model   | ASM only; `single-gi` uses `DATA`/`RECO`, `rac` uses `OCR`/`DATA`/`RECO` |
 | 🟢 Data Guard      | Active Data Guard, `max_performance`                                     |
 | 📡 DNS model       | SCAN via DNS, public/private/VIP managed through `/etc/hosts`            |
