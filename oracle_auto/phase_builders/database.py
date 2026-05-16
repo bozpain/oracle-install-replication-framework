@@ -217,6 +217,9 @@ def _db_root_script() -> str:
             "test -x /u01/app/oraInventory/orainstRoot.sh && /u01/app/oraInventory/orainstRoot.sh || true",
             f"test -x {DB_HOME}/root.sh",
             f"if test -f {DB_HOME}/install/root_script_ran.marker; then echo 'Database root script marker exists; skipping.'; else {DB_HOME}/root.sh && mkdir -p {DB_HOME}/install && touch {DB_HOME}/install/root_script_ran.marker; fi",
+            "echo 'Validating oracle user ASM visibility after Database root script.'",
+            *asm_sid_detection_lines(),
+            _oracle_asm_sqlplus_check(),
         ],
     )
 
@@ -282,17 +285,37 @@ def _asm_diskgroup_precheck_lines(config: AutomationConfig) -> list[str]:
         "    exit 1",
         "  fi",
         "done",
-        "ORACLE_ASM_LSDG_LOG=$(mktemp /tmp/oracle-auto-oracle-asm-lsdg.XXXXXX)",
-        "set +e",
-        f"sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} GRID_HOME={GRID_BASE} ORACLE_SID=\"$ASM_SID\" PATH={DB_HOME}/bin:{GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib:{GRID_BASE}/lib {DB_HOME}/bin/asmcmd lsdg 2>&1 | tee \"$ORACLE_ASM_LSDG_LOG\"",
-        "oracle_asm_lsdg_rc=${PIPESTATUS[0]}",
-        "set -e",
-        "if test \"$oracle_asm_lsdg_rc\" -ne 0; then",
-        "  echo 'ERROR: ASM diskgroups are not visible to oracle user. Run install-db-software and verify OS group membership before create-database.' >&2",
-        "  cat \"$ORACLE_ASM_LSDG_LOG\" >&2",
-        "  exit \"$oracle_asm_lsdg_rc\"",
-        "fi",
+        "echo 'Validating ASM diskgroups are visible to oracle user through SYSDBA ASM connection.'",
+        _oracle_asm_sqlplus_check(),
     ]
+
+
+def _oracle_asm_sqlplus_check() -> str:
+    return (
+        "ORACLE_ASM_SQL_LOG=$(mktemp /tmp/oracle-auto-oracle-asm-sql.XXXXXX)\n"
+        "set +e\n"
+        f"sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} GRID_HOME={GRID_BASE} "
+        f"ORACLE_SID=\"$ASM_SID\" PATH={DB_HOME}/bin:{GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin "
+        f"LD_LIBRARY_PATH={DB_HOME}/lib:{GRID_BASE}/lib {DB_HOME}/bin/sqlplus -L -s / as sysdba <<'SQL' 2>&1 | tee \"$ORACLE_ASM_SQL_LOG\"\n"
+        "WHENEVER SQLERROR EXIT SQL.SQLCODE\n"
+        "SET HEADING OFF FEEDBACK OFF PAGESIZE 100\n"
+        "SELECT name || ':' || state FROM v$asm_diskgroup ORDER BY name;\n"
+        "SQL\n"
+        "oracle_asm_sql_rc=${PIPESTATUS[0]}\n"
+        "set -e\n"
+        "if test \"$oracle_asm_sql_rc\" -ne 0; then\n"
+        "  echo 'ERROR: ASM diskgroups are not visible to oracle user through SYSDBA ASM connection. Run install-db-software and verify OS group membership before create-database.' >&2\n"
+        "  cat \"$ORACLE_ASM_SQL_LOG\" >&2\n"
+        "  exit \"$oracle_asm_sql_rc\"\n"
+        "fi\n"
+        "for diskgroup in DATA RECO; do\n"
+        "  if ! awk -F: '{print $1}' \"$ORACLE_ASM_SQL_LOG\" | sed 's/[[:space:]]//g' | grep -qx \"$diskgroup\"; then\n"
+        "    echo \"ERROR: ASM diskgroup $diskgroup is not visible to oracle user.\" >&2\n"
+        "    cat \"$ORACLE_ASM_SQL_LOG\" >&2\n"
+        "    exit 1\n"
+        "  fi\n"
+        "done"
+    )
 
 
 def _secret_exports(config: AutomationConfig) -> str:

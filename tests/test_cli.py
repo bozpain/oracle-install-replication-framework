@@ -442,6 +442,7 @@ class CliTest(unittest.TestCase):
         config_tools_command = next(step.command for step in grid_steps if step.name == "config_tools_site-a")
         db_steps = install_db_software_steps(config)
         db_command = db_steps[0].command
+        db_root_command = next(step.command for step in db_steps if step.name.startswith("db_root_script_site-a_"))
 
         self.assertTrue(grid_steps[0].force_rerun)
         self.assertNotIn("oracle-auto remote marker wrapper", grid_command)
@@ -544,6 +545,9 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("opatch lsinventory", db_command)
         self.assertIn("chmod -R a+rX /u01/sources/38632161", db_command)
         self.assertIn('-applyRU "$DB_PATCH_TOP"', db_command)
+        self.assertIn("Validating oracle user ASM visibility after Database root script.", db_root_command)
+        self.assertIn("/u01/app/oracle/product/19.0.0/dbhome_1/bin/sqlplus -L -s / as sysdba", db_root_command)
+        self.assertIn("v$asm_diskgroup", db_root_command)
 
     def test_persistent_by_id_paths_are_labeled_with_asmlib(self):
         config = load_config(Path("configs/gcp-single-gi-lab.json"))
@@ -685,8 +689,9 @@ class CliTest(unittest.TestCase):
         self.assertIn("Database root script marker is missing; running root.sh before DBCA.", command)
         self.assertIn("/u01/app/19.0.0/grid/bin/crsctl check has", command)
         self.assertIn("/u01/app/19.0.0/grid/bin/asmcmd lsdg", command)
-        self.assertIn("/u01/app/oracle/product/19.0.0/dbhome_1/bin/asmcmd lsdg", command)
-        self.assertIn("ASM diskgroups are not visible to oracle user", command)
+        self.assertIn("/u01/app/oracle/product/19.0.0/dbhome_1/bin/sqlplus -L -s / as sysdba", command)
+        self.assertIn("v$asm_diskgroup", command)
+        self.assertIn("ASM diskgroups are not visible to oracle user through SYSDBA ASM connection", command)
         self.assertIn("ASM diskgroup $diskgroup is missing. Run configure-asm-storage before create-database.", command)
         self.assertIn('sub(/\\/$/, "", name)', command)
         self.assertIn("for diskgroup in DATA RECO", command)
