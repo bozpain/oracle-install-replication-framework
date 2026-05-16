@@ -273,9 +273,13 @@ def _asmlib_label_validator_function() -> str:
   device_minor_hex=$(stat -c '%T' "$resolved")
   device_major=$((16#$device_major_hex))
   device_minor=$((16#$device_minor_hex))
-  query_output=$(oracleasm querydisk "$label" 2>&1)
+  query_output=$(oracleasm querydisk -p "$label" 2>&1 || oracleasm querydisk "$label" 2>&1)
   printf '%s\n' "$query_output"
   compact_query=$(printf '%s' "$query_output" | tr -d '[:space:]')
+  if printf '%s\n' "$query_output" | grep -Fxq "$resolved: LABEL=\"$label\" TYPE=\"oracleasm\""; then
+    echo "ASMLIB disk $label matches configured device $resolved"
+    return 0
+  fi
   if printf '%s\n' "$compact_query" | grep -Fq "[$device_major,$device_minor]"; then
     echo "ASMLIB disk $label matches configured device $resolved [$device_major,$device_minor]"
     return 0

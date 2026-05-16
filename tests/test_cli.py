@@ -565,6 +565,10 @@ class CliTest(unittest.TestCase):
             command.index("validate_asmlib_label DATA1"),
         )
         self.assertLess(command.index("oracleasm createdisk DATA1"), command.rindex("validate_asmlib_label DATA1"))
+        self.assertIn("oracleasm querydisk -p", command)
+        self.assertIn("LABEL=", command)
+        self.assertIn("TYPE=", command)
+        self.assertIn("oracleasm", command)
         self.assertIn("device_major=$((16#$device_major_hex))", command)
         self.assertIn("does not match configured device", command)
         self.assertIn("ASMLIB v3 kernel interface: UEK driverless/io_uring", command)
