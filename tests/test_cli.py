@@ -546,7 +546,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("chmod -R a+rX /u01/sources/38632161", db_command)
         self.assertIn('-applyRU "$DB_PATCH_TOP"', db_command)
         self.assertIn("Validating oracle user ASM visibility after Database root script.", db_root_command)
-        self.assertIn("/u01/app/oracle/product/19.0.0/dbhome_1/bin/sqlplus -L -s / as sysdba", db_root_command)
+        self.assertIn("ORACLE_HOME=/u01/app/19.0.0/grid", db_root_command)
+        self.assertIn("/u01/app/19.0.0/grid/bin/sqlplus -L -s / as sysdba", db_root_command)
         self.assertIn("v$asm_diskgroup", db_root_command)
 
     def test_persistent_by_id_paths_are_labeled_with_asmlib(self):
@@ -689,7 +690,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("Database root script marker is missing; running root.sh before DBCA.", command)
         self.assertIn("/u01/app/19.0.0/grid/bin/crsctl check has", command)
         self.assertIn("/u01/app/19.0.0/grid/bin/asmcmd lsdg", command)
-        self.assertIn("/u01/app/oracle/product/19.0.0/dbhome_1/bin/sqlplus -L -s / as sysdba", command)
+        self.assertIn("ORACLE_HOME=/u01/app/19.0.0/grid", command)
+        self.assertIn("/u01/app/19.0.0/grid/bin/sqlplus -L -s / as sysdba", command)
         self.assertIn("v$asm_diskgroup", command)
         self.assertIn("ASM diskgroups are not visible to oracle user through SYSDBA ASM connection", command)
         self.assertIn("ASM diskgroup $diskgroup is missing. Run configure-asm-storage before create-database.", command)

@@ -13,6 +13,7 @@ from oracle_auto.config import AutomationConfig, SiteConfig
 from oracle_auto.phase_builders.common import (
     DB_HOME,
     GRID_BASE,
+    GRID_BASE_DIR,
     INVENTORY_LOCATION,
     ORACLE_BASE,
     STAGE,
@@ -294,9 +295,9 @@ def _oracle_asm_sqlplus_check() -> str:
     return (
         "ORACLE_ASM_SQL_LOG=$(mktemp /tmp/oracle-auto-oracle-asm-sql.XXXXXX)\n"
         "set +e\n"
-        f"sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} GRID_HOME={GRID_BASE} "
-        f"ORACLE_SID=\"$ASM_SID\" PATH={DB_HOME}/bin:{GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin "
-        f"LD_LIBRARY_PATH={DB_HOME}/lib:{GRID_BASE}/lib {DB_HOME}/bin/sqlplus -L -s / as sysdba <<'SQL' 2>&1 | tee \"$ORACLE_ASM_SQL_LOG\"\n"
+        f"sudo -iu oracle env ORACLE_HOME={GRID_BASE} ORACLE_BASE={GRID_BASE_DIR} GRID_HOME={GRID_BASE} "
+        f"ORACLE_SID=\"$ASM_SID\" PATH={GRID_BASE}/bin:{DB_HOME}/bin:/usr/local/bin:/usr/bin:/bin "
+        f"LD_LIBRARY_PATH={GRID_BASE}/lib:{DB_HOME}/lib {GRID_BASE}/bin/sqlplus -L -s / as sysdba <<'SQL' 2>&1 | tee \"$ORACLE_ASM_SQL_LOG\"\n"
         "WHENEVER SQLERROR EXIT SQL.SQLCODE\n"
         "SET HEADING OFF FEEDBACK OFF PAGESIZE 100\n"
         "SELECT name || ':' || state FROM v$asm_diskgroup ORDER BY name;\n"
