@@ -361,6 +361,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("Grid configuration tools appear complete; skipping executeConfigTools.", config_tools_command)
         self.assertIn("p19_30_db_ru_Linux-x86-64.zip", db_command)
         self.assertIn("Ensuring at least 512 MiB swap for Oracle installer", db_command)
+        self.assertIn("usermod -aG asmadmin,asmdba,asmoper,dba,racdba grid", db_command)
+        self.assertIn("usermod -aG dba,oper,backupdba,dgdba,kmdba,racdba,asmdba oracle", db_command)
         self.assertIn("cat > /u01/app/oracle/product/19.0.0/dbhome_1/oraInst.loc", db_command)
         self.assertIn("chown oracle:oinstall /u01/app/oracle/product/19.0.0/dbhome_1/oraInst.loc", db_command)
         self.assertIn("Database home is unpatched or partially installed; resetting DB home before RU install.", db_command)
@@ -534,6 +536,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("export PATH=$ORACLE_HOME/bin:$GRID_HOME/bin:$PATH", primary_command)
         self.assertIn("export ORACLE_SID=ORCL_A", primary_command)
         self.assertIn("export ORACLE_SID=ORCL_B", standby_command)
+        self.assertIn("useradd -g oinstall -G asmadmin,asmdba,asmoper,dba,racdba grid", primary_command)
+        self.assertIn("usermod -aG asmadmin,asmdba,asmoper,dba,racdba grid", primary_command)
 
     def test_inventory_remains_remote_read_only(self):
         config = load_config(Path("configs/sample-single.json"))

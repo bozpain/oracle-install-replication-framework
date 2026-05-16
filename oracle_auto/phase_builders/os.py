@@ -22,6 +22,7 @@ from oracle_auto.phase_builders.common import (
     install_asmlib_lines,
     inventory_pointer_lines,
     make_step,
+    oracle_user_group_lines,
 )
 
 
@@ -46,9 +47,7 @@ def _prepare_os_script(config: AutomationConfig, node: NodeConfig) -> str:
     lines = [
         f"{config.os.package_manager} install -y {shlex.quote(config.os.preinstall_package)} chrony unzip tar libnsl",
         *install_asmlib_lines(config.os.package_manager),
-        'for group in oinstall dba oper backupdba dgdba kmdba racdba asmadmin asmdba asmoper; do getent group "$group" >/dev/null || groupadd "$group"; done',
-        'id grid >/dev/null 2>&1 || useradd -g oinstall -G asmadmin,asmdba,asmoper,dba grid',
-        'id oracle >/dev/null 2>&1 || useradd -g oinstall -G dba,oper,backupdba,dgdba,kmdba,racdba,asmdba oracle',
+        *oracle_user_group_lines(),
         "sudo -iu grid true",
         "sudo -iu oracle true",
         f"mkdir -p {GRID_BASE_DIR} {GRID_BASE} {ORACLE_BASE} {DB_HOME} {config.installer.sources_path} {STAGE} {INVENTORY_LOCATION}",

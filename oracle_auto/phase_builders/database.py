@@ -16,6 +16,7 @@ from oracle_auto.phase_builders.common import (
     ensure_swap_lines,
     make_step,
     oracle_home_inventory_pointer_lines,
+    oracle_user_group_lines,
     stage_patch_lines,
 )
 from oracle_auto.response_files.database import db_home_response, dbca_response
@@ -67,6 +68,7 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
     lines = [
         f"mkdir -p {STAGE}/responses",
         *ensure_swap_lines(),
+        *oracle_user_group_lines(),
         *_fresh_db_home_lines(config, site),
         f"test -x {DB_HOME}/runInstaller || sudo -iu oracle unzip -oq {shlex.quote(config.installer.sources_path)}/{shlex.quote(config.installer.db_zip)} -d {DB_HOME}",
         *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),

@@ -24,6 +24,18 @@ ASMLIB_RPM_PATHS = {
 }
 
 
+def oracle_user_group_lines() -> list[str]:
+    return [
+        'for group in oinstall dba oper backupdba dgdba kmdba racdba asmadmin asmdba asmoper; do getent group "$group" >/dev/null || groupadd "$group"; done',
+        'id grid >/dev/null 2>&1 || useradd -g oinstall -G asmadmin,asmdba,asmoper,dba,racdba grid',
+        'id oracle >/dev/null 2>&1 || useradd -g oinstall -G dba,oper,backupdba,dgdba,kmdba,racdba,asmdba oracle',
+        "usermod -aG asmadmin,asmdba,asmoper,dba,racdba grid",
+        "usermod -aG dba,oper,backupdba,dgdba,kmdba,racdba,asmdba oracle",
+        "id grid",
+        "id oracle",
+    ]
+
+
 def inventory_pointer_lines() -> list[str]:
     return [
         f"mkdir -p {INVENTORY_LOCATION}",
