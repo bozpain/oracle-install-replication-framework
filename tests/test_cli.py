@@ -401,6 +401,14 @@ class CliTest(unittest.TestCase):
         self.assertIn("grep -Eq", command)
         self.assertIn("^(38629535);", command)
 
+    def test_configured_db_and_ojvm_patch_ids_select_patch_tops(self):
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        db_command = install_db_software_steps(config)[0].command
+        ojvm_command = apply_ojvm_patch_steps(config)[0].command
+
+        self.assertIn("DB_PATCH_TOP=/u01/stage/patches/p19_30_db_ru_linux_x86_64_zip/38632161", db_command)
+        self.assertIn("PATCH_TOP=/u01/stage/patches/p19_30_ojvm_ru_linux_x86_64_zip/38523609", ojvm_command)
+
     def test_multipath_alias_path_is_labeled_with_asmlib(self):
         import json
         import tempfile

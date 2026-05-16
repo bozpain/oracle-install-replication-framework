@@ -88,12 +88,14 @@
     "db_patch": {
       "name": "19.30 Database RU",
       "type": "ru",
-      "file": "p19_30_db_ru_Linux-x86-64.zip"
+      "file": "p19_30_db_ru_Linux-x86-64.zip",
+      "patch_id": "38632161"
     },
     "ojvm_patch": {
       "name": "19.30 OJVM RU",
       "type": "ojvm",
-      "file": "p19_30_ojvm_ru_Linux-x86-64.zip"
+      "file": "p19_30_ojvm_ru_Linux-x86-64.zip",
+      "patch_id": "38523609"
     }
   },
   "dataguard": {

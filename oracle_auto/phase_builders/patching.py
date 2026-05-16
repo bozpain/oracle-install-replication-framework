@@ -162,7 +162,7 @@ def _update_opatch_script(config: AutomationConfig) -> str:
 
 def _apply_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     lines = [
-        *stage_patch_lines(config.installer.sources_path, patch.file),
+        *stage_patch_lines(config.installer.sources_path, patch.file, patch_id=patch.patch_id),
         f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" || sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
     ]
     return shell_script(f"Apply patch {patch.label}", lines)
@@ -174,7 +174,7 @@ def _analyze_patch_script(config: AutomationConfig, target: str, patch: PatchCon
     else:
         prereq = f"sudo -iu oracle {DB_HOME}/OPatch/opatch prereq CheckConflictAgainstOHWithDetail -phBaseDir \"$PATCH_TOP\""
     lines = [
-        *stage_patch_lines(config.installer.sources_path, patch.file),
+        *stage_patch_lines(config.installer.sources_path, patch.file, patch_id=patch.patch_id),
         prereq,
     ]
     return shell_script(f"Analyze {target} patch {patch.label}", lines)
@@ -200,7 +200,7 @@ def _apply_db_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
 
 def _apply_ojvm_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     lines = [
-        *stage_patch_lines(config.installer.sources_path, patch.file),
+        *stage_patch_lines(config.installer.sources_path, patch.file, patch_id=patch.patch_id),
         f"sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
     ]
     return shell_script(f"Apply OJVM patch {patch.label}", lines)
