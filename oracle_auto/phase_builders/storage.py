@@ -1,10 +1,8 @@
 """ASM storage phase manual.
 
-Labels persistent device paths with Oracle ASMLIB. Physical multipath hosts get
-stable `/dev/asm/<LABEL>` udev symlinks from DM_UUID first; non-multipath hosts
-label the configured by-id/ID_SERIAL/ID_WWN device directly. Grid and ASM then
-consume the ASMLIB logical discovery string (`ORCL:*`) instead of OS device
-paths.
+Prepares ASM storage in one of three modes:
+`asmlib` labels disks and uses `ORCL:*`, `raw_udev` keeps stable by-id paths
+with udev ownership, and `afd` labels disks with ASM Filter Driver.
 The old `prepare-storage` command remains as a compatibility wrapper for
 dry-run review.
 """
@@ -107,12 +105,24 @@ def asm_device_permission_commands(paths: list[str]) -> list[str]:
     return commands
 
 
-def asm_discovery_string(_config: AutomationConfig) -> str:
-    return "ORCL:*"
+def asm_discovery_string(
+    config: AutomationConfig,
+    site: SiteConfig | None = None,
+    node: NodeConfig | None = None,
+) -> str:
+    if config.asm.storage_mode == "asmlib":
+        return "ORCL:*"
+    if config.asm.storage_mode == "afd":
+        return "AFD:*"
+    return ",".join(path for _label, path, _group, _disk in asm_entries(config, site, node))
 
 
-def asm_disk_spec(label: str) -> str:
-    return f"ORCL:{label}"
+def asm_disk_spec(config: AutomationConfig, label: str, path: str) -> str:
+    if config.asm.storage_mode == "asmlib":
+        return f"ORCL:{label}"
+    if config.asm.storage_mode == "afd":
+        return f"AFD:{label}"
+    return path
 
 
 def grid_env_command(command: str) -> str:
@@ -141,15 +151,16 @@ def asm_sid_detection_lines() -> list[str]:
     ]
 
 
-def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
-    disk_list = ",".join(f"'{asm_disk_spec(label)}'" for label in labels)
+def create_diskgroup_sql(name: str, entries: list[ASMEntry], redundancy: str, config: AutomationConfig) -> str:
+    disk_list = ",".join(f"'{asm_disk_spec(config, label, path)}'" for label, path, _group, _disk in entries)
+    disk_names = ", ".join(asm_disk_spec(config, label, path) for label, path, _group, _disk in entries)
     return (
         f"{grid_env_command(f'{GRID_BASE}/bin/sqlplus -s / as sysasm')} <<'SQL'\n"
         "WHENEVER SQLERROR EXIT SQL.SQLCODE\n"
         "SET SERVEROUTPUT ON\n"
         f"DECLARE\n  existing NUMBER;\nBEGIN\n  SELECT COUNT(*) INTO existing FROM v$asm_diskgroup WHERE name = '{name}';\n"
         "  IF existing = 0 THEN\n"
-        f"    DBMS_OUTPUT.PUT_LINE('Creating diskgroup {name} with ASMLIB disks: {', '.join(labels)}');\n"
+        f"    DBMS_OUTPUT.PUT_LINE('Creating diskgroup {name} with ASM disks: {disk_names}');\n"
         f"    EXECUTE IMMEDIATE q'[CREATE DISKGROUP {name} {redundancy} REDUNDANCY DISK {disk_list} ATTRIBUTE 'compatible.asm'='19.0','compatible.rdbms'='19.0','compatible.advm'='19.0']';\n"
         "  ELSE\n"
         f"    DBMS_OUTPUT.PUT_LINE('Diskgroup {name} already exists; skipping create.');\n"
@@ -157,12 +168,24 @@ def create_diskgroup_sql(name: str, labels: list[str], redundancy: str) -> str:
     )
 
 
-def asm_diskstring_sql() -> str:
+def asm_diskstring_sql(config: AutomationConfig, site: SiteConfig, node: NodeConfig) -> str:
+    diskstrings = [item.strip() for item in asm_discovery_string(config, site, node).split(",") if item.strip()]
+    diskstring_sql = ",".join(f"'{item}'" for item in diskstrings)
     return (
+        "set +e\n"
         f"{grid_env_command(f'{GRID_BASE}/bin/sqlplus -s / as sysasm')} <<'SQL'\n"
         "WHENEVER SQLERROR EXIT SQL.SQLCODE\n"
-        "ALTER SYSTEM SET asm_diskstring='ORCL:*' SCOPE=BOTH;\n"
-        "SQL"
+        f"ALTER SYSTEM SET asm_diskstring={diskstring_sql} SCOPE=BOTH;\n"
+        "SQL\n"
+        "asm_diskstring_rc=$?\n"
+        "set -e\n"
+        "if test \"$asm_diskstring_rc\" -ne 0; then\n"
+        "  echo 'Persistent asm_diskstring update failed; applying SCOPE=MEMORY for this ASM instance.'\n"
+        f"  {grid_env_command(f'{GRID_BASE}/bin/sqlplus -s / as sysasm')} <<'SQL'\n"
+        "WHENEVER SQLERROR EXIT SQL.SQLCODE\n"
+        f"ALTER SYSTEM SET asm_diskstring={diskstring_sql} SCOPE=MEMORY;\n"
+        "SQL\n"
+        "fi"
     )
 
 
@@ -321,6 +344,40 @@ def _multipath_udev_lines(entries: list[ASMEntry]) -> list[str]:
     ]
 
 
+def _raw_udev_rules_lines(entries: list[ASMEntry]) -> list[str]:
+    labels = " ".join(shlex.quote(label) for label, _path, _group, _disk in entries)
+    return [
+        "echo 'Writing raw ASM udev ownership rules for configured devices.'",
+        f": > {ASM_UDEV_RULES}",
+        f"chmod 0644 {ASM_UDEV_RULES}",
+        f"for label in {labels}; do",
+        "  resolved_var=\"ASM_${label}_RESOLVED\"",
+        "  resolved=${!resolved_var}",
+        "  test -b \"$resolved\"",
+        "  props=$(udevadm info --query=property --name \"$resolved\" 2>/dev/null || true)",
+        "  id_serial=$(printf '%s\\n' \"$props\" | awk -F= '$1==\"ID_SERIAL\" {print $2; exit}')",
+        "  id_wwn=$(printf '%s\\n' \"$props\" | awk -F= '$1==\"ID_WWN\" {print $2; exit}')",
+        "  dm_uuid=$(printf '%s\\n' \"$props\" | awk -F= '$1==\"DM_UUID\" {print $2; exit}')",
+        "  if test -n \"$dm_uuid\"; then",
+        f"    printf 'ENV{{DM_UUID}}==\"%s\", OWNER:=\"grid\", GROUP:=\"{ASM_DEVICE_GROUP}\", MODE:=\"0660\"\\n' \"$dm_uuid\" >> {ASM_UDEV_RULES}",
+        "  elif test -n \"$id_serial\"; then",
+        f"    printf 'ENV{{ID_SERIAL}}==\"%s\", OWNER:=\"grid\", GROUP:=\"{ASM_DEVICE_GROUP}\", MODE:=\"0660\"\\n' \"$id_serial\" >> {ASM_UDEV_RULES}",
+        "  elif test -n \"$id_wwn\"; then",
+        f"    printf 'ENV{{ID_WWN}}==\"%s\", OWNER:=\"grid\", GROUP:=\"{ASM_DEVICE_GROUP}\", MODE:=\"0660\"\\n' \"$id_wwn\" >> {ASM_UDEV_RULES}",
+        "  else",
+        "    kernel_name=$(basename \"$resolved\")",
+        f"    printf 'KERNEL==\"%s\", OWNER:=\"grid\", GROUP:=\"{ASM_DEVICE_GROUP}\", MODE:=\"0660\"\\n' \"$kernel_name\" >> {ASM_UDEV_RULES}",
+        "  fi",
+        f"  chown grid:{ASM_DEVICE_GROUP} \"$resolved\"",
+        "  chmod 0660 \"$resolved\"",
+        "done",
+        "udevadm control --reload-rules",
+        "udevadm trigger",
+        "udevadm settle || true",
+        f"cat {ASM_UDEV_RULES}",
+    ]
+
+
 def _prepare_storage_rules_script(config: AutomationConfig, node: NodeConfig) -> str:
     site = config.site_for_node(node)
     entries = asm_entries(config, site, node)
@@ -329,32 +386,60 @@ def _prepare_storage_rules_script(config: AutomationConfig, node: NodeConfig) ->
         for _label, path, _group, disk in entries
         if disk.uuid
     ]
-    lines = [
+    common_lines = [
         "command -v udevadm",
-        *install_asmlib_lines(config.os.package_manager, config.installer.sources_path, config.os.asmlib_rpms),
-        "command -v oracleasm",
-        asmlib_kernel_check_command(),
         *_multipath_detection_lines(),
         _asm_device_resolver_function(),
         _asmlib_label_validator_function(),
         "echo 'Planned ASM disk mapping:'",
         "cat <<'MAP'\n" + storage_mapping_text(config, site, node) + "\nMAP",
         *uuid_checks,
-        *_multipath_udev_lines(entries),
-        "ORACLE_AUTO_ASMLIB_IOFILTER=y",
-        "if test \"$ORACLE_AUTO_MULTIPATH\" != true; then",
-        "  ORACLE_AUTO_ASMLIB_IOFILTER=n",
-        "  echo 'Direct ASMLIB mode detected; disabling ASMLIB I/O filter for VM/by-id disks.'",
-        "fi",
-        "oracleasm configure -u grid -g asmdba -e -s y -m 2048 -f \"$ORACLE_AUTO_ASMLIB_IOFILTER\"",
-        "systemctl restart oracleasm || oracleasm init",
-        "systemctl enable oracleasm || true",
-        "oracleasm status || true",
-        *[asmlib_label_command(label, disk, path) for label, path, _group, disk in entries],
-        "oracleasm listdisks",
-        "oracleasm status || true",
+        *[
+            f"ASM_{label}_RESOLVED=$(resolve_asm_source_device {shlex.quote(label)} {shlex.quote(path if disk.path or disk.site_paths or disk.node_paths or disk.uuid else '')} {shlex.quote(disk.dm_uuid if disk.uuid else '')} {shlex.quote(disk.id_serial or '')} {shlex.quote(disk.id_wwn or '')})"
+            for label, path, _group, disk in entries
+        ],
     ]
-    return shell_script("Prepare ASMLIB disks", lines)
+
+    if config.asm.storage_mode == "raw_udev":
+        lines = [
+            *common_lines,
+            *_raw_udev_rules_lines(entries),
+            "echo 'Raw udev ASM storage prepared; ASMLIB labels are not used.'",
+        ]
+    elif config.asm.storage_mode == "afd":
+        lines = [
+            *common_lines,
+            *_raw_udev_rules_lines(entries),
+            f"test -x {GRID_BASE}/bin/asmcmd || true",
+            "echo 'AFD ASM storage prepared for labeling during configure-asm-storage.'",
+        ]
+    else:
+        lines = [
+            "command -v udevadm",
+            *install_asmlib_lines(config.os.package_manager, config.installer.sources_path, config.os.asmlib_rpms),
+            "command -v oracleasm",
+            asmlib_kernel_check_command(),
+            *_multipath_detection_lines(),
+            _asm_device_resolver_function(),
+            _asmlib_label_validator_function(),
+            "echo 'Planned ASM disk mapping:'",
+            "cat <<'MAP'\n" + storage_mapping_text(config, site, node) + "\nMAP",
+            *uuid_checks,
+            *_multipath_udev_lines(entries),
+            "ORACLE_AUTO_ASMLIB_IOFILTER=y",
+            "if test \"$ORACLE_AUTO_MULTIPATH\" != true; then",
+            "  ORACLE_AUTO_ASMLIB_IOFILTER=n",
+            "  echo 'Direct ASMLIB mode detected; disabling ASMLIB I/O filter for VM/by-id disks.'",
+            "fi",
+            "oracleasm configure -u grid -g asmdba -e -s y -m 2048 -f \"$ORACLE_AUTO_ASMLIB_IOFILTER\"",
+            "systemctl restart oracleasm || oracleasm init",
+            "systemctl enable oracleasm || true",
+            "oracleasm status || true",
+            *[asmlib_label_command(label, disk, path) for label, path, _group, disk in entries],
+            "oracleasm listdisks",
+            "oracleasm status || true",
+        ]
+    return shell_script("Prepare ASM storage", lines)
 
 
 def _configure_asm_storage_script(config: AutomationConfig, node: NodeConfig) -> str:
@@ -363,19 +448,41 @@ def _configure_asm_storage_script(config: AutomationConfig, node: NodeConfig) ->
     crs_check = f"{GRID_BASE}/bin/crsctl check {'crs' if config.install_type == 'rac' else 'has'}"
     diskgroup_commands = []
     for diskgroup_name in ("OCR", "DATA", "RECO"):
-        labels = [label for label, _path, group, _disk in entries if group == diskgroup_name]
-        if labels:
-            diskgroup_commands.append(create_diskgroup_sql(diskgroup_name, labels, config.asm.redundancy))
+        group_entries = [entry for entry in entries if entry[2] == diskgroup_name]
+        if group_entries:
+            diskgroup_commands.append(create_diskgroup_sql(diskgroup_name, group_entries, config.asm.redundancy, config))
+
+    mode_prelude: list[str]
+    if config.asm.storage_mode == "asmlib":
+        mode_prelude = [
+            "oracleasm scandisks",
+            "oracleasm listdisks",
+            *[f"oracleasm querydisk {shlex.quote(label)}" for label, _path, _group, _disk in entries],
+        ]
+    elif config.asm.storage_mode == "afd":
+        mode_prelude = [
+            f"{GRID_BASE}/bin/asmcmd afd_state || true",
+            f"{GRID_BASE}/bin/asmcmd afd_configure || true",
+            *[
+                f"{GRID_BASE}/bin/asmcmd afd_label {shlex.quote(label)} {shlex.quote(path)} --init || {GRID_BASE}/bin/asmcmd afd_label {shlex.quote(label)} {shlex.quote(path)}"
+                for label, path, _group, _disk in entries
+            ],
+            f"{GRID_BASE}/bin/asmcmd afd_scan",
+            f"{GRID_BASE}/bin/asmcmd afd_lsdsk || true",
+        ]
+    else:
+        mode_prelude = [
+            "echo 'Using raw udev ASM storage; ASMLIB/AFD labels are not used.'",
+        ]
+
     lines = [
-        "oracleasm scandisks",
-        "oracleasm listdisks",
-        *[f"oracleasm querydisk {shlex.quote(label)}" for label, _path, _group, _disk in entries],
+        *mode_prelude,
         f"test -x {GRID_BASE}/bin/sqlplus",
         f"sudo -iu grid {crs_check}",
         *asm_sid_detection_lines(),
         grid_env_command(f"{GRID_BASE}/bin/srvctl status asm") + " || true",
-        asm_diskstring_sql(),
+        asm_diskstring_sql(config, site, node),
         *diskgroup_commands,
         grid_env_command(f"{GRID_BASE}/bin/asmcmd lsdg"),
     ]
-    return shell_script("Configure ASM diskgroups with ASMLIB", lines)
+    return shell_script("Configure ASM diskgroups", lines)

@@ -17,7 +17,7 @@ from typing import Callable
 
 from oracle_auto.doctor import run_doctor
 from oracle_auto.automation import AutomationRunner, AutomationStep, StepResult, render_results_text
-from oracle_auto.config import AutomationConfig, ConfigError, load_config
+from oracle_auto.config import AutomationConfig, ConfigError, VALID_ASM_STORAGE_MODES, load_config
 from oracle_auto.executor import SSHExecutor
 from oracle_auto.phases import (
     analyze_patch_steps,
@@ -150,6 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = subparsers.add_parser("validate-config", help="Validate an automation config file.")
     validate.add_argument("--config", required=True, help="Path to JSON/YAML config.")
+    _add_asm_storage_mode_arg(validate)
 
     precheck = subparsers.add_parser("precheck", help="Run Oracle installation prechecks.")
     _add_execution_args(precheck)
@@ -218,9 +219,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     report = subparsers.add_parser("generate-report", help="Generate HTML report from current state.")
     report.add_argument("--config", required=True, help="Path to JSON/YAML config.")
+    _add_asm_storage_mode_arg(report)
 
     plan = subparsers.add_parser("generate-plan", help="Generate an HTML execution plan without SSH.")
     plan.add_argument("--config", required=True, help="Path to JSON/YAML config.")
+    _add_asm_storage_mode_arg(plan)
     plan.add_argument(
         "--phases",
         nargs="*",
@@ -231,6 +234,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = subparsers.add_parser("doctor", help="Run local control-machine readiness checks.")
     doctor.add_argument("--config", required=True, help="Path to JSON/YAML config.")
     doctor.add_argument("--json", action="store_true", help="Print machine-readable JSON result.")
+    _add_asm_storage_mode_arg(doctor)
 
     return parser
 
@@ -261,6 +265,15 @@ def _add_execution_args(parser: argparse.ArgumentParser) -> None:
         "--log-dir",
         default=".oracle-auto/logs",
         help="Directory for per-step stdout/stderr log artifacts.",
+    )
+    _add_asm_storage_mode_arg(parser)
+
+
+def _add_asm_storage_mode_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--asm-storage-mode",
+        choices=sorted(VALID_ASM_STORAGE_MODES),
+        help="Override asm.storage_mode for this run. Choices: raw_udev, asmlib, afd.",
     )
 
 
@@ -297,6 +310,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Config error: {exc}", file=sys.stderr)
         return 2
 
+    config = _with_asm_storage_mode_override(args, config)
+
     if args.command == "validate-config":
         _print_config_summary(config)
         return 0
@@ -311,6 +326,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if any(item.status == "FAIL" for item in items) else 0
 
     state = StateStore(Path(args.state_dir), config.run_id)
+    if _is_execution_command(args.command) and not args.dry_run:
+        try:
+            _validate_or_record_run_context(args, config, state)
+        except ConfigError as exc:
+            print(f"Config error: {exc}", file=sys.stderr)
+            return 2
 
     if args.command == "generate-report":
         print("RUN   generate-report:local:generate_report  Generate HTML report from current state", flush=True)
@@ -483,6 +504,30 @@ def _selected_workflow_phases(from_phase: str | None, to_phase: str | None) -> l
     if start > end:
         raise ConfigError("--from-phase must not come after --to-phase.")
     return WORKFLOW_PHASE_ORDER[start : end + 1]
+
+
+def _with_asm_storage_mode_override(args, config: AutomationConfig) -> AutomationConfig:
+    mode = getattr(args, "asm_storage_mode", None)
+    if not mode:
+        return config
+    return replace(config, asm=replace(config.asm, storage_mode=mode))
+
+
+def _is_execution_command(command: str) -> bool:
+    return command in {"precheck", "full", "resume", *PHASE_BUILDERS}
+
+
+def _validate_or_record_run_context(args, config: AutomationConfig, state: StateStore) -> None:
+    context = state.data.setdefault("context", {})
+    previous = context.get("asm_storage_mode")
+    current = config.asm.storage_mode
+    if previous and previous != current and not args.no_resume:
+        raise ConfigError(
+            f"Resume storage mode mismatch. Previous run used {previous}, current run uses {current}. "
+            "Use the same --asm-storage-mode or rerun with --no-resume for a new execution."
+        )
+    context["asm_storage_mode"] = current
+    state._save()
 
 
 def _print_or_json(args, results: list[StepResult]) -> None:

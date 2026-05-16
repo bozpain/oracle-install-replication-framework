@@ -286,19 +286,20 @@ def _single_gi_direct_asmca_lines(config: AutomationConfig) -> list[str]:
 
     initial_group = "DATA"
     initial_disks = ",".join(
-        asm_disk_spec(label)
-        for label, _path, group, _disk in asm_entries(config)
+        asm_disk_spec(config, label, path)
+        for label, path, group, _disk in asm_entries(config, config.primary_site, config.primary_site.nodes[0])
         if group == initial_group
     )
+    disk_string = asm_discovery_string(config, config.primary_site, config.primary_site.nodes[0])
 
     return [
         f"  if test \"$GRID_CONFIG_TOOLS_COMPLETE\" != true && sudo -iu grid {GRID_BASE}/bin/crsctl check has >/dev/null 2>&1 && ! sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
-        "    echo 'Running ASMCA directly with ASMLIB logical disk string'",
-        "    echo 'ASM disk string: " + asm_discovery_string(config) + "'",
+        "    echo 'Running ASMCA directly with configured ASM disk string'",
+        "    echo 'ASM disk string: " + disk_string + "'",
         "    echo 'ASM disk list: " + initial_disks + "'",
         "    DIRECT_ASMCA_LOG=$(mktemp /tmp/oracle-auto-direct-asmca.XXXXXX)",
         "    set +e",
-        f"    sudo -iu grid env ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/bin/asmca -silent -configureASM -sysAsmPassword \"$ASMSNMP_PASSWORD\" -asmsnmpPassword \"$ASMSNMP_PASSWORD\" -diskString {shlex.quote(asm_discovery_string(config))} -diskGroupName {initial_group} -diskList {shlex.quote(initial_disks)} -redundancy {shlex.quote(config.asm.redundancy)} -au_size 1 2>&1 | tee \"$DIRECT_ASMCA_LOG\"",
+        f"    sudo -iu grid env ORACLE_BASE={GRID_BASE_DIR} {GRID_BASE}/bin/asmca -silent -configureASM -sysAsmPassword \"$ASMSNMP_PASSWORD\" -asmsnmpPassword \"$ASMSNMP_PASSWORD\" -diskString {shlex.quote(disk_string)} -diskGroupName {initial_group} -diskList {shlex.quote(initial_disks)} -redundancy {shlex.quote(config.asm.redundancy)} -au_size 1 2>&1 | tee \"$DIRECT_ASMCA_LOG\"",
         "    direct_asmca_rc=${PIPESTATUS[0]}",
         "    set -e",
         "    if test \"$direct_asmca_rc\" -ne 0 && grep -q 'DBT-30017.*Disk group DATA already exists' \"$DIRECT_ASMCA_LOG\"; then",
@@ -307,7 +308,7 @@ def _single_gi_direct_asmca_lines(config: AutomationConfig) -> list[str]:
         "      direct_asmca_rc=0",
         "    fi",
         f"    if test \"$direct_asmca_rc\" -ne 0 && ! sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg >/dev/null 2>&1; then",
-        "      echo 'ERROR: ASMCA failed using ASMLIB logical discovery. Not retrying with device paths.' >&2",
+        "      echo 'ERROR: ASMCA failed using configured ASM discovery. Not retrying with another storage mode.' >&2",
         "      oracleasm status || true",
         "      oracleasm listdisks || true",
         "      exit \"$direct_asmca_rc\"",

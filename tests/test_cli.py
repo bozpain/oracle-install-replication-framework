@@ -2,6 +2,7 @@ import unittest
 import tempfile
 import threading
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 from oracle_auto.automation import AutomationRunner, AutomationStep, shell_script
@@ -14,7 +15,7 @@ from oracle_auto.secrets import redact
 from oracle_auto.phase_builders.inventory import inventory_steps
 from oracle_auto.phase_builders.installer import verify_installer_steps
 from oracle_auto.phase_builders.os import prepare_os_steps
-from oracle_auto.phase_builders.storage import prepare_storage_rules_steps
+from oracle_auto.phase_builders.storage import configure_asm_storage_steps, prepare_storage_rules_steps
 from oracle_auto.phase_builders.grid import install_grid_steps
 from oracle_auto.phase_builders.database import create_database_steps, install_db_software_steps
 from oracle_auto.phase_builders.patching import apply_ojvm_patch_steps
@@ -499,12 +500,12 @@ class CliTest(unittest.TestCase):
         self.assertIn("db1-site-a", config_tools_command)
         self.assertIn("Grid configuration tools failed; extracting recent Oracle log errors", config_tools_command)
         self.assertIn("gridConfigTools-site-a.out", config_tools_command)
-        self.assertIn("Running ASMCA directly with ASMLIB logical disk string", config_tools_command)
+        self.assertIn("Running ASMCA directly with configured ASM disk string", config_tools_command)
         self.assertIn("/u01/app/19.0.0/grid/bin/asmca -silent -configureASM", config_tools_command)
         self.assertIn("-diskString", config_tools_command)
         self.assertIn("ORCL:*", config_tools_command)
         self.assertIn("-diskList ORCL:DATA01", config_tools_command)
-        self.assertIn("ASMCA failed using ASMLIB logical discovery. Not retrying with device paths.", config_tools_command)
+        self.assertIn("ASMCA failed using configured ASM discovery. Not retrying with another storage mode.", config_tools_command)
         self.assertNotIn("/dev/oracleasm/", config_tools_command)
         self.assertIn("Grid ASM configuration complete; skipping OUI executeConfigTools replay.", config_tools_command)
         self.assertIn("Single-GI ASM DATA diskgroup already exists; treating ASM config tools as complete", config_tools_command)
@@ -593,13 +594,45 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("/dev/oracleasm/", command)
         self.assertNotIn("ln -sfn", command)
 
+    def test_raw_udev_storage_uses_by_id_paths_without_asmlib_labels(self):
+        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = replace(base, asm=replace(base.asm, storage_mode="raw_udev"))
+        rules_command = prepare_storage_rules_steps(config)[0].command
+        asm_command = configure_asm_storage_steps(config)[0].command
+        response = grid_response(config, config.primary_site)
+
+        self.assertIn("Writing raw ASM udev ownership rules", rules_command)
+        self.assertIn("ENV{ID_SERIAL}", rules_command)
+        self.assertIn("Raw udev ASM storage prepared", rules_command)
+        self.assertNotIn("oracleasm createdisk", rules_command)
+        self.assertNotIn("oracleasm configure", rules_command)
+        self.assertIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", asm_command)
+        self.assertIn("Using raw udev ASM storage", asm_command)
+        self.assertNotIn("ORCL:DATA1", asm_command)
+        self.assertIn("oracle.install.asm.diskGroup.disks=/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", response)
+        self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", response)
+
+    def test_afd_storage_uses_afd_labels(self):
+        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = replace(base, asm=replace(base.asm, storage_mode="afd"))
+        rules_command = prepare_storage_rules_steps(config)[0].command
+        asm_command = configure_asm_storage_steps(config)[0].command
+        response = grid_response(config, config.primary_site)
+
+        self.assertIn("AFD ASM storage prepared", rules_command)
+        self.assertIn("asmcmd afd_label DATA1", asm_command)
+        self.assertIn("asmcmd afd_scan", asm_command)
+        self.assertIn("AFD:DATA1", asm_command)
+        self.assertIn("oracle.install.asm.diskGroup.disks=AFD:DATA1", response)
+        self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=AFD:*", response)
+
     def test_standby_storage_uses_site_specific_paths(self):
         config = load_config(Path("configs/gcp-single-gi-lab.json"))
         command = prepare_storage_rules_steps(config)[1].command
 
-        self.assertIn("resolve_asm_source_device DATA1 /dev/disk/by-id/scsi-0Google_PersistentDisk_data2-part2", command)
+        self.assertIn("resolve_asm_source_device DATA1 /dev/disk/by-id/scsi-0Google_PersistentDisk_s-data-1-part1", command)
         self.assertIn("oracleasm createdisk DATA1", command)
-        self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_data-part2", command)
+        self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", command)
 
     def test_non_multipath_storage_can_resolve_id_serial_and_id_wwn(self):
         import json

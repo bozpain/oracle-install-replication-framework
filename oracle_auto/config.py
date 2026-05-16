@@ -25,6 +25,7 @@ from typing import Any
 
 VALID_INSTALL_TYPES = {"single-gi", "rac"}
 VALID_DATAGUARD_METHODS = {"manual", "broker"}
+VALID_ASM_STORAGE_MODES = {"asmlib", "raw_udev", "afd"}
 DEFAULT_NTP_SERVERS = ["192.168.113.41", "192.168.115.41"]
 DEFAULT_ASMLIB_RPMS = {
     "x86_64": "oracleasmlib-3.1.1-1.el8.x86_64.rpm",
@@ -182,6 +183,7 @@ class ASMConfig:
     reco_disks: list[ASMDiskConfig]
     ocr_disks: list[ASMDiskConfig] = field(default_factory=list)
     redundancy: str = "EXTERNAL"
+    storage_mode: str = "asmlib"
 
     @property
     def all_disks(self) -> list[ASMDiskConfig]:
@@ -413,11 +415,13 @@ def _parse_node(data: Any, location: str) -> NodeConfig:
 def _parse_asm(data: Any) -> ASMConfig:
     if not isinstance(data, dict):
         raise ConfigError("asm must be an object/mapping.")
+    storage_mode = str(data.get("storage_mode", "asmlib")).lower().replace("-", "_")
     return ASMConfig(
         data_disks=_required_asm_disk_list(data.get("data_disks"), "asm.data_disks"),
         reco_disks=_required_asm_disk_list(data.get("reco_disks"), "asm.reco_disks"),
         ocr_disks=_optional_asm_disk_list(data.get("ocr_disks"), "asm.ocr_disks"),
         redundancy=str(data.get("redundancy", "EXTERNAL")).upper(),
+        storage_mode=storage_mode,
     )
 
 
@@ -849,6 +853,8 @@ def _validate_scan_names(config: AutomationConfig) -> None:
 
 
 def _validate_asm_disk_counts(config: AutomationConfig) -> None:
+    if config.asm.storage_mode not in VALID_ASM_STORAGE_MODES:
+        raise ConfigError(f"asm.storage_mode must be one of: {', '.join(sorted(VALID_ASM_STORAGE_MODES))}.")
     min_count = {"EXTERNAL": 1, "NORMAL": 2, "HIGH": 3}.get(config.asm.redundancy)
     if min_count is None:
         raise ConfigError("asm.redundancy must be EXTERNAL, NORMAL, or HIGH.")

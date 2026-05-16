@@ -112,11 +112,11 @@ class ConfigTest(unittest.TestCase):
         assert config.standby_site is not None
         self.assertEqual(
             config.asm.data_disks[0].path_for(site_name=config.primary_site.name, node_host=primary.host),
-            "/dev/disk/by-id/scsi-0Google_PersistentDisk_data-part2",
+            "/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1",
         )
         self.assertEqual(
             config.asm.data_disks[0].path_for(site_name=config.standby_site.name, node_host=standby.host),
-            "/dev/disk/by-id/scsi-0Google_PersistentDisk_data2-part2",
+            "/dev/disk/by-id/scsi-0Google_PersistentDisk_s-data-1-part1",
         )
 
     def test_asm_disk_id_serial_and_id_wwn_are_parsed(self):

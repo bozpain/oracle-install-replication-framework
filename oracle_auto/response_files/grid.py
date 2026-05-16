@@ -11,8 +11,8 @@ def grid_response(config: AutomationConfig, site: SiteConfig) -> str:
     install_option = "CRS_CONFIG" if config.install_type == "rac" else "HA_CONFIG"
     initial_group = "OCR" if config.install_type == "rac" else "DATA"
     initial_disks = ",".join(
-        asm_disk_spec(label)
-        for label, _path, group, _disk in asm_entries(config)
+        asm_disk_spec(config, label, path)
+        for label, path, group, _disk in asm_entries(config, site)
         if group == initial_group
     )
     lines = [
@@ -28,7 +28,7 @@ def grid_response(config: AutomationConfig, site: SiteConfig) -> str:
         f"oracle.install.asm.diskGroup.name={initial_group}",
         f"oracle.install.asm.diskGroup.redundancy={config.asm.redundancy}",
         f"oracle.install.asm.diskGroup.disks={initial_disks}",
-        f"oracle.install.asm.diskGroup.diskDiscoveryString={asm_discovery_string(config)}",
+        f"oracle.install.asm.diskGroup.diskDiscoveryString={asm_discovery_string(config, site)}",
         "oracle.install.asm.monitorPassword=$ASMSNMP_PASSWORD",
         "oracle.install.config.managementOption=NONE",
         "oracle.install.crs.rootconfig.executeRootScript=false",
