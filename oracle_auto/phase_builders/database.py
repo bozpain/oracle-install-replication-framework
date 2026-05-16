@@ -12,6 +12,7 @@ from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
 from oracle_auto.phase_builders.common import (
     DB_HOME,
+    INVENTORY_LOCATION,
     STAGE,
     ensure_swap_lines,
     make_step,
@@ -67,6 +68,8 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
     response = db_home_response()
     lines = [
         f"mkdir -p {STAGE}/responses",
+        f"mkdir -p {STAGE}/logs",
+        f"DB_INSTALL_LOG={STAGE}/logs/dbInstall-{site.name}.out",
         *ensure_swap_lines(),
         *oracle_user_group_lines(),
         *_fresh_db_home_lines(config, site),
@@ -76,9 +79,11 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
         *_db_patch_stage_lines(config),
         f"cat > {STAGE}/responses/dbhome-{site.name}.rsp <<'EOF'\n{response}\nEOF",
         f"chown oracle:oinstall {STAGE}/responses/dbhome-{site.name}.rsp",
-        f"mkdir -p {STAGE}/logs",
-        f"DB_INSTALL_LOG={STAGE}/logs/dbInstall-{site.name}.out",
         "DB_SOFTWARE_READY=false",
+        "DB_HOME_INVENTORY_REGISTERED=false",
+        f"if test -r {INVENTORY_LOCATION}/ContentsXML/inventory.xml && grep -Fq 'LOC=\"{DB_HOME}\"' {INVENTORY_LOCATION}/ContentsXML/inventory.xml; then DB_HOME_INVENTORY_REGISTERED=true; fi",
+        "DB_PREVIOUS_INSTALL_FAILED=false",
+        "if test -f \"$DB_INSTALL_LOG\" && grep -Eq 'FATAL|ERROR|INS-|failed|failure' \"$DB_INSTALL_LOG\"; then DB_PREVIOUS_INSTALL_FAILED=true; fi",
         f"if test -x {DB_HOME}/bin/oraversion; then",
         f"  db_version=$(sudo -iu oracle {DB_HOME}/bin/oraversion -compositeVersion 2>/dev/null || sudo -iu oracle {DB_HOME}/bin/oraversion -version 2>/dev/null || true)",
         "  if test -n \"$db_version\"; then",
@@ -100,6 +105,8 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
         f"    find {DB_HOME}/cfgtoollogs/opatchauto -type f -name '*.log' -printf '%T@ %p\\n' 2>/dev/null | sort -nr | head -3 | cut -d' ' -f2- | while read -r log_file; do echo \"--- Recent OPatch log: $log_file\" >&2; grep -HniE 'SEVERE|ERROR|FATAL|failed|failure|conflict|prereq' \"$log_file\" | tail -20 >&2 || true; done",
         "    exit \"$db_install_rc\"",
         "  fi",
+        f"  mkdir -p {DB_HOME}/install",
+        f"  touch {DB_HOME}/install/oracle_auto_db_software_installed.marker",
         "fi",
         *_db_ru_validation_lines(config),
     ]
@@ -113,10 +120,15 @@ def _fresh_db_home_lines(config: AutomationConfig, site: SiteConfig) -> list[str
     unique = site.db_unique_name
     return [
         "DB_HOME_DIRTY=false",
+        "DB_HOME_INVENTORY_REGISTERED=false",
+        f"if test -r {INVENTORY_LOCATION}/ContentsXML/inventory.xml && grep -Fq 'LOC=\"{DB_HOME}\"' {INVENTORY_LOCATION}/ContentsXML/inventory.xml; then DB_HOME_INVENTORY_REGISTERED=true; fi",
+        "DB_PREVIOUS_INSTALL_FAILED=false",
+        "if test -f \"$DB_INSTALL_LOG\" && grep -Eq 'FATAL|ERROR|INS-|failed|failure' \"$DB_INSTALL_LOG\"; then DB_PREVIOUS_INSTALL_FAILED=true; fi",
         f"if test -x {DB_HOME}/bin/oraversion; then",
         f"  db_home_version=$(sudo -iu oracle {DB_HOME}/bin/oraversion -compositeVersion 2>/dev/null || sudo -iu oracle {DB_HOME}/bin/oraversion -version 2>/dev/null || true)",
         "  case \"$db_home_version\" in",
         "    *19.3.0.0.0*) DB_HOME_DIRTY=true ;;",
+        "    *) if test \"$DB_PREVIOUS_INSTALL_FAILED\" = true || test \"$DB_HOME_INVENTORY_REGISTERED\" != true; then DB_HOME_DIRTY=true; fi ;;",
         "  esac",
         f"elif test -x {DB_HOME}/runInstaller; then",
         "  DB_HOME_DIRTY=true",
@@ -126,7 +138,7 @@ def _fresh_db_home_lines(config: AutomationConfig, site: SiteConfig) -> list[str
         f"    echo 'ERROR: Database home looks unpatched/dirty, but database {unique} is already registered. Refusing to clean DB home automatically.' >&2",
         "    exit 1",
         "  fi",
-        "  echo 'Database home is unpatched or partially installed; resetting DB home before RU install.'",
+        "  echo 'Database home is unpatched, partially installed, or failed a previous installer run; resetting DB home before RU install.'",
         f"  if test -x {DB_HOME}/runInstaller; then sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE=/u01/app/oracle {DB_HOME}/runInstaller -silent -detachHome ORACLE_HOME={DB_HOME} >/dev/null 2>&1 || true; fi",
         f"  find {DB_HOME} -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +",
         f"  sudo -iu oracle unzip -oq {shlex.quote(db_zip)} -d {DB_HOME}",
@@ -171,7 +183,7 @@ def _db_existing_version_ready_lines(config: AutomationConfig) -> list[str]:
     return [
         "    case \"$db_version\" in",
         "      *19.3.0.0.0*) ;;",
-        "      *) DB_SOFTWARE_READY=true ;;",
+        f"      *) if test -f {DB_HOME}/install/oracle_auto_db_software_installed.marker || (test \"$DB_HOME_INVENTORY_REGISTERED\" = true && test \"$DB_PREVIOUS_INSTALL_FAILED\" != true); then DB_SOFTWARE_READY=true; fi ;;",
         "    esac",
     ]
 
