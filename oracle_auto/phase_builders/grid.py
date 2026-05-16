@@ -11,7 +11,16 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
-from oracle_auto.phase_builders.common import GRID_BASE, GRID_BASE_DIR, STAGE, ensure_swap_lines, inventory_pointer_lines, make_step, stage_patch_lines
+from oracle_auto.phase_builders.common import (
+    GRID_BASE,
+    GRID_BASE_DIR,
+    STAGE,
+    ensure_swap_lines,
+    inventory_pointer_lines,
+    make_step,
+    oracle_home_inventory_pointer_lines,
+    stage_patch_lines,
+)
 from oracle_auto.phase_builders.storage import asm_discovery_string, asm_disk_spec, asm_entries
 from oracle_auto.response_files.grid import grid_response
 
@@ -65,7 +74,9 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         *ensure_swap_lines(),
         *inventory_pointer_lines(),
         *_fresh_grid_home_lines(config),
+        *oracle_home_inventory_pointer_lines(GRID_BASE, "grid"),
         *_grid_opatch_lines(config),
+        *oracle_home_inventory_pointer_lines(GRID_BASE, "grid"),
         *_grid_patch_stage_lines(config),
         f"cat > {STAGE}/responses/grid-{site.name}.rsp <<EOF\n{response}\nEOF",
         f"chown grid:oinstall {STAGE}/responses/grid-{site.name}.rsp",

@@ -10,7 +10,15 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, PatchConfig
-from oracle_auto.phase_builders.common import DB_HOME, GRID_BASE, make_step, patch_top_assignment, safe_name, stage_patch_lines
+from oracle_auto.phase_builders.common import (
+    DB_HOME,
+    GRID_BASE,
+    make_step,
+    oracle_home_inventory_pointer_lines,
+    patch_top_assignment,
+    safe_name,
+    stage_patch_lines,
+)
 
 
 def apply_patch_steps(config: AutomationConfig) -> list[AutomationStep]:
@@ -154,6 +162,8 @@ def _update_opatch_script(config: AutomationConfig) -> str:
         f"mv {DB_HOME}/OPatch {DB_HOME}/OPatch.bak.$(date +%Y%m%d%H%M%S) 2>/dev/null || true",
         f"sudo -iu grid unzip -oq {shlex.quote(opatch_zip)} -d {GRID_BASE}",
         f"sudo -iu oracle unzip -oq {shlex.quote(opatch_zip)} -d {DB_HOME}",
+        *oracle_home_inventory_pointer_lines(GRID_BASE, "grid"),
+        *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
         f"sudo -iu grid {GRID_BASE}/OPatch/opatch version",
         f"sudo -iu oracle {DB_HOME}/OPatch/opatch version",
     ]
@@ -162,6 +172,8 @@ def _update_opatch_script(config: AutomationConfig) -> str:
 
 def _apply_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     lines = [
+        *oracle_home_inventory_pointer_lines(GRID_BASE, "grid"),
+        *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
         *stage_patch_lines(config.installer.sources_path, patch.file, patch_id=patch.patch_id),
         f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" || sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
     ]
@@ -171,9 +183,12 @@ def _apply_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
 def _analyze_patch_script(config: AutomationConfig, target: str, patch: PatchConfig) -> str:
     if target == "grid":
         prereq = f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" -analyze"
+        pointer_lines = oracle_home_inventory_pointer_lines(GRID_BASE, "grid")
     else:
         prereq = f"sudo -iu oracle {DB_HOME}/OPatch/opatch prereq CheckConflictAgainstOHWithDetail -phBaseDir \"$PATCH_TOP\""
+        pointer_lines = oracle_home_inventory_pointer_lines(DB_HOME, "oracle")
     lines = [
+        *pointer_lines,
         *stage_patch_lines(config.installer.sources_path, patch.file, patch_id=patch.patch_id),
         prereq,
     ]
@@ -183,6 +198,7 @@ def _analyze_patch_script(config: AutomationConfig, target: str, patch: PatchCon
 def _apply_grid_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     patch_dir = _patch_dir(patch)
     lines = [
+        *oracle_home_inventory_pointer_lines(GRID_BASE, "grid"),
         patch_top_assignment(patch_dir, patch_id=patch.patch_id),
         f"{GRID_BASE}/OPatch/opatchauto apply \"$PATCH_TOP\" -oh {GRID_BASE}",
     ]
@@ -192,6 +208,7 @@ def _apply_grid_patch_script(config: AutomationConfig, patch: PatchConfig) -> st
 def _apply_db_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     patch_dir = _patch_dir(patch)
     lines = [
+        *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
         patch_top_assignment(patch_dir, patch_id=patch.patch_id),
         f"sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
     ]
@@ -200,6 +217,7 @@ def _apply_db_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
 
 def _apply_ojvm_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     lines = [
+        *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
         *stage_patch_lines(config.installer.sources_path, patch.file, patch_id=patch.patch_id),
         f"sudo -iu oracle {DB_HOME}/OPatch/opatch apply -silent \"$PATCH_TOP\"",
     ]
@@ -208,6 +226,7 @@ def _apply_ojvm_patch_script(config: AutomationConfig, patch: PatchConfig) -> st
 
 def _datapatch_script() -> str:
     lines = [
+        *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
         f"sudo -iu oracle {DB_HOME}/OPatch/datapatch -verbose",
     ]
     return shell_script("Run datapatch", lines)
@@ -215,6 +234,8 @@ def _datapatch_script() -> str:
 
 def _patch_inventory_script() -> str:
     lines = [
+        *oracle_home_inventory_pointer_lines(GRID_BASE, "grid"),
+        *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
         f"sudo -iu grid {GRID_BASE}/OPatch/opatch lsinventory || true",
         f"sudo -iu oracle {DB_HOME}/OPatch/opatch lsinventory",
     ]

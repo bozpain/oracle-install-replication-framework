@@ -11,7 +11,14 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
-from oracle_auto.phase_builders.common import DB_HOME, STAGE, ensure_swap_lines, make_step, stage_patch_lines
+from oracle_auto.phase_builders.common import (
+    DB_HOME,
+    STAGE,
+    ensure_swap_lines,
+    make_step,
+    oracle_home_inventory_pointer_lines,
+    stage_patch_lines,
+)
 from oracle_auto.response_files.database import db_home_response, dbca_response
 
 
@@ -62,6 +69,7 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
         f"mkdir -p {STAGE}/responses",
         *ensure_swap_lines(),
         f"test -x {DB_HOME}/runInstaller || sudo -iu oracle unzip -oq {shlex.quote(config.installer.sources_path)}/{shlex.quote(config.installer.db_zip)} -d {DB_HOME}",
+        *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
         *_db_patch_stage_lines(config),
         f"cat > {STAGE}/responses/dbhome-{site.name}.rsp <<'EOF'\n{response}\nEOF",
         f"chown oracle:oinstall {STAGE}/responses/dbhome-{site.name}.rsp",

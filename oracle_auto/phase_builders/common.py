@@ -38,6 +38,21 @@ def inventory_pointer_lines() -> list[str]:
     ]
 
 
+def oracle_home_inventory_pointer_lines(home: str, owner: str) -> list[str]:
+    quoted_home = shlex.quote(home)
+    quoted_pointer = shlex.quote(f"{home}/oraInst.loc")
+    return [
+        f"if test -d {quoted_home}; then",
+        f"  cat > {quoted_pointer} <<'EOF'\n"
+        f"inventory_loc={INVENTORY_LOCATION}\n"
+        "inst_group=oinstall\n"
+        "EOF",
+        f"  chown {shlex.quote(owner)}:oinstall {quoted_pointer}",
+        f"  chmod 664 {quoted_pointer}",
+        "fi",
+    ]
+
+
 def make_step(
     phase: str,
     name: str,
