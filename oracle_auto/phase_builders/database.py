@@ -269,7 +269,7 @@ def _asm_diskgroup_precheck_lines(config: AutomationConfig) -> list[str]:
         "  exit \"$asm_lsdg_rc\"",
         "fi",
         "for diskgroup in DATA RECO; do",
-        "  if ! awk 'NR > 1 {print $NF}' \"$ASM_LSDG_LOG\" | grep -qx \"$diskgroup\"; then",
+        "  if ! awk 'NR > 1 {name=$NF; sub(/\\/$/, \"\", name); print name}' \"$ASM_LSDG_LOG\" | grep -qx \"$diskgroup\"; then",
         "    echo \"ERROR: ASM diskgroup $diskgroup is missing. Run configure-asm-storage before create-database.\" >&2",
         "    cat \"$ASM_LSDG_LOG\" >&2",
         "    exit 1",

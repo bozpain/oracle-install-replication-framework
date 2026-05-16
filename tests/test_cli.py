@@ -497,6 +497,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("/u01/app/19.0.0/grid/bin/crsctl check has", command)
         self.assertIn("/u01/app/19.0.0/grid/bin/asmcmd lsdg", command)
         self.assertIn("ASM diskgroup $diskgroup is missing. Run configure-asm-storage before create-database.", command)
+        self.assertIn('sub(/\\/$/, "", name)', command)
         self.assertIn("for diskgroup in DATA RECO", command)
         self.assertIn("ORACLE_HOME=/u01/app/oracle/product/19.0.0/dbhome_1", command)
         self.assertIn("GRID_HOME=/u01/app/19.0.0/grid", command)
