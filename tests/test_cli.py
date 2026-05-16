@@ -238,12 +238,14 @@ class CliTest(unittest.TestCase):
         self.assertIn("Content check: gridSetup.sh", command)
         self.assertNotIn("grep -q 'gridSetup.sh'", command)
 
-    def test_storage_rules_contain_dm_uuid_rule(self):
+    def test_storage_prepares_persistent_paths_without_oracleasm_symlinks(self):
         config = load_config(Path("configs/sample-rac-dg.json"))
         command = prepare_storage_rules_steps(config)[0].command
 
-        self.assertIn('ENV{DM_UUID}=="mpath-360060e8008a3cf000050a3cf00000101"', command)
-        self.assertIn('SYMLINK+="oracleasm/ocr01"', command)
+        self.assertIn("DM_UUID=mpath-360060e8008a3cf000050a3cf00000101", command)
+        self.assertIn("/dev/disk/by-id/dm-uuid-mpath-360060e8008a3cf000050a3cf00000101", command)
+        self.assertNotIn('SYMLINK+="oracleasm/', command)
+        self.assertNotIn("/dev/oracleasm/", command)
 
     def test_precheck_storage_inspection_uses_sudo(self):
         from oracle_auto.precheck import _disk_signature_check, _disk_size_check
@@ -305,9 +307,10 @@ class CliTest(unittest.TestCase):
         self.assertIn("chmod 600 /u01/stage/responses/grid-site-a.rsp", grid_command)
         self.assertIn("GRID_SETUP_LOG=/u01/stage/logs/gridSetup-site-a.out", grid_command)
         self.assertIn("Successfully Setup Software|execute the following script|executeConfigTools", grid_command)
-        self.assertIn("Grid software setup completed; root scripts and config tools will run in following steps.", grid_command)
-        self.assertIn("Grid software already installed; skipping software setup and continuing with root scripts/config tools.", grid_command)
-        self.assertNotIn("asmcmd afd_label", grid_command)
+        self.assertIn("Grid setup reached root/config-tool phase; validating RU inventory before continuing.", grid_command)
+        self.assertIn("ERROR: Grid RU patch id cannot be derived from patch filename.", grid_command)
+        self.assertNotIn("Grid software setup completed; root scripts and config tools will run in following steps.", grid_command)
+        self.assertIn("Grid software and RU already installed; skipping software setup and continuing with root scripts/config tools.", grid_command)
         self.assertIn("p19_30_grid_ru_Linux-x86-64.zip", grid_command)
         self.assertIn("chmod a+rx /u01/stage /u01/stage/patches /u01/stage/patches/p19_30_grid_ru_linux_x86_64_zip", grid_command)
         self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_grid_ru_linux_x86_64_zip", grid_command)
@@ -317,7 +320,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("/u01/app/oraInventory/orainstRoot.sh", root_command)
         self.assertIn("/u01/app/19.0.0/grid/root.sh", root_command)
         self.assertIn("/u01/app/19.0.0/grid/bin/crsctl check crs", root_command)
-        self.assertIn("sudo -iu grid asmcmd lsdg || true", root_command)
+        self.assertIn("sudo -iu grid /u01/app/19.0.0/grid/bin/asmcmd lsdg || true", root_command)
         self.assertIn("/u01/app/19.0.0/grid/bin/crsctl check has", config_tools_command)
         self.assertIn("/u01/app/19.0.0/grid/bin/asmcmd lsdg", config_tools_command)
         self.assertIn("ASMSNMP_PASSWORD=", config_tools_command)
@@ -339,11 +342,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("-diskString", config_tools_command)
         self.assertIn("ORCL:*", config_tools_command)
         self.assertIn("-diskList ORCL:DATA01", config_tools_command)
-        self.assertIn("ASMLIB logical discovery failed; disabling iofilter before retrying ASMCA with /dev/oracleasm device paths", config_tools_command)
-        self.assertIn("oracleasm configure -u grid -g asmdba -e -s y -m 2048 -f n", config_tools_command)
-        self.assertIn("systemctl restart oracleasm || oracleasm init", config_tools_command)
-        self.assertIn("/dev/oracleasm/*", config_tools_command)
-        self.assertIn("-diskList /dev/oracleasm/data01", config_tools_command)
+        self.assertIn("ASMCA failed using ASMLIB logical discovery. Not retrying with device paths.", config_tools_command)
+        self.assertNotIn("/dev/oracleasm/", config_tools_command)
         self.assertIn("Grid ASM configuration complete; skipping OUI executeConfigTools replay.", config_tools_command)
         self.assertIn("-newer \"$config_tools_stamp\"", config_tools_command)
         self.assertIn("Captured executeConfigTools output", config_tools_command)
@@ -353,24 +353,27 @@ class CliTest(unittest.TestCase):
         self.assertIn("p19_30_db_ru_Linux-x86-64.zip", db_command)
         self.assertIn("Ensuring at least 512 MiB swap for Oracle installer", db_command)
         self.assertIn("sudo -iu oracle env CV_ASSUME_DISTID=OL7", db_command)
+        self.assertIn("DB_INSTALL_LOG=/u01/stage/logs/dbInstall-site-a.out", db_command)
+        self.assertIn("ERROR: Database software setup failed. See $DB_INSTALL_LOG", db_command)
+        self.assertIn("ERROR: Database RU patch id cannot be derived from patch filename.", db_command)
         self.assertIn("chmod -R a+rX /u01/stage/patches/p19_30_db_ru_linux_x86_64_zip", db_command)
         self.assertIn('-applyRU "$DB_PATCH_TOP"', db_command)
 
-    def test_final_oracleasm_paths_are_used_without_extra_symlinks(self):
+    def test_persistent_by_id_paths_are_labeled_with_asmlib(self):
         config = load_config(Path("configs/gcp-single-gi-lab.json"))
         command = prepare_storage_rules_steps(config)[0].command
 
-        self.assertIn("test -b /dev/oracleasm/data1", command)
-        self.assertIn("test -b /dev/oracleasm/reco1", command)
-        self.assertIn("chown -h grid:asmdba /dev/oracleasm/data1", command)
-        self.assertIn("sudo -iu grid test -r /dev/oracleasm/data1", command)
+        self.assertIn("test -b /dev/disk/by-id/google-primary-data1", command)
+        self.assertIn("test -b /dev/disk/by-id/google-primary-reco1", command)
+        self.assertIn("chown -h grid:asmdba /dev/disk/by-id/google-primary-data1", command)
+        self.assertIn("sudo -iu grid test -r /dev/disk/by-id/google-primary-data1", command)
+        self.assertNotIn("/dev/disk/by-id/google-standby-data1", command)
         self.assertIn("oracleasm configure -u grid -g asmdba -e -s y -m 2048", command)
-        self.assertIn("Removing unmanaged ASM symlink", command)
         self.assertIn("systemctl restart oracleasm || oracleasm init", command)
         self.assertIn("oracleasm status || true", command)
         self.assertLess(
             command.index("oracleasm querydisk DATA1"),
-            command.rindex("sudo -iu grid test -r /dev/oracleasm/data1"),
+            command.rindex("sudo -iu grid test -r /dev/disk/by-id/google-primary-data1"),
         )
         self.assertIn("ASMLIB v3 kernel interface: UEK driverless/io_uring", command)
         self.assertIn("/boot/vmlinuz-5.15.0-320.202.8.2.el8uek.x86_64", command)
@@ -379,8 +382,35 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("download.oracle.com/otn_software/asmlib", command)
         self.assertIn("oracleasm createdisk DATA1", command)
         self.assertIn("oracleasm listdisks", command)
-        self.assertNotIn("/dev/oracleasm-src/", command)
+        self.assertNotIn("/dev/oracleasm/", command)
         self.assertNotIn("ln -sfn", command)
+
+    def test_standby_storage_uses_site_specific_paths(self):
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        command = prepare_storage_rules_steps(config)[1].command
+
+        self.assertIn("test -b /dev/disk/by-id/google-standby-data1", command)
+        self.assertIn("oracleasm createdisk DATA1", command)
+        self.assertNotIn("/dev/disk/by-id/google-primary-data1", command)
+
+    def test_multipath_alias_path_is_labeled_with_asmlib(self):
+        import json
+        import tempfile
+        import uuid
+
+        data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))
+        data["asm"]["data_disks"][0]["site_paths"]["site-a"] = "/dev/mapper/ora_data01"
+        data["asm"]["reco_disks"][0]["site_paths"]["site-a"] = "/dev/mapper/ora_reco01"
+        path = Path(tempfile.mkdtemp(prefix=f"oracle-auto-mpath-{uuid.uuid4().hex}-")) / "config.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+        config = load_config(path)
+        command = prepare_storage_rules_steps(config)[0].command
+
+        self.assertIn("test -b /dev/mapper/ora_data01", command)
+        self.assertIn("resolved=$(readlink -f /dev/mapper/ora_data01); test -b \"$resolved\"", command)
+        self.assertIn("oracleasm createdisk DATA1", command)
+        self.assertIn("oracleasm querydisk DATA1", command)
 
     def test_single_gi_grid_response_omits_cluster_only_fields(self):
         config = load_config(Path("configs/sample-single.json"))
@@ -391,7 +421,6 @@ class CliTest(unittest.TestCase):
         self.assertIn("oracle.install.asm.monitorPassword=$ASMSNMP_PASSWORD", response)
         self.assertIn("oracle.install.asm.diskGroup.disks=ORCL:DATA01", response)
         self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=ORCL:*", response)
-        self.assertIn("oracle.install.asm.configureAFD=false", response)
         self.assertNotIn("oracle.install.crs.config.clusterNodeVIPs", response)
         self.assertNotIn("oracle.install.crs.config.clusterNodes", response)
 

@@ -5,7 +5,7 @@ decisions here first, then let runners consume typed dataclasses instead of raw
 JSON/YAML. The intended operator workflow is:
 
 1. Fill one deployment config for `single-gi` or `rac`.
-2. Provide public IPs, private IPs, RAC VIP IPs, SCAN DNS names, ASM disk DM_UUIDs, and installer ZIPs.
+2. Provide public IPs, private IPs, RAC VIP IPs, SCAN DNS names, ASM disk paths/DM_UUIDs, and installer ZIPs.
 3. Let the framework derive `-priv` and `-vip` hostnames, validate topology, and
    drive all later commands from this normalized model.
 
@@ -112,6 +112,8 @@ class SiteConfig:
 class ASMDiskConfig:
     uuid: str | None = None
     path: str | None = None
+    site_paths: dict[str, str] = field(default_factory=dict)
+    node_paths: dict[str, str] = field(default_factory=dict)
     name: str | None = None
 
     @property
@@ -122,20 +124,40 @@ class ASMDiskConfig:
 
     @property
     def source_path(self) -> str:
+        return self.path_for()
+
+    def path_for(self, site_name: str | None = None, node_host: str | None = None) -> str:
+        if node_host and node_host in self.node_paths:
+            return self.node_paths[node_host]
+        if site_name and site_name in self.site_paths:
+            return self.site_paths[site_name]
         if self.path:
             return self.path
-        return self.symlink_path("asm", 1)
+        if self.uuid:
+            return f"/dev/disk/by-id/dm-uuid-{self.dm_uuid}"
+        if self.site_paths:
+            return next(iter(self.site_paths.values()))
+        if self.node_paths:
+            return next(iter(self.node_paths.values()))
+        raise ConfigError("ASM disk does not define a path, site_paths, node_paths, or DM_UUID.")
 
-    def final_path(self, group: str, index: int) -> str:
-        if self.path and self.path.startswith("/dev/oracleasm/"):
+    def source_for(self, site_name: str | None = None, node_host: str | None = None) -> str:
+        if node_host and node_host in self.node_paths:
+            return self.node_paths[node_host]
+        if site_name and site_name in self.site_paths:
+            return self.site_paths[site_name]
+        if self.path:
             return self.path
-        return self.symlink_path(group, index)
+        return self.dm_uuid
+
+    def final_path(self, group: str, index: int, site_name: str | None = None, node_host: str | None = None) -> str:
+        return self.path_for(site_name=site_name, node_host=node_host)
 
     def symlink_name(self, group: str, index: int) -> str:
         return self.name or f"{group.lower()}{index:02d}"
 
     def symlink_path(self, group: str, index: int) -> str:
-        return f"/dev/oracleasm/{self.symlink_name(group, index)}"
+        return self.final_path(group, index)
 
 
 @dataclass(frozen=True)
@@ -158,6 +180,7 @@ class ASMConfig:
 class PatchConfig:
     file: str
     name: str | None = None
+    patch_id: str | None = None
     type: str = "ru"
     description: str | None = None
 
@@ -235,6 +258,12 @@ class AutomationConfig:
         if self.standby_site:
             sites.append(self.standby_site)
         return sites
+
+    def site_for_node(self, node: NodeConfig) -> SiteConfig:
+        for site in self.sites:
+            if any(item.host == node.host for item in site.nodes):
+                return site
+        raise ConfigError(f"Node is not part of any configured site: {node.host}")
 
 
 def load_config(path: Path) -> AutomationConfig:
@@ -414,6 +443,7 @@ def _parse_patch(data: Any, location: str) -> PatchConfig:
     return PatchConfig(
         file=str(data["file"]),
         name=_optional_str(data.get("name")),
+        patch_id=_optional_str(data.get("patch_id")),
         type=str(data.get("type", "ru")),
         description=_optional_str(data.get("description")),
     )
@@ -551,13 +581,14 @@ def _validate_config(config: AutomationConfig) -> None:
     _validate_unique_generated_names(config)
     _validate_scan_names(config)
     _validate_asm_disk_counts(config)
+    _validate_asm_disk_path_overrides(config)
 
     duplicated_disks = _duplicates(config.asm.all_dm_uuids)
     if duplicated_disks:
         raise ConfigError(f"Duplicate ASM disk DM_UUID(s) in config: {', '.join(duplicated_disks)}")
-    duplicated_symlinks = _duplicates(_asm_symlink_names(config))
-    if duplicated_symlinks:
-        raise ConfigError(f"Duplicate ASM udev symlink name(s) in config: {', '.join(duplicated_symlinks)}")
+    duplicated_labels = _duplicates(_asm_label_names(config))
+    if duplicated_labels:
+        raise ConfigError(f"Duplicate ASM ASMLIB label name(s) in config: {', '.join(duplicated_labels)}")
 
 
 def _validate_rac_site(site: SiteConfig, label: str) -> None:
@@ -632,6 +663,21 @@ def _validate_asm_disk_counts(config: AutomationConfig) -> None:
             raise ConfigError(f"asm.{group.lower()}_disks requires at least {min_count} disk(s) for {config.asm.redundancy} redundancy.")
 
 
+def _validate_asm_disk_path_overrides(config: AutomationConfig) -> None:
+    site_names = {site.name for site in config.sites}
+    node_hosts = {node.host for node in config.all_nodes}
+    for disk in config.asm.all_disks:
+        unknown_sites = sorted(set(disk.site_paths) - site_names)
+        if unknown_sites:
+            raise ConfigError(f"ASM disk {disk.name or disk.source_path} has unknown site_paths key(s): {', '.join(unknown_sites)}")
+        unknown_nodes = sorted(set(disk.node_paths) - node_hosts)
+        if unknown_nodes:
+            raise ConfigError(f"ASM disk {disk.name or disk.source_path} has unknown node_paths key(s): {', '.join(unknown_nodes)}")
+        for site in config.sites:
+            for node in site.nodes:
+                disk.path_for(site_name=site.name, node_host=node.host)
+
+
 def _required_str_list(value: Any, name: str) -> list[str]:
     if not isinstance(value, list) or not value:
         raise ConfigError(f"{name} must be a non-empty list.")
@@ -668,12 +714,18 @@ def _parse_asm_disk_list(value: list[Any], name: str) -> list[ASMDiskConfig]:
         elif isinstance(item, dict):
             uuid = _optional_str(item.get("uuid"))
             path = _optional_str(item.get("path"))
+            site_paths = _optional_path_mapping(item.get("site_paths"), f"{location}.site_paths")
+            node_paths = _optional_path_mapping(item.get("node_paths"), f"{location}.node_paths")
             disk_name = _optional_str(item.get("name"))
         else:
             raise ConfigError(f"{location} must be a DM_UUID string or object.")
 
-        if not uuid and not path:
-            raise ConfigError(f"{location}.uuid or {location}.path is required.")
+        if isinstance(item, str):
+            site_paths = {}
+            node_paths = {}
+
+        if not uuid and not path and not site_paths and not node_paths:
+            raise ConfigError(f"{location}.uuid, {location}.path, {location}.site_paths, or {location}.node_paths is required.")
         if uuid and uuid.startswith("/dev/"):
             raise ConfigError(f"{location}.uuid must contain DM_UUID only, not a device path.")
         if path and not path.startswith("/dev/"):
@@ -681,8 +733,25 @@ def _parse_asm_disk_list(value: list[Any], name: str) -> list[ASMDiskConfig]:
         if disk_name and ("/" in disk_name or disk_name.startswith(".")):
             raise ConfigError(f"{location}.name must be a simple symlink name.")
 
-        disks.append(ASMDiskConfig(uuid=uuid, path=path, name=disk_name))
+        disks.append(ASMDiskConfig(uuid=uuid, path=path, site_paths=site_paths, node_paths=node_paths, name=disk_name))
     return disks
+
+
+def _optional_path_mapping(value: Any, name: str) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError(f"{name} must be an object/mapping.")
+    paths: dict[str, str] = {}
+    for key, raw_path in value.items():
+        label = str(key)
+        path = _optional_str(raw_path)
+        if not label:
+            raise ConfigError(f"{name} cannot contain an empty key.")
+        if not path or not path.startswith("/dev/"):
+            raise ConfigError(f"{name}.{label} must be an absolute /dev path.")
+        paths[label] = path
+    return paths
 
 
 def _validate_ip_values(config: AutomationConfig) -> None:
@@ -705,7 +774,7 @@ def _validate_ip(value: str, label: str) -> None:
         raise ConfigError(f"{label} must be a valid IP address: {value}") from exc
 
 
-def _asm_symlink_names(config: AutomationConfig) -> list[str]:
+def _asm_label_names(config: AutomationConfig) -> list[str]:
     names: list[str] = []
     for group, disks in (
         ("OCR", config.asm.ocr_disks),

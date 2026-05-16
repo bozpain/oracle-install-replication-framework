@@ -53,7 +53,7 @@ flowchart TB
 
     subgraph targets["🎯 Target Servers"]
         os["🖥️ Oracle Linux<br/>users, DNS, hosts, chrony"]
-        storage["💽 Storage<br/>DM_UUID → udev → ASMFD"]
+        storage["💽 Storage<br/>by-id path → ASMLib v3 → ORCL:*"]
         gi["🧱 Grid Infrastructure"]
         db["🗄️ Oracle Database"]
         patch["📦 OPatch / RU / datapatch"]
@@ -104,7 +104,7 @@ flowchart TB
 | [2. Deployment Type](#2-deployment-type) | `single-gi`, `rac`, and standby rules |
 | [3. Config Preparation](#3-config-preparation) | Required config blocks and examples |
 | [4. Network Model](#4-network-model) | SCAN DNS, `/etc/hosts`, VIP, private hostname |
-| [5. ASM Storage](#5-asm-storage) | `DM_UUID`, udev symlink, ASMFD, diskgroup mapping |
+| [5. ASM Storage](#5-asm-storage) | persistent by-id path atau multipath alias, ASMLib v3 label, `ORCL:*`, diskgroup mapping |
 | [6. Installer and Patch](#6-installer-and-patch) | ZIP placement, OPatch, RU/OJVM/one-off model |
 | [7. Data Guard](#7-data-guard) | Manual vs Broker, protection mode |
 | [8. Secrets](#8-secrets) | Environment variable mapping |
@@ -139,7 +139,7 @@ flowchart TB
 | 📡 DNS | Untuk RAC, SCAN DNS record wajib tersedia |
 | 🧾 Hosts | Public/private/VIP hostname ditulis framework ke `/etc/hosts` |
 | 📦 Installer | Installer dan patch ZIP sudah disalin manual ke target |
-| 💽 Storage | Disk ASM terlihat oleh udev dengan `DM_UUID` |
+| 💽 Storage | Disk ASM terlihat sebagai persistent `/dev/disk/by-id/...` path atau stable `/dev/mapper/<alias>` |
 
 Default installer path:
 
@@ -209,7 +209,7 @@ Review blok berikut sebelum menjalankan command:
 | 📡 `dns` | Resolver dan search domain |
 | 🟦 `primary_site` | Site primary dan node list |
 | 🟩 `standby_site` | Optional standby site |
-| 💽 `asm` | Diskgroup dan disk `DM_UUID` |
+| 💽 `asm` | Diskgroup dan disk persistent path / `DM_UUID` |
 | 📦 `installer` | ZIP installer, OPatch, patch list |
 | 🟢 `dataguard` | Manual atau Broker |
 | 🔒 `secrets` | Nama environment variable password |
@@ -263,23 +263,22 @@ DNS resolver example:
 
 ## 5. ASM Storage
 
-Storage selalu ASM. Untuk deployment produksi, input disk wajib memakai `DM_UUID`, bukan `/dev/mapper/mpathX` atau `/dev/sdX`.
+Storage selalu ASM. Untuk deployment produksi, input disk wajib memakai persistent path seperti `/dev/disk/by-id/...`, stable multipath alias seperti `/dev/mapper/ora_data01`, atau `DM_UUID` yang akan dinormalisasi ke `/dev/disk/by-id/dm-uuid-mpath-...`, bukan `/dev/mapper/mpathX` atau `/dev/sdX`. Jika primary dan standby punya by-id yang berbeda, gunakan `site_paths` supaya label ASMLib tetap sama tetapi source device path dipilih sesuai site yang sedang dieksekusi.
 
 ```mermaid
 flowchart LR
     uuid["🔢 DM_UUID<br/>stable multipath id"]
-    rule["🧾 udev rule<br/>99-oracleasm.rules"]
-    link["🔗 /dev/oracleasm/data01"]
-    afd["🛡️ ASMFD label"]
+    path["🔗 persistent path<br/>by-id or mapper alias"]
+    label["💽 ASMLib v3 label<br/>ORCL:DATA01"]
     dg["💽 ASM Diskgroup<br/>OCR / DATA / RECO"]
 
-    uuid --> rule --> link --> afd --> dg
+    uuid --> path --> label --> dg
 
     classDef amber fill:#FEF3C7,stroke:#D97706,color:#78350F
     classDef blue fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef green fill:#DCFCE7,stroke:#16A34A,color:#14532D
-    class uuid,rule amber
-    class link,afd blue
+    class uuid,path amber
+    class label blue
     class dg green
 ```
 
@@ -310,10 +309,10 @@ Example:
 |---|---|
 | No duplicate disk | UUID tidak boleh duplikat antar diskgroup |
 | Prefix normalized | Input boleh dengan atau tanpa `mpath-` |
-| Stable symlink | Framework membuat `/dev/oracleasm/ocr01`, `data01`, `reco01`, dst |
+| Persistent path | Framework memakai `path`, `site_paths`, atau `node_paths` dari config (`/dev/disk/by-id/...` atau `/dev/mapper/<alias>`) atau derived `/dev/disk/by-id/dm-uuid-mpath-...` |
 | Optional custom name | Disk object boleh memakai `name` |
 | RAC consistency | Shared disk harus konsisten di semua node |
-| Lab path mode | Lab non-multipath boleh memakai object `path`, tetapi path itu harus sudah ada sebagai block device pada setiap node target |
+| Path mode | Object `path` harus menunjuk block device stabil yang sudah ada pada setiap node target |
 
 Custom disk name:
 
@@ -326,12 +325,12 @@ Custom disk name:
 ]
 ```
 
-Lab-only path example:
+Path example:
 
 ```json
 "data_disks": [
   {
-    "path": "/dev/oracleasm-src/data",
+    "path": "/dev/disk/by-id/google-data1",
     "name": "data01"
   }
 ]
@@ -339,10 +338,38 @@ Lab-only path example:
 
 Jika topologi memakai `path`, precheck akan gagal sampai path tersebut benar-benar ada di semua host yang memakai config itu.
 
-Generated udev rule shape:
+Per-site path example:
+
+```json
+"data_disks": [
+  {
+    "site_paths": {
+      "site-a": "/dev/disk/by-id/google-primary-data1",
+      "site-b": "/dev/disk/by-id/google-standby-data1"
+    },
+    "name": "data01"
+  }
+]
+```
+
+Untuk RAC atau kondisi path berbeda per host dalam site yang sama, gunakan `node_paths` dengan key hostname node.
+
+Multipath alias example:
+
+```json
+"data_disks": [
+  {
+    "path": "/dev/mapper/ora_data01",
+    "name": "data01"
+  }
+]
+```
+
+ASMLib discovery shape:
 
 ```text
-ACTION=="add|change", ENV{DM_UUID}=="mpath-360060e8008a3cf000050a3cf00000175", SYMLINK+="oracleasm/data102", GROUP="asmadmin", OWNER="grid", MODE="0660"
+oracle.install.asm.diskGroup.diskDiscoveryString=ORCL:*
+oracle.install.asm.diskGroup.disks=ORCL:DATA01
 ```
 
 ---
@@ -360,12 +387,14 @@ Operator menyalin file ZIP manual ke target server. Framework memverifikasi file
   "grid_patch": {
     "name": "19.30 Grid RU",
     "type": "ru",
-    "file": "p19_30_grid_ru_Linux-x86-64.zip"
+    "file": "p37642901_190000_Linux-x86-64.zip",
+    "patch_id": "37642901"
   },
   "db_patch": {
     "name": "19.30 Database RU",
     "type": "ru",
-    "file": "p19_30_db_ru_Linux-x86-64.zip"
+    "file": "p37642901_190000_Linux-x86-64.zip",
+    "patch_id": "37642901"
   },
   "ojvm_patch": {
     "name": "19.30 OJVM RU",
@@ -375,7 +404,7 @@ Operator menyalin file ZIP manual ke target server. Framework memverifikasi file
 }
 ```
 
-`grid_patch` dipakai oleh `gridSetup.sh -applyRU` saat install Grid. `db_patch` dipakai oleh `runInstaller -applyRU` saat install Database home. `ojvm_patch` dipasang dengan OPatch setelah DB home selesai dan sebelum DBCA membuat database baru.
+`grid_patch` dipakai oleh `gridSetup.sh -applyRU` saat install Grid. `db_patch` dipakai oleh `runInstaller -applyRU` saat install Database home. Setelah installer selesai, framework wajib memvalidasi `OPatch/opatch lspatches` dan `oraversion`; status sukses baru dicetak setelah RU terlihat di inventory. `patch_id` opsional jika nama ZIP sudah memakai pola Oracle `p<patch_id>_...`, tetapi disarankan diisi eksplisit supaya validasi tidak menebak. `ojvm_patch` dipasang dengan OPatch setelah DB home selesai dan sebelum DBCA membuat database baru.
 
 ---
 
@@ -478,7 +507,7 @@ python main.py inventory --config configs/my-deployment.json --dry-run
 python main.py inventory --config configs/my-deployment.json
 ```
 
-Inventory membantu review OS, network, DNS, storage `DM_UUID`, dan isi `/u01/sources`.
+Inventory membantu review OS, network, DNS, storage persistent path / `DM_UUID`, dan isi `/u01/sources`.
 
 ### 🔎 Precheck
 
@@ -495,7 +524,7 @@ Precheck memvalidasi:
 | 🐧 OS | Oracle Linux version, kernel, package manager, repo, preinstall package |
 | 📡 Network | DNS resolver, `/etc/hosts`, SCAN resolution, FQDN |
 | 📦 Installer | ZIP file existence, integrity, source path |
-| 💽 Storage | `DM_UUID` visibility, disk sizes, symlink collision, multipath |
+| 💽 Storage | persistent path visibility, disk sizes, ASMLib readiness, multipath |
 | 🧱 Services | chrony/time sync, SELinux status |
 | 🟢 RAC hints | Private interconnect and SCAN record count |
 
@@ -636,9 +665,9 @@ Menyiapkan storage rules sebelum GI/ASM bergantung pada device:
 
 | Action | Detail |
 |---|---|
-| Generate udev | Dari `DM_UUID` ke `/dev/oracleasm/...` |
-| Reload/trigger | Reload udev rules dan trigger |
-| Validate | Symlink block device dan collision check |
+| Resolve path | Dari `path` config (`/dev/disk/by-id/...` atau `/dev/mapper/<alias>`) atau derived `DM_UUID` |
+| Permission | Set owner/group/mode pada resolved block device |
+| Label | `oracleasm createdisk <LABEL> <resolved-path>` |
 
 ```bash
 python main.py prepare-storage-rules --config configs/my-deployment.json --allow-storage-changes
@@ -658,8 +687,8 @@ Menyiapkan ASM storage setelah GI tooling tersedia:
 
 | Action | Detail |
 |---|---|
-| Validate symlink | `/dev/oracleasm/...` |
-| Label AFD | Label dari symlink stabil |
+| Validate ASMLib | `oracleasm scandisks` dan `oracleasm listdisks` |
+| Disk discovery | ASM memakai `ORCL:*` dan disk list `ORCL:<LABEL>` |
 | Create diskgroup | `OCR`, `DATA`, `RECO` |
 | Validate diskgroup | Diskgroup terlihat pada target |
 
@@ -811,7 +840,7 @@ python main.py cleanup-lab --config configs/my-deployment.json --yes
 python main.py rollback-framework --config configs/my-deployment.json --yes
 ```
 
-Cleanup/rollback menghapus artifact framework seperti udev rule, generated `/etc/hosts` block, generated chrony block, selected staged diagnostics/state, dan restore `/etc/resolv.conf` dari backup jika ada. Command ini tidak menghapus Oracle home, database, ASM label, atau diskgroup.
+Cleanup/rollback menghapus artifact framework seperti generated `/etc/hosts` block, generated chrony block, selected staged diagnostics/state, dan restore `/etc/resolv.conf` dari backup jika ada. Command ini tidak menghapus Oracle home, database, ASMLib label, atau diskgroup.
 
 ---
 
@@ -856,7 +885,7 @@ Output:
 .oracle-auto/reports/<run_id>-phase-runbooks/<phase>.sh
 ```
 
-Plan dan runbook menampilkan mapping storage `DM_UUID -> /dev/oracleasm/... -> AFD label`.
+Plan dan runbook menampilkan mapping storage `DM_UUID/path -> persistent by-id path -> ASMLib label`.
 
 ### 🧾 Step Logs
 
@@ -882,7 +911,7 @@ Report berisi:
 |---|---|
 | Identity | `run_id`, version baseline, topology |
 | Network | Generated private/VIP hostnames, DNS resolver, SCAN status |
-| Storage | ASM `DM_UUID`, udev symlink, AFD label, diskgroup mapping |
+| Storage | ASM `DM_UUID`, persistent device path, ASMLib label, diskgroup mapping |
 | Installer | Installer and patch list |
 | Execution | Result, failure, warning, log path |
 | Data Guard | Standby and Broker status where applicable |
@@ -941,9 +970,8 @@ Untuk install sungguhan, lebih aman berhenti di failure pertama, perbaiki, lalu 
 | Check | Detail |
 |---|---|
 | UUID | `DM_UUID` benar |
-| udev DB | `udevadm info --export-db | grep DM_UUID` |
-| Rule file | `/etc/udev/rules.d/99-oracleasm.rules` |
-| Symlink | `/dev/oracleasm/...` ada dan block device |
+| persistent path | `/dev/disk/by-id/...` atau `/dev/mapper/<alias>` ada dan resolve ke block device |
+| ASMLib | `oracleasm listdisks` menampilkan label yang diharapkan |
 | Multipath | Path sehat dan konsisten |
 | RAC | Disk shared konsisten di semua node |
 

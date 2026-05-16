@@ -10,9 +10,9 @@ Framework ini dibuat untuk mempercepat deployment Oracle yang biasanya panjang, 
 2. Precheck target host.
 3. Persiapan OS fresh install.
 4. Verifikasi installer dan patch yang sudah disalin manual.
-5. Persiapan udev rules storage dari `DM_UUID`.
+5. Persiapan persistent device path dari `DM_UUID`, `/dev/disk/by-id/...`, atau `/dev/mapper/<alias>`.
 6. Instalasi Grid Infrastructure.
-7. Konfigurasi ASMFD dan diskgroup.
+7. Konfigurasi ASMLib v3 dan diskgroup.
 8. Instalasi Oracle Database software.
 9. Patching.
 10. Pembuatan database primary.
@@ -96,7 +96,7 @@ Automation mengelola:
 
 ## 6. Storage Model
 
-Storage selalu ASM. Untuk deployment produksi, user memberikan disk `DM_UUID` secara manual di config, bukan `/dev/mapper/mpathX` atau `/dev/sdX`, karena nama device tersebut bisa berubah setelah reboot atau rediscovery. Lab non-multipath boleh memakai object `path`, tetapi path itu harus sudah ada sebagai block device yang konsisten di semua target host sebelum precheck dijalankan.
+Storage selalu ASM. Untuk deployment produksi, user memberikan persistent path `/dev/disk/by-id/...`, stable multipath alias `/dev/mapper/<alias>`, atau disk `DM_UUID` secara manual di config, bukan `/dev/mapper/mpathX` atau `/dev/sdX`, karena nama device generik tersebut bisa berubah setelah reboot atau rediscovery. Jika memakai `DM_UUID`, framework menurunkannya menjadi `/dev/disk/by-id/dm-uuid-mpath-...`. Lab non-multipath boleh memakai object `path`, `site_paths`, atau `node_paths`; path itu harus sudah ada sebagai block device pada target host sebelum precheck dijalankan.
 
 - `ocr_disks` untuk diskgroup `OCR`.
 - `data_disks` untuk diskgroup `DATA`.
@@ -106,15 +106,14 @@ Storage selalu ASM. Untuk deployment produksi, user memberikan disk `DM_UUID` se
 Automation melakukan:
 
 - Normalisasi input UUID menjadi `DM_UUID=mpath-<uuid>` jika prefix `mpath-` belum ada.
-- Validasi duplicate IP public/private/VIP, duplicate generated hostname, duplicate SCAN, duplicate disk UUID, duplicate symlink, dan minimum disk count sesuai redundancy.
-- Membuat udev rules di `/etc/udev/rules.d/99-oracleasm.rules`.
-- Membuat symlink stabil `/dev/oracleasm/ocr01`, `/dev/oracleasm/data01`, dan `/dev/oracleasm/reco01`.
-- Set owner `grid`, group `asmadmin`, dan mode `0660` pada symlink hasil rule.
-- Validasi symlink `/dev/oracleasm/...` sudah menjadi block device.
-- Label ASM Filter Driver dari symlink `/dev/oracleasm/...`.
+- Validasi duplicate IP public/private/VIP, duplicate generated hostname, duplicate SCAN, duplicate disk UUID, duplicate ASMLib label, dan minimum disk count sesuai redundancy.
+- Resolve persistent device path dari `path`, `site_paths`, atau `node_paths` config, default `/dev/disk/by-id/dm-uuid-mpath-<uuid>` untuk input `DM_UUID`.
+- Set owner `grid`, group `asmdba`, dan mode `0660` pada resolved block device.
+- Validasi persistent path sudah menjadi block device.
+- Label disk dengan ASMLib v3 memakai `oracleasm createdisk <LABEL> <resolved-path>`.
 - Create diskgroup `OCR`, `DATA`, dan `RECO`.
 - Validasi diskgroup terlihat pada target.
-- Report mapping `DM_UUID`, symlink `/dev/oracleasm/...`, AFD label, dan diskgroup.
+- Report mapping `DM_UUID`, persistent device path, ASMLib label `ORCL:<LABEL>`, dan diskgroup.
 - Generate plan/runbook juga menampilkan storage mapping sebelum eksekusi supaya DBA bisa review disk yang akan disentuh.
 
 ## 7. Installer and Patch Model
@@ -131,6 +130,7 @@ Config mendefinisikan:
 - Oracle Database base ZIP.
 - OPatch ZIP jika diperlukan.
 - Patch list berurutan.
+- `patch_id` opsional per patch untuk validasi `opatch lspatches`; disarankan diisi eksplisit untuk Grid RU dan DB RU.
 
 Automation melakukan:
 
@@ -224,7 +224,7 @@ Report berisi:
 - Topology.
 - Generated hostname.
 - DNS resolver dan SCAN validation.
-- ASM DM_UUID, udev symlink, and diskgroup mapping.
+- ASM DM_UUID, persistent device path, ASMLib label, and diskgroup mapping.
 - Installer and patch list.
 - Execution result.
 - Error and warning summary.
@@ -232,4 +232,4 @@ Report berisi:
 
 ## 12. Validation Note
 
-Framework sudah membangun automation skeleton yang serius: schema, runner, command phases, dry-run, state, report, runbook artifact, secret redaction, dan tests. Bagian yang menyentuh Oracle installer, GI response file, root scripts, udev storage rules, ASM/AFD, OPatch/opatchauto, DBCA, RMAN duplicate, Broker, switchover, dan failover tetap harus divalidasi di lab target sebelum production.
+Framework sudah membangun automation skeleton yang serius: schema, runner, command phases, dry-run, state, report, runbook artifact, secret redaction, dan tests. Bagian yang menyentuh Oracle installer, GI response file, root scripts, ASMLib/ASM storage, OPatch/opatchauto, DBCA, RMAN duplicate, Broker, switchover, dan failover tetap harus divalidasi di lab target sebelum production.

@@ -166,7 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
     for command, help_text in {
         "prepare-os": "Prepare OS users, DNS, hosts, firewall, SELinux, and chrony.",
         "verify-installer": "Verify installer and patch ZIP files on target hosts.",
-        "prepare-storage-rules": "Prepare udev rules and /dev/oracleasm symlinks.",
+        "prepare-storage-rules": "Prepare persistent device paths and ASMLIB labels.",
         "configure-asm-storage": "Configure ASMLIB disks and ASM disk groups.",
         "prepare-storage": "Compatibility wrapper for storage rules and ASM storage.",
         "install-grid": "Install Grid Infrastructure.",
@@ -202,7 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
             subparser.add_argument(
                 "--allow-storage-changes",
                 action="store_true",
-                help="Allow udev/ASM storage changes. Required unless --dry-run is used.",
+                help="Allow ASMLIB/ASM storage changes. Required unless --dry-run is used.",
             )
         if command in {"apply-patch", "update-opatch", "analyze-patch", "apply-grid-patch", "apply-db-patch", "apply-ojvm-patch", "datapatch"}:
             subparser.add_argument(
@@ -279,7 +279,7 @@ def _add_workflow_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--allow-storage-changes",
         action="store_true",
-        help="Allow udev/ASM storage changes in workflow phases. Required unless --dry-run is used.",
+        help="Allow ASMLIB/ASM storage changes in workflow phases. Required unless --dry-run is used.",
     )
     parser.add_argument(
         "--allow-patch-apply",

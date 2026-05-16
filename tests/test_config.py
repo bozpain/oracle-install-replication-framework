@@ -29,8 +29,14 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.os.ntp_servers, ["192.168.113.41", "192.168.115.41"])
         self.assertEqual(config.asm.ocr_disks, [])
         self.assertEqual(config.asm.data_disks[0].dm_uuid, "mpath-360060e8008a3cf000050a3cf00000102")
-        self.assertEqual(config.asm.data_disks[0].symlink_path("DATA", 1), "/dev/oracleasm/data01")
-        self.assertEqual(config.asm.data_disks[0].final_path("DATA", 1), "/dev/oracleasm/data01")
+        self.assertEqual(
+            config.asm.data_disks[0].source_path,
+            "/dev/disk/by-id/dm-uuid-mpath-360060e8008a3cf000050a3cf00000102",
+        )
+        self.assertEqual(
+            config.asm.data_disks[0].final_path("DATA", 1),
+            "/dev/disk/by-id/dm-uuid-mpath-360060e8008a3cf000050a3cf00000102",
+        )
         self.assertIsNotNone(config.installer.grid_patch)
         self.assertIsNotNone(config.installer.db_patch)
         self.assertIsNotNone(config.installer.ojvm_patch)
@@ -69,6 +75,37 @@ class ConfigTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ConfigError, "ocr_disks is only used"):
             load_config(self._write_config("single-with-ocr", data))
+
+    def test_patch_id_is_parsed_when_configured(self):
+        data = json.loads(Path("configs/sample-single.json").read_text(encoding="utf-8"))
+        data["installer"]["grid_patch"]["patch_id"] = "37642901"
+
+        config = load_config(self._write_config("patch-id", data))
+
+        assert config.installer.grid_patch is not None
+        self.assertEqual(config.installer.grid_patch.patch_id, "37642901")
+
+    def test_site_specific_asm_paths_are_parsed(self):
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        primary = config.primary_site.nodes[0]
+        standby = config.standby_site.nodes[0]
+
+        assert config.standby_site is not None
+        self.assertEqual(
+            config.asm.data_disks[0].path_for(site_name=config.primary_site.name, node_host=primary.host),
+            "/dev/disk/by-id/google-primary-data1",
+        )
+        self.assertEqual(
+            config.asm.data_disks[0].path_for(site_name=config.standby_site.name, node_host=standby.host),
+            "/dev/disk/by-id/google-standby-data1",
+        )
+
+    def test_unknown_site_specific_asm_path_key_is_rejected(self):
+        data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))
+        data["asm"]["data_disks"][0]["site_paths"]["typo-site"] = "/dev/disk/by-id/google-data-typo"
+
+        with self.assertRaisesRegex(ConfigError, "unknown site_paths"):
+            load_config(self._write_config("unknown-site-path", data))
 
 
 if __name__ == "__main__":

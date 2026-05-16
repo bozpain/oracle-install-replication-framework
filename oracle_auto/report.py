@@ -132,19 +132,22 @@ def topology_table(config: AutomationConfig) -> str:
 
 
 def asm_table(config: AutomationConfig) -> str:
-    rows = "\n".join(
-        "<tr>"
-        f"<td>{html.escape(group)}</td>"
-        f"<td>{html.escape(label)}</td>"
-        f"<td>{html.escape(disk.dm_uuid if disk.uuid else str(disk.path))}</td>"
-        f"<td>{html.escape(path)}</td>"
-        f"<td>{html.escape(config.asm.redundancy)}</td>"
-        "</tr>"
-        for label, path, group, disk in asm_entries(config)
-    )
+    rows = []
+    for site in config.sites:
+        for label, path, group, disk in asm_entries(config, site):
+            rows.append(
+                "<tr>"
+                f"<td>{html.escape(site.name)}</td>"
+                f"<td>{html.escape(group)}</td>"
+                f"<td>{html.escape(label)}</td>"
+                f"<td>{html.escape(disk.source_for(site_name=site.name))}</td>"
+                f"<td>{html.escape(path)}</td>"
+                f"<td>{html.escape(config.asm.redundancy)}</td>"
+                "</tr>"
+            )
     return (
-        "<table><thead><tr><th>Diskgroup</th><th>ASMLIB Label</th><th>Source</th><th>Udev Symlink</th><th>Redundancy</th></tr></thead>"
-        f"<tbody>{rows}</tbody></table>"
+        "<table><thead><tr><th>Site</th><th>Diskgroup</th><th>ASMLIB Label</th><th>Source</th><th>Device Path</th><th>Redundancy</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
     )
 
 

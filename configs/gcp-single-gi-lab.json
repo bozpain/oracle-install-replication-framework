@@ -57,14 +57,20 @@
     "redundancy": "EXTERNAL",
     "data_disks": [
       {
-        "path": "/dev/oracleasm/data1",
-        "name": "data1"
+        "site_paths": {
+          "site-a": "/dev/disk/by-id/scsi-0Google_PersistentDisk_data-part2",
+          "site-b": "/dev/disk/by-id/scsi-0Google_PersistentDisk_data2-part2"
+        },
+        "name": "DATA1"
       }
     ],
     "reco_disks": [
       {
-        "path": "/dev/oracleasm/reco1",
-        "name": "reco1"
+        "site_paths": {
+          "site-a": "/dev/disk/by-id/scsi-0Google_PersistentDisk_reco-part1",
+          "site-b": "/dev/disk/by-id/scsi-0Google_PersistentDisk_reco2-part1"
+        },
+        "name": "RECO1"
       }
     ]
   },

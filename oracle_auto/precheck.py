@@ -2,8 +2,8 @@
 
 Precheck is the non-destructive gate before OS preparation. It validates SSH,
 OS baseline, DNS resolver/SCAN behavior, installer source visibility, and ASM
-disk DM_UUID visibility. Only SCAN is checked through DNS; public, private, and
-VIP names are treated as `/etc/hosts` content managed by prepare-os.
+disk path/DM_UUID visibility. Only SCAN is checked through DNS; public, private,
+and VIP names are treated as `/etc/hosts` content managed by prepare-os.
 """
 
 from __future__ import annotations
@@ -240,8 +240,8 @@ class PrecheckRunner:
             ),
             Check(
                 name="asm_disk_uuids_visible",
-                command=_disk_check(self.config),
-                fail_message="One or more configured ASM disk UUID/path values are not visible to udev.",
+                command=_disk_check(self.config, node),
+                fail_message="One or more configured ASM disk UUID/path values are not visible.",
             ),
             Check(
                 name="multipath_health",
@@ -251,20 +251,15 @@ class PrecheckRunner:
             ),
             Check(
                 name="asm_disk_signatures",
-                command=_disk_signature_check(self.config),
+                command=_disk_signature_check(self.config, node),
                 fail_message="One or more ASM candidate disks already have filesystem signatures.",
                 warn_only=True,
             ),
             Check(
                 name="asm_disk_sizes",
-                command=_disk_size_check(self.config),
+                command=_disk_size_check(self.config, node),
                 fail_message="Cannot read one or more ASM candidate disk sizes.",
                 warn_only=True,
-            ),
-            Check(
-                name="oracleasm_symlink_collisions",
-                command=_symlink_collision_check(self.config),
-                fail_message="One or more /dev/oracleasm symlink names already exist and are not block devices.",
             ),
         ]
 
@@ -391,16 +386,17 @@ def _secret_env_check(config: AutomationConfig) -> str:
     return "sudo -n bash -lc " + shlex.quote(script)
 
 
-def _disk_check(config: AutomationConfig) -> str:
+def _disk_check(config: AutomationConfig, node: NodeConfig | None = None) -> str:
     commands: list[str] = []
+    site = config.site_for_node(node) if node else None
 
     for disk in config.asm.all_disks:
-        if disk.path:
-            commands.append(
-                f"test -e {shlex.quote(disk.path)} "
-                f"&& resolved=$(readlink -f {shlex.quote(disk.path)}) "
-                f"&& test -b \"$resolved\""
-            )
+        path = disk.path_for(site_name=site.name if site else None, node_host=node.host if node else None)
+        commands.append(
+            f"test -e {shlex.quote(path)} "
+            f"&& resolved=$(readlink -f {shlex.quote(path)}) "
+            f"&& test -b \"$resolved\""
+        )
 
     return " && ".join(commands)
 
@@ -412,41 +408,32 @@ def _hosts_file_check(config: AutomationConfig) -> str:
     )
 
 
-def _disk_signature_check(config: AutomationConfig) -> str:
+def _disk_signature_check(config: AutomationConfig, node: NodeConfig | None = None) -> str:
     commands = []
+    site = config.site_for_node(node) if node else None
 
     for disk in config.asm.all_disks:
-        if disk.path:
-            commands.append(
-                f'resolved=$(readlink -f {shlex.quote(disk.path)}) && '
-                'test -n "$resolved" && '
-                'test -z "$(sudo -n wipefs -n "$resolved" 2>/dev/null | awk \'NR>1\')"'
-            )
+        path = disk.path_for(site_name=site.name if site else None, node_host=node.host if node else None)
+        commands.append(
+            f'resolved=$(readlink -f {shlex.quote(path)}) && '
+            'test -n "$resolved" && '
+            'test -z "$(sudo -n wipefs -n "$resolved" 2>/dev/null | awk \'NR>1\')"'
+        )
 
     return " && ".join(commands)
 
 
-def _symlink_collision_check(config: AutomationConfig) -> str:
-    paths: list[str] = []
-    for group, disks in (
-        ("OCR", config.asm.ocr_disks),
-        ("DATA", config.asm.data_disks),
-        ("RECO", config.asm.reco_disks),
-    ):
-        paths.extend(disk.final_path(group, index) for index, disk in enumerate(disks, start=1))
-    return " && ".join(f"test ! -e {shlex.quote(path)} || test -b {shlex.quote(path)}" for path in paths)
-
-
-def _disk_size_check(config: AutomationConfig) -> str:
+def _disk_size_check(config: AutomationConfig, node: NodeConfig | None = None) -> str:
     commands = []
+    site = config.site_for_node(node) if node else None
 
     for disk in config.asm.all_disks:
-        if disk.path:
-            commands.append(
-                f'resolved=$(readlink -f {shlex.quote(disk.path)}) && '
-                f'printf "{disk.path} " && '
-                'sudo -n blockdev --getsize64 "$resolved"'
-            )
+        path = disk.path_for(site_name=site.name if site else None, node_host=node.host if node else None)
+        commands.append(
+            f'resolved=$(readlink -f {shlex.quote(path)}) && '
+            f'printf "{path} " && '
+            'sudo -n blockdev --getsize64 "$resolved"'
+        )
 
     return " && ".join(commands)
 

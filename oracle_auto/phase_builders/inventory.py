@@ -44,8 +44,7 @@ def _inventory_script(config: AutomationConfig) -> str:
         *[f"getent hosts {site.scan_name} || true" for site in config.sites if site.scan_name],
         "echo '[storage]'",
         "multipath -ll || true",
-        "udevadm info --export-db | grep -E 'DM_UUID=|DEVNAME=' || true",
-        "ls -l /dev/oracleasm 2>/dev/null || true",
+        "udevadm info --export-db | grep -E 'DM_UUID=|DEVNAME=|ID_SERIAL=|ID_WWN=' || true",
         "echo '[installer-sources]'",
         f"ls -lh {config.installer.sources_path} 2>/dev/null || true",
     ]

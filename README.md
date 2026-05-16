@@ -24,7 +24,7 @@ Framework ini fokus pada deployment fresh install dengan standar enterprise:
 | -------------- | ----------------------------------------------------------------------------------------- |
 | 🧭 Planning    | Validasi config, topology, execution plan, dan runbook per phase                          |
 | 🖥️ Platform    | Oracle Linux baseline, user `grid`/`oracle`, DNS, hosts, chrony, SELinux, firewall        |
-| 💽 Storage     | ASM berbasis `DM_UUID`, udev symlink stabil, ASMFD label, diskgroup `OCR`, `DATA`, `RECO` |
+| 💽 Storage     | ASM berbasis persistent path (`/dev/disk/by-id` atau `/dev/mapper/<alias>`), ASMLib v3 label `ORCL:*`, diskgroup `OCR`, `DATA`, `RECO` |
 | 🧱 Database    | Grid Infrastructure, ASM, Oracle Database software, DBCA primary database                 |
 | 🟢 Replication | Active Data Guard dan optional Data Guard Broker                                          |
 | 🛡️ Operations  | Dry-run, resume state, guardrail flag, diagnostics, role operation, HTML report           |
@@ -56,7 +56,7 @@ flowchart LR
     subgraph targets["🎯 Target Oracle Estate"]
         os["🖥️ Oracle Linux"]
         gi["🧱 Grid Infrastructure"]
-        asm["💽 ASM / ASMFD"]
+        asm["💽 ASM / ASMLib v3"]
         db["🗄️ Oracle Database"]
         dg["🟢 Active Data Guard"]
     end
@@ -165,4 +165,4 @@ Seluruh urutan deployment, flag destructive guardrail, dry-run penuh, dan produc
 
 ## ⚠️ Validation Note
 
-Framework sudah memiliki command structure, dry-run, state/resume, execution plan, runbook generation, dan HTML reporting. Phase yang menyentuh Oracle installer, GI, ASM/AFD, OPatch, RMAN duplicate, Broker, switchover, dan failover tetap wajib divalidasi di lab target sebelum production.
+Framework sudah memiliki command structure, dry-run, state/resume, execution plan, runbook generation, dan HTML reporting. Phase yang menyentuh Oracle installer, GI, ASMLib/ASM, OPatch, RMAN duplicate, Broker, switchover, dan failover tetap wajib divalidasi di lab target sebelum production.

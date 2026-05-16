@@ -6,6 +6,7 @@ database actions live in `dataguard.py`.
 
 from __future__ import annotations
 
+import re
 import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
@@ -64,7 +65,19 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
         *_db_patch_stage_lines(config),
         f"cat > {STAGE}/responses/dbhome-{site.name}.rsp <<'EOF'\n{response}\nEOF",
         f"chown oracle:oinstall {STAGE}/responses/dbhome-{site.name}.rsp",
-        f"sudo -iu oracle env CV_ASSUME_DISTID=OL7 {DB_HOME}/runInstaller -silent -waitforcompletion -responseFile {STAGE}/responses/dbhome-{site.name}.rsp{_db_patch_arg(config)} -ignorePrereqFailure",
+        f"mkdir -p {STAGE}/logs",
+        f"DB_INSTALL_LOG={STAGE}/logs/dbInstall-{site.name}.out",
+        "echo 'Running Database software setup with RU apply when configured.'",
+        "set +e",
+        f"sudo -iu oracle env CV_ASSUME_DISTID=OL7 {DB_HOME}/runInstaller -silent -waitforcompletion -responseFile {STAGE}/responses/dbhome-{site.name}.rsp{_db_patch_arg(config)} -ignorePrereqFailure 2>&1 | tee \"$DB_INSTALL_LOG\"",
+        "db_install_rc=${PIPESTATUS[0]}",
+        "set -e",
+        "if test \"$db_install_rc\" -ne 0; then",
+        "  echo \"ERROR: Database software setup failed. See $DB_INSTALL_LOG\" >&2",
+        "  grep -HniE 'SEVERE|ERROR|FATAL|INS-|OPATCH|applyRU|failed|failure' \"$DB_INSTALL_LOG\" || true",
+        "  exit \"$db_install_rc\"",
+        "fi",
+        *_db_ru_validation_lines(config),
     ]
     return shell_script(f"Install Database home for {site.name}", lines)
 
@@ -79,6 +92,48 @@ def _db_patch_arg(config: AutomationConfig) -> str:
     if config.installer.db_patch is None:
         return ""
     return ' -applyRU "$DB_PATCH_TOP"'
+
+
+def _db_patch_id_regex(config: AutomationConfig) -> str | None:
+    if config.installer.db_patch is None:
+        return None
+    patch_id = config.installer.db_patch.patch_id
+    if patch_id:
+        return re.escape(str(patch_id))
+    file_name = str(config.installer.db_patch.file).split("/")[-1]
+    match = re.match(r"p?(\d{5,})(?:_|$)", file_name)
+    if match:
+        return re.escape(match.group(1))
+    return None
+
+
+def _db_ru_validation_lines(config: AutomationConfig) -> list[str]:
+    if config.installer.db_patch is None:
+        return [
+            "echo 'No Database RU configured; skipping RU validation.'",
+        ]
+
+    patch_id = _db_patch_id_regex(config)
+    if patch_id is None:
+        return [
+            "echo 'ERROR: Database RU patch id cannot be derived from patch filename. Set installer.db_patch.patch_id to the numeric OPatch patch id shown by lspatches.' >&2",
+            "exit 1",
+        ]
+    return [
+        "echo 'Validating Database RU patch inventory before root script.'",
+        f"sudo -iu oracle {DB_HOME}/OPatch/opatch lspatches",
+        f"if ! sudo -iu oracle {DB_HOME}/OPatch/opatch lspatches | grep -Eq '^({patch_id});'; then",
+        f"  echo 'ERROR: Database RU patch id not found in OPatch inventory after applyRU. Expected regex: ^({patch_id});' >&2",
+        f"  sudo -iu oracle {DB_HOME}/OPatch/opatch lsinventory || true",
+        "  exit 1",
+        "fi",
+        f"sudo -iu oracle {DB_HOME}/bin/oraversion -version || true",
+        f"if sudo -iu oracle {DB_HOME}/bin/oraversion -version 2>/dev/null | grep -q '19.3.0.0.0'; then",
+        "  echo 'ERROR: Database home still reports 19.3.0.0.0 after RU apply. Refusing to continue.' >&2",
+        "  exit 1",
+        "fi",
+        "echo 'Database RU validation passed.'",
+    ]
 
 
 def _db_root_script() -> str:

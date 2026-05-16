@@ -6,6 +6,7 @@ and single-GI share this module because both use GI and ASM.
 
 from __future__ import annotations
 
+import re
 import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
@@ -70,12 +71,7 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         f"chmod 600 {STAGE}/responses/grid-{site.name}.rsp",
         f"mkdir -p {STAGE}/logs",
         f"GRID_SETUP_LOG={STAGE}/logs/gridSetup-{site.name}.out",
-        "GRID_RU_APPLIED=false",
-        f"if test -x {GRID_BASE}/OPatch/opatch; then",
-        f"  if sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches | grep -Eq '^({_grid_patch_id_regex(config)});'; then",
-        "    GRID_RU_APPLIED=true",
-        "  fi",
-        "fi",
+        *_grid_ru_applied_detection_lines(config),
         "if test ! -f /etc/oracle/olr.loc && test -x "
         f"{GRID_BASE}/root.sh && ls {GRID_BASE}/install/response/grid_*.rsp >/dev/null 2>&1 && test \"$GRID_RU_APPLIED\" = true; then",
         "  echo 'Grid software and RU already installed; skipping software setup and continuing with root scripts/config tools.'",
@@ -88,8 +84,9 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         "  if test \"$grid_setup_rc\" -ne 0; then",
         "    if grep -Eq 'Successfully Setup Software|execute the following script|executeConfigTools' \"$GRID_SETUP_LOG\" && test -x "
         f"{GRID_BASE}/root.sh; then",
-        "      echo 'Grid software setup completed; root scripts and config tools will run in following steps.'",
+        "      echo 'Grid setup reached root/config-tool phase; validating RU inventory before continuing.'",
         "    else",
+        "      echo \"ERROR: Grid software setup failed before root/config-tool phase. See $GRID_SETUP_LOG\" >&2",
         "      exit \"$grid_setup_rc\"",
         "    fi",
         "  fi",
@@ -142,13 +139,37 @@ def _grid_patch_arg(config: AutomationConfig) -> str:
     return ' -applyRU "$GRID_PATCH_TOP"'
 
 
-def _grid_patch_id_regex(config: AutomationConfig) -> str:
+def _grid_patch_id_regex(config: AutomationConfig) -> str | None:
     if config.installer.grid_patch is None:
-        return "NO_PATCH_CONFIGURED"
-    patch_id = getattr(config.installer.grid_patch, "patch_id", None)
+        return None
+    patch_id = config.installer.grid_patch.patch_id
     if patch_id:
-        return shlex.quote(str(patch_id)).strip("'")
-    return str(config.installer.grid_patch.file).split("/")[-1].split("_")[0]
+        return re.escape(str(patch_id))
+    file_name = str(config.installer.grid_patch.file).split("/")[-1]
+    match = re.match(r"p?(\d{5,})(?:_|$)", file_name)
+    if match:
+        return re.escape(match.group(1))
+    return None
+
+
+def _grid_ru_applied_detection_lines(config: AutomationConfig) -> list[str]:
+    lines = ["GRID_RU_APPLIED=false"]
+    patch_id = _grid_patch_id_regex(config)
+    if config.installer.grid_patch is None:
+        return lines
+    if patch_id is None:
+        return [
+            *lines,
+            "echo 'Grid RU patch id cannot be derived from patch filename; install will not be skipped until installer.grid_patch.patch_id is set.'",
+        ]
+    return [
+        *lines,
+        f"if test -x {GRID_BASE}/OPatch/opatch; then",
+        f"  if sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches | grep -Eq '^({patch_id});'; then",
+        "    GRID_RU_APPLIED=true",
+        "  fi",
+        "fi",
+    ]
 
 
 def _grid_ru_validation_lines(config: AutomationConfig) -> list[str]:
@@ -158,15 +179,25 @@ def _grid_ru_validation_lines(config: AutomationConfig) -> list[str]:
         ]
 
     patch_id = _grid_patch_id_regex(config)
+    if patch_id is None:
+        return [
+            "echo 'ERROR: Grid RU patch id cannot be derived from patch filename. Set installer.grid_patch.patch_id to the numeric OPatch patch id shown by lspatches.' >&2",
+            "exit 1",
+        ]
     return [
         "echo 'Validating Grid RU patch inventory before root scripts/config tools.'",
         f"sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches",
-        f"sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches | grep -Eq '^({patch_id});'",
+        f"if ! sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches | grep -Eq '^({patch_id});'; then",
+        f"  echo 'ERROR: Grid RU patch id not found in OPatch inventory after applyRU. Expected regex: ^({patch_id});' >&2",
+        f"  sudo -iu grid {GRID_BASE}/OPatch/opatch lsinventory || true",
+        "  exit 1",
+        "fi",
         f"sudo -iu grid {GRID_BASE}/bin/oraversion -version || true",
         f"if sudo -iu grid {GRID_BASE}/bin/oraversion -version 2>/dev/null | grep -q '19.3.0.0.0'; then",
         "  echo 'ERROR: Grid home still reports 19.3.0.0.0 after RU apply. Refusing to continue.' >&2",
         "  exit 1",
         "fi",
+        "echo 'Grid RU validation passed.'",
     ]
 
 

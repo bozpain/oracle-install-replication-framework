@@ -102,7 +102,7 @@
   <rect x="985" y="465" width="280" height="44" rx="14" fill="#ede9fe"/>
   <text x="1008" y="493" class="tiny">GRID INFRASTRUCTURE</text>
   <rect x="985" y="525" width="280" height="44" rx="14" fill="#fef9c3"/>
-  <text x="1008" y="553" class="tiny">ASM / ASMFD STORAGE</text>
+  <text x="1008" y="553" class="tiny">ASM / ASMLIB V3 STORAGE</text>
   <rect x="985" y="585" width="280" height="44" rx="14" fill="#dcfce7"/>
   <text x="1008" y="613" class="tiny">DATABASE + DATA GUARD</text>
 
