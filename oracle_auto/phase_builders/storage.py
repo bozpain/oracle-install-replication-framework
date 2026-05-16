@@ -303,7 +303,7 @@ def _prepare_storage_rules_script(config: AutomationConfig, node: NodeConfig) ->
     ]
     lines = [
         "command -v udevadm",
-        *install_asmlib_lines(config.os.package_manager),
+        *install_asmlib_lines(config.os.package_manager, config.installer.sources_path, config.os.asmlib_rpms),
         "command -v oracleasm",
         asmlib_kernel_check_command(),
         *_multipath_detection_lines(),

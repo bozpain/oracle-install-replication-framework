@@ -149,8 +149,8 @@ class PrecheckRunner:
             ),
             Check(
                 name="asmlib_packages",
-                command=f"{package_manager} list oracleasm-support && ({package_manager} list oracleasmlib || echo 'oracleasmlib will be installed from Oracle ASMLIB v3 RPM URL')",
-                fail_message="Cannot find Oracle ASMLIB v3 packages from enabled repositories; prepare-os can enable ol8_addons and install oracleasmlib from Oracle ASMLIB v3 RPM URL.",
+                command=f"{package_manager} list oracleasm-support && ({package_manager} list oracleasmlib || echo 'oracleasmlib will be installed from local RPM in configured sources_path')",
+                fail_message="Cannot find Oracle ASMLIB v3 packages from enabled repositories; prepare-os can enable ol8_addons and install oracleasmlib from local RPM in configured sources_path.",
                 warn_only=True,
                 timeout=None,
             ),
@@ -174,7 +174,7 @@ class PrecheckRunner:
             Check(
                 name="installer_zip_files",
                 command=_installer_check(self.config),
-                fail_message="One or more configured installer/patch ZIP files are missing or empty.",
+                fail_message="One or more configured installer/patch ZIP files or ASMLIB RPMs are missing or empty.",
             ),
             Check(
                 name="installer_zip_integrity",
@@ -330,9 +330,19 @@ def _installer_check(config: AutomationConfig) -> str:
     if config.installer.opatch_zip:
         files.append(config.installer.opatch_zip)
     files.extend(patch.file for patch in config.installer.patches)
-    return " && ".join(
+    checks = [
         f"test -s {shlex.quote(config.installer.sources_path + '/' + file)}" for file in files
+    ]
+    checks.append(_asmlib_rpm_check(config))
+    return " && ".join(checks)
+
+
+def _asmlib_rpm_check(config: AutomationConfig) -> str:
+    cases = " ".join(
+        f"{shlex.quote(arch)}) test -s {shlex.quote(config.installer.sources_path + '/' + rpm)} ;;"
+        for arch, rpm in sorted(config.os.asmlib_rpms.items())
     )
+    return f"arch=$(uname -m); case \"$arch\" in {cases} *) echo \"Unsupported ASMLIB architecture: $arch\" >&2; exit 1 ;; esac"
 
 
 def _installer_integrity_check(config: AutomationConfig) -> str:

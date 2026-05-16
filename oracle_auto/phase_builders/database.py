@@ -38,6 +38,8 @@ def install_db_software_steps(config: AutomationConfig) -> list[AutomationStep]:
                 f"Install Oracle Database software for {site.name}",
                 _install_db_software_script(config, site),
                 timeout=7200,
+                remote_marker=False,
+                force_rerun=True,
             )
         )
         for node in site.nodes:
@@ -123,35 +125,25 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
 
 
 def _fresh_db_home_lines(config: AutomationConfig, site: SiteConfig) -> list[str]:
-    if config.installer.db_patch is None:
-        return []
     db_zip = f"{config.installer.sources_path}/{config.installer.db_zip}"
     unique = site.db_unique_name
     return [
-        "DB_HOME_DIRTY=false",
+        "DB_DATABASE_REGISTERED=false",
+        f"if test -x {DB_HOME}/bin/srvctl && sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {unique} >/dev/null 2>&1; then DB_DATABASE_REGISTERED=true; fi",
+        "if test \"$DB_DATABASE_REGISTERED\" = true; then",
+        f"  echo 'Database {unique} is already registered; not cleaning DB home.'",
+        "else",
+        f"  if test -d {DB_HOME} && find {DB_HOME} -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then",
+        "    echo 'Cleaning Database home before install/resume.'",
+        f"    if test -x {DB_HOME}/runInstaller; then sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE=/u01/app/oracle {DB_HOME}/runInstaller -silent -detachHome ORACLE_HOME={DB_HOME} >/dev/null 2>&1 || true; fi",
+        f"    find {DB_HOME} -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +",
+        "  fi",
+        f"  sudo -iu oracle unzip -oq {shlex.quote(db_zip)} -d {DB_HOME}",
+        "fi",
         "DB_HOME_INVENTORY_REGISTERED=false",
         f"if test -r {INVENTORY_LOCATION}/ContentsXML/inventory.xml && grep -Fq 'LOC=\"{DB_HOME}\"' {INVENTORY_LOCATION}/ContentsXML/inventory.xml; then DB_HOME_INVENTORY_REGISTERED=true; fi",
         "DB_PREVIOUS_INSTALL_FAILED=false",
         "if test -f \"$DB_INSTALL_LOG\" && grep -Eq 'FATAL|ERROR|INS-|failed|failure' \"$DB_INSTALL_LOG\" && ! grep -Eq 'Successfully Setup Software|execute the following script' \"$DB_INSTALL_LOG\"; then DB_PREVIOUS_INSTALL_FAILED=true; fi",
-        f"if test -x {DB_HOME}/bin/oraversion; then",
-        f"  db_home_version=$(sudo -iu oracle {DB_HOME}/bin/oraversion -compositeVersion 2>/dev/null || sudo -iu oracle {DB_HOME}/bin/oraversion -version 2>/dev/null || true)",
-        "  case \"$db_home_version\" in",
-        "    *19.3.0.0.0*) DB_HOME_DIRTY=true ;;",
-        "    *) if test \"$DB_PREVIOUS_INSTALL_FAILED\" = true || test \"$DB_HOME_INVENTORY_REGISTERED\" != true; then DB_HOME_DIRTY=true; fi ;;",
-        "  esac",
-        f"elif test -x {DB_HOME}/runInstaller; then",
-        "  DB_HOME_DIRTY=true",
-        "fi",
-        "if test \"$DB_HOME_DIRTY\" = true; then",
-        f"  if test -x {DB_HOME}/bin/srvctl && sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {unique} >/dev/null 2>&1; then",
-        f"    echo 'ERROR: Database home looks unpatched/dirty, but database {unique} is already registered. Refusing to clean DB home automatically.' >&2",
-        "    exit 1",
-        "  fi",
-        "  echo 'Database home is unpatched, partially installed, or failed a previous installer run; resetting DB home before RU install.'",
-        f"  if test -x {DB_HOME}/runInstaller; then sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE=/u01/app/oracle {DB_HOME}/runInstaller -silent -detachHome ORACLE_HOME={DB_HOME} >/dev/null 2>&1 || true; fi",
-        f"  find {DB_HOME} -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +",
-        f"  sudo -iu oracle unzip -oq {shlex.quote(db_zip)} -d {DB_HOME}",
-        "fi",
     ]
 
 

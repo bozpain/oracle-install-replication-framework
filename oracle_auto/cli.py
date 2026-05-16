@@ -92,7 +92,6 @@ WORKFLOW_PHASE_ORDER = [
     "install-grid",
     "configure-asm-storage",
     "install-db-software",
-    "update-opatch",
     "apply-ojvm-patch",
     "create-database",
     "patch-inventory",
@@ -109,7 +108,6 @@ DEPLOYMENT_PHASE_ORDER = [
     "install-grid",
     "configure-asm-storage",
     "install-db-software",
-    "update-opatch",
     "apply-ojvm-patch",
     "create-database",
     "patch-inventory",
@@ -166,7 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     for command, help_text in {
         "prepare-os": "Prepare OS users, DNS, hosts, firewall, SELinux, and chrony.",
-        "verify-installer": "Verify installer and patch ZIP files on target hosts.",
+        "verify-installer": "Verify installer ZIP, patch ZIP, and ASMLIB RPM files on target hosts.",
         "prepare-storage-rules": "Prepare persistent device paths and ASMLIB labels.",
         "configure-asm-storage": "Configure ASMLIB disks and ASM disk groups.",
         "prepare-storage": "Compatibility wrapper for storage rules and ASM storage.",

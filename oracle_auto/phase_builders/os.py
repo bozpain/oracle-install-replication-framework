@@ -46,7 +46,7 @@ def _prepare_os_script(config: AutomationConfig, node: NodeConfig) -> str:
     chrony_block = "\n".join(f"server {server} iburst" for server in config.os.ntp_servers)
     lines = [
         f"{config.os.package_manager} install -y {shlex.quote(config.os.preinstall_package)} chrony unzip tar libnsl",
-        *install_asmlib_lines(config.os.package_manager),
+        *install_asmlib_lines(config.os.package_manager, config.installer.sources_path, config.os.asmlib_rpms),
         *oracle_user_group_lines(),
         "sudo -iu grid true",
         "sudo -iu oracle true",

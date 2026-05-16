@@ -36,6 +36,8 @@ def install_grid_steps(config: AutomationConfig) -> list[AutomationStep]:
                 f"Install Grid Infrastructure for {site.name}",
                 _install_grid_script(config, site),
                 timeout=7200,
+                remote_marker=False,
+                force_rerun=True,
             )
         )
         for node in site.nodes:
@@ -83,9 +85,17 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         f"mkdir -p {STAGE}/logs",
         f"GRID_SETUP_LOG={STAGE}/logs/gridSetup-{site.name}.out",
         *_grid_ru_applied_detection_lines(config),
-        "if test ! -f /etc/oracle/olr.loc && test -x "
+        "GRID_SOFTWARE_READY=false",
+        "if test -f /etc/oracle/olr.loc; then",
+        "  echo 'Grid Infrastructure is already configured; preserving Grid home and skipping software setup.'",
+        "  GRID_SOFTWARE_READY=true",
+        "elif test -x "
         f"{GRID_BASE}/root.sh && ls {GRID_BASE}/install/response/grid_*.rsp >/dev/null 2>&1 && test \"$GRID_RU_APPLIED\" = true; then",
         "  echo 'Grid software and RU already installed; skipping software setup and continuing with root scripts/config tools.'",
+        "  GRID_SOFTWARE_READY=true",
+        "fi",
+        "if test \"$GRID_SOFTWARE_READY\" = true; then",
+        "  true",
         "else",
         "  echo 'Running Grid software setup with RU apply when configured.'",
         "  set +e",
@@ -127,13 +137,15 @@ def _grid_patch_stage_lines(config: AutomationConfig) -> list[str]:
 def _fresh_grid_home_lines(config: AutomationConfig) -> list[str]:
     grid_zip = f"{config.installer.sources_path}/{config.installer.grid_zip}"
     return [
-        "if test ! -f /etc/oracle/olr.loc && test -x "
-        f"{GRID_BASE}/gridSetup.sh && ls {GRID_BASE}/install/response/grid_*.rsp >/dev/null 2>&1; then "
-        "echo 'Grid software appears installed; preserving home; RU validation will decide whether setup must run'; "
-        "elif test ! -f /etc/oracle/olr.loc && test -x "
-        f"{GRID_BASE}/gridSetup.sh; then echo 'Resetting unconfigured Grid home before install'; "
-        f"find {GRID_BASE} -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +; fi",
-        f"test -x {GRID_BASE}/gridSetup.sh || sudo -iu grid unzip -oq {shlex.quote(grid_zip)} -d {GRID_BASE}",
+        "if test -f /etc/oracle/olr.loc; then",
+        "  echo 'Grid Infrastructure already configured; not cleaning Grid home.'",
+        "else",
+        f"  if test -d {GRID_BASE} && find {GRID_BASE} -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then",
+        "    echo 'Cleaning unconfigured Grid home before install/resume.'",
+        f"    find {GRID_BASE} -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +",
+        "  fi",
+        f"  sudo -iu grid unzip -oq {shlex.quote(grid_zip)} -d {GRID_BASE}",
+        "fi",
     ]
 
 

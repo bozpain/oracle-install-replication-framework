@@ -414,13 +414,11 @@ oracle.install.asm.diskGroup.disks=ORCL:DATA01
 
 ## 6. Installer and Patch
 
-Operator menyalin file ZIP manual ke target server. Framework memverifikasi file, mengekstrak base home, menerapkan Grid RU saat `install-grid`, menerapkan DB RU saat `install-db-software`, mengupdate OPatch, menerapkan OJVM ke DB home sebelum `create-database`, dan menyimpan inventory.
+Operator menyalin file ZIP manual ke target server. Framework memverifikasi file, mengekstrak base home, mengganti OPatch di masing-masing home setelah unzip atau cleanup home, menerapkan Grid RU saat `install-grid`, menerapkan DB RU saat `install-db-software`, menerapkan OJVM ke DB home sebelum `create-database`, dan menyimpan inventory.
 
 ```json
 "installer": {
   "sources_path": "/u01/sources",
-  "grid_zip": "LINUX.X64_193000_grid_home.zip",
-  "db_zip": "LINUX.X64_193000_db_home.zip",
   "patch_manifest": "19.30"
 }
 ```
@@ -430,6 +428,9 @@ Operator menyalin file ZIP manual ke target server. Framework memverifikasi file
 ```yaml
 patch_id: "19.30"
 description: "Oracle 19c RU 19.30 + OJVM + OPatch"
+
+grid_zip: "LINUX.X64_193000_grid_home.zip"
+db_zip: "LINUX.X64_193000_db_home.zip"
 
 opatch_zip: "p6880880_190000_Linux-x86-64.zip"
 gi_zip: "p_gi_19.30_linux_x86-64.zip"
@@ -441,10 +442,12 @@ gi_dir: "38629535"
 dbru_dir: "38632161"
 ojvm_dir: "38523609"
 
+oracleasmlib_rpm_x86_64: "oracleasmlib-3.1.1-1.el8.x86_64.rpm"
+
 pre_datapatch_sql: "pre_datapatch.sql"
 ```
 
-Semua patch ZIP dibaca dari `/u01/sources`, diekstrak langsung ke `/u01/sources`, lalu `gridSetup.sh -applyRU` memakai `/u01/sources/<gi_dir>` dan `runInstaller -applyRU` memakai `/u01/sources/<dbru_dir>`. Untuk naik patch berikutnya, tambahkan `manifests/19.31.yaml` dengan ZIP dan direktori patch yang benar, lalu ubah `version.patch_set` dan `installer.patch_manifest` ke `19.31`.
+Base installer ZIP, ASMLIB RPM, dan patch ZIP dibaca dari `/u01/sources`. Base home diekstrak ke Oracle home masing-masing, patch ZIP diekstrak langsung ke `/u01/sources`, lalu `gridSetup.sh -applyRU` memakai `/u01/sources/<gi_dir>` dan `runInstaller -applyRU` memakai `/u01/sources/<dbru_dir>`. Untuk naik patch berikutnya, tambahkan `manifests/19.31.yaml` dengan ZIP dan direktori patch yang benar, lalu ubah `version.patch_set` dan `installer.patch_manifest` ke `19.31`.
 
 ---
 
@@ -586,7 +589,6 @@ flowchart TB
     grid["🧱 install-grid"]
     asm["🛡️ configure-asm-storage"]
     dbsw["🗄️ install-db-software"]
-    opatch["📦 update-opatch"]
     ojvm["apply-ojvm-patch"]
     inventory["📋 patch-inventory"]
     createDb["🗄️ create-database"]
@@ -595,7 +597,7 @@ flowchart TB
     validateDeploy["✅ validate-deployment"]
     report["📊 generate-report"]
 
-    validate --> doctor --> plan --> precheck --> os --> installer --> storageRules --> grid --> asm --> dbsw --> opatch --> ojvm --> createDb --> inventory --> dg --> broker --> validateDeploy --> report
+    validate --> doctor --> plan --> precheck --> os --> installer --> storageRules --> grid --> asm --> dbsw --> ojvm --> createDb --> inventory --> dg --> broker --> validateDeploy --> report
 
     classDef green fill:#DCFCE7,stroke:#16A34A,color:#14532D
     classDef blue fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
@@ -604,7 +606,7 @@ flowchart TB
     classDef purple fill:#F3E8FF,stroke:#7C3AED,color:#4C1D95
     class validate,doctor,plan,precheck,validateDeploy green
     class os,storageRules,grid,asm,dbsw,createDb blue
-    class installer,opatch,ojvm,inventory amber
+    class installer,ojvm,inventory amber
     class dg,broker purple
     class report red
 ```
@@ -626,7 +628,6 @@ python main.py prepare-storage-rules --config configs/my-deployment.json --dry-r
 python main.py install-grid --config configs/my-deployment.json --dry-run
 python main.py configure-asm-storage --config configs/my-deployment.json --dry-run
 python main.py install-db-software --config configs/my-deployment.json --dry-run
-python main.py update-opatch --config configs/my-deployment.json --dry-run
 python main.py apply-ojvm-patch --config configs/my-deployment.json --dry-run
 python main.py create-database --config configs/my-deployment.json --dry-run
 python main.py patch-inventory --config configs/my-deployment.json --dry-run
@@ -716,7 +717,7 @@ python main.py prepare-storage-rules --config configs/my-deployment.json --allow
 
 ### 🧱 `install-grid`
 
-Menjalankan Grid Infrastructure silent install dan root scripts.
+Menjalankan Grid Infrastructure silent install dan root scripts. Step install Grid home selalu rerun saat phase ini dipilih atau workflow di-resume ke phase ini: home yang belum configured dibersihkan, base Grid home di-unzip ulang, lalu jika `opatch_zip` dikonfigurasi OPatch Grid home diganti sebelum `gridSetup.sh -applyRU`. Jika GI sudah configured (`/etc/oracle/olr.loc` ada), framework tidak membersihkan Grid home.
 
 ```bash
 python main.py install-grid --config configs/my-deployment.json
@@ -739,7 +740,7 @@ python main.py configure-asm-storage --config configs/my-deployment.json --allow
 
 ### 🗄️ `install-db-software`
 
-Menjalankan Oracle Database software silent install.
+Menjalankan Oracle Database software silent install. Step install DB home selalu rerun saat phase ini dipilih atau workflow di-resume ke phase ini: jika database belum registered di `srvctl`, DB home dibersihkan, base DB home di-unzip ulang, lalu jika `opatch_zip` dikonfigurasi OPatch DB home diganti sebelum `runInstaller -applyRU`. Jika database sudah registered, framework tidak membersihkan DB home.
 
 ```bash
 python main.py install-db-software --config configs/my-deployment.json
@@ -749,7 +750,7 @@ python main.py install-db-software --config configs/my-deployment.json
 
 | Command | Purpose |
 |---|---|
-| `update-opatch` | Replace/update OPatch in Grid and DB homes |
+| `update-opatch` | Manual/advanced OPatch replacement for existing Grid and DB homes; fresh install updates OPatch inside `install-grid` and `install-db-software` |
 | `analyze-patch` | Analyze configured Grid and DB patch conflicts/readiness |
 | `apply-grid-patch` | Apply configured Grid patch to Grid home |
 | `apply-db-patch` | Apply configured DB patch to DB home |
@@ -986,7 +987,7 @@ Untuk install sungguhan, lebih aman berhenti di failure pertama, perbaiki, lalu 
 | Invalid install type | Cek `install_type` |
 | Standby mismatch | Cek node count primary/standby |
 | ASM duplicate | Cek UUID disk antar diskgroup |
-| Missing ZIP config | Cek `grid_zip`, `db_zip`, patch list |
+| Missing installer source config | Cek manifest `grid_zip`, `db_zip`, ASMLIB RPM, dan patch list |
 
 ### 📡 SCAN Gagal Resolve
 

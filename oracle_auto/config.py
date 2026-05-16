@@ -26,6 +26,9 @@ from typing import Any
 VALID_INSTALL_TYPES = {"single-gi", "rac"}
 VALID_DATAGUARD_METHODS = {"manual", "broker"}
 DEFAULT_NTP_SERVERS = ["192.168.113.41", "192.168.115.41"]
+DEFAULT_ASMLIB_RPMS = {
+    "x86_64": "oracleasmlib-3.1.1-1.el8.x86_64.rpm",
+}
 
 
 class ConfigError(ValueError):
@@ -60,6 +63,7 @@ class OSConfig:
     preinstall_package: str = "oracle-database-preinstall-19c"
     selinux_mode: str = "permissive"
     ntp_servers: list[str] = field(default_factory=lambda: list(DEFAULT_NTP_SERVERS))
+    asmlib_rpms: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_ASMLIB_RPMS))
 
 
 @dataclass(frozen=True)
@@ -205,6 +209,8 @@ class PatchConfig:
 class PatchManifest:
     patch_id: str
     description: str
+    grid_zip: str | None
+    db_zip: str | None
     opatch_zip: str
     gi_zip: str
     dbru_zip: str
@@ -213,6 +219,7 @@ class PatchManifest:
     gi_dir: str
     dbru_dir: str
     ojvm_dir: str
+    oracleasmlib_rpm_x86_64: str | None = None
     pre_datapatch_sql: str | None = None
     source: str | None = None
 
@@ -340,7 +347,7 @@ def _parse_config(data: dict[str, Any], path: Path) -> AutomationConfig:
     if data.get("standby_site") is not None:
         standby_site = _parse_site("standby_site", data["standby_site"])
 
-    os_config = _parse_os(data.get("os", {}), version)
+    os_config = _parse_os(data.get("os", {}), version, installer.patch_manifest)
     ssh = _parse_ssh(data.get("ssh", {}))
     dataguard = _parse_dataguard(data.get("dataguard", {}))
     secrets = _parse_secrets(data.get("secrets", {}))
@@ -467,8 +474,8 @@ def _parse_installer(data: Any, version: VersionConfig, config_path: Path) -> In
 
     return InstallerConfig(
         sources_path=str(data.get("sources_path", "/u01/sources")),
-        grid_zip=str(data.get("grid_zip", "")),
-        db_zip=str(data.get("db_zip", "")),
+        grid_zip=str(data.get("grid_zip") or (manifest.grid_zip if manifest else "") or ""),
+        db_zip=str(data.get("db_zip") or (manifest.db_zip if manifest else "") or ""),
         opatch_zip=opatch_zip,
         grid_patch=grid_patch,
         db_patch=db_patch,
@@ -551,13 +558,16 @@ def _manifest_from_mapping(data: dict[str, Any], path: Path) -> PatchManifest:
     missing = [key for key in required if not _optional_str(data.get(key))]
     if missing:
         raise ConfigError(f"Patch manifest {path} missing required key(s): {', '.join(missing)}")
-    for key in [*required, "pre_datapatch_sql"]:
+    optional = ["grid_zip", "db_zip", "oracleasmlib_rpm_x86_64", "pre_datapatch_sql"]
+    for key in [*required, *optional]:
         value = _optional_str(data.get(key))
         if value:
             _validate_safe_manifest_value(key, value, path)
     return PatchManifest(
         patch_id=str(data["patch_id"]),
         description=str(data["description"]),
+        grid_zip=_optional_str(data.get("grid_zip")),
+        db_zip=_optional_str(data.get("db_zip")),
         opatch_zip=str(data["opatch_zip"]),
         gi_zip=str(data["gi_zip"]),
         dbru_zip=str(data["dbru_zip"]),
@@ -566,6 +576,7 @@ def _manifest_from_mapping(data: dict[str, Any], path: Path) -> PatchManifest:
         gi_dir=str(data["gi_dir"]),
         dbru_dir=str(data["dbru_dir"]),
         ojvm_dir=str(data["ojvm_dir"]),
+        oracleasmlib_rpm_x86_64=_optional_str(data.get("oracleasmlib_rpm_x86_64")),
         pre_datapatch_sql=_optional_str(data.get("pre_datapatch_sql")),
         source=str(path),
     )
@@ -651,11 +662,22 @@ def _parse_version(data: Any) -> VersionConfig:
     )
 
 
-def _parse_os(data: Any, version: VersionConfig) -> OSConfig:
+def _parse_os(data: Any, version: VersionConfig, manifest: PatchManifest | None = None) -> OSConfig:
     if data is None:
         data = {}
     if not isinstance(data, dict):
         raise ConfigError("os must be an object/mapping.")
+    asmlib_rpms = dict(DEFAULT_ASMLIB_RPMS)
+    if manifest is not None:
+        if manifest.oracleasmlib_rpm_x86_64:
+            asmlib_rpms["x86_64"] = manifest.oracleasmlib_rpm_x86_64
+    if data.get("asmlib_rpms") is not None:
+        if not isinstance(data["asmlib_rpms"], dict):
+            raise ConfigError("os.asmlib_rpms must be an object/mapping.")
+        for arch, rpm in data["asmlib_rpms"].items():
+            value = str(rpm)
+            _validate_safe_relative_value(f"os.asmlib_rpms.{arch}", value)
+            asmlib_rpms[str(arch)] = value
     return OSConfig(
         distribution=str(data.get("distribution", version.os_distribution)),
         version=str(data.get("version", version.os_version)),
@@ -663,6 +685,7 @@ def _parse_os(data: Any, version: VersionConfig) -> OSConfig:
         preinstall_package=str(data.get("preinstall_package", "oracle-database-preinstall-19c")),
         selinux_mode=str(data.get("selinux_mode", "permissive")),
         ntp_servers=[str(item) for item in data.get("ntp_servers", DEFAULT_NTP_SERVERS)],
+        asmlib_rpms=asmlib_rpms,
     )
 
 

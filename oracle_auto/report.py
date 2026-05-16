@@ -180,6 +180,7 @@ def installer_table(config: AutomationConfig) -> str:
         ("Sources Path", config.installer.sources_path),
         ("Grid ZIP", config.installer.grid_zip),
         ("Database ZIP", config.installer.db_zip),
+        ("ASMLIB RPMs", ", ".join(f"{arch}: {rpm}" for arch, rpm in sorted(config.os.asmlib_rpms.items()))),
         ("OPatch ZIP", config.installer.opatch_zip or ""),
         ("Grid Patch", _patch_text(config.installer.grid_patch)),
         ("Database Patch", _patch_text(config.installer.db_patch)),

@@ -76,8 +76,6 @@
   },
   "installer": {
     "sources_path": "/u01/sources",
-    "grid_zip": "LINUX.X64_193000_grid_home.zip",
-    "db_zip": "LINUX.X64_193000_db_home.zip",
     "patch_manifest": "19.30"
   },
   "dataguard": {

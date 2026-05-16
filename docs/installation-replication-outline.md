@@ -184,24 +184,25 @@ Status baseline: semua command roadmap sudah tersedia sebagai struktur Python, m
 8. `install-grid`
 9. `configure-asm-storage`
 10. `install-db-software`
-11. `update-opatch`
-12. `analyze-patch`
-13. `apply-grid-patch`
-14. `apply-db-patch`
-15. `datapatch`
-16. `patch-inventory`
-17. `apply-patch`
-18. `create-database`
-19. `setup-active-dataguard`
-20. `setup-dataguard-broker`
-21. `validate-deployment`
-22. `switchover`
-23. `failover`
-24. `generate-plan`
-25. `generate-report`
-26. `collect-diagnostics`
-27. `cleanup-lab`
-28. `rollback-framework`
+11. `apply-ojvm-patch`
+12. `create-database`
+13. `patch-inventory`
+14. `setup-active-dataguard`
+15. `setup-dataguard-broker`
+16. `validate-deployment`
+17. `update-opatch` (manual/advanced untuk home existing; fresh install sudah update OPatch di `install-grid` dan `install-db-software`)
+18. `analyze-patch`
+19. `apply-grid-patch`
+20. `apply-db-patch`
+21. `datapatch`
+22. `apply-patch`
+23. `switchover`
+24. `failover`
+25. `generate-plan`
+26. `generate-report`
+27. `collect-diagnostics`
+28. `cleanup-lab`
+29. `rollback-framework`
 
 ## 11. State and Reporting
 

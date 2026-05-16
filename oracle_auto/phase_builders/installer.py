@@ -19,7 +19,7 @@ def verify_installer_steps(config: AutomationConfig) -> list[AutomationStep]:
             "verify-installer",
             "verify_installer",
             node,
-            "Verify Oracle installer and patch ZIP files",
+            "Verify Oracle installer, patch ZIP, and ASMLIB RPM files",
             _verify_installer_script(config),
             timeout=None,
         )
@@ -34,6 +34,16 @@ def _verify_installer_script(config: AutomationConfig) -> str:
         files.append(config.installer.opatch_zip)
     files.extend(patch.file for patch in config.installer.patches)
     checks = [f"test -s {sources}/{shlex.quote(file)}" for file in files]
+    asmlib_case_lines = [
+        "arch=$(uname -m)",
+        "case \"$arch\" in",
+        *[
+            f"  {shlex.quote(arch)}) test -s {sources}/{shlex.quote(rpm)} ;;"
+            for arch, rpm in sorted(config.os.asmlib_rpms.items())
+        ],
+        "  *) echo \"Unsupported ASMLIB architecture: $arch\" >&2; exit 1 ;;",
+        "esac",
+    ]
     integrity_checks = [
         line
         for file in files
@@ -55,7 +65,9 @@ def _verify_installer_script(config: AutomationConfig) -> str:
         f"sudo -iu grid test -r {sources}/{shlex.quote(config.installer.grid_zip)}",
         "echo 'Readability check: database installer ZIP'",
         f"sudo -iu oracle test -r {sources}/{shlex.quote(config.installer.db_zip)}",
+        "echo 'ASMLIB RPM check'",
+        *asmlib_case_lines,
         f"mkdir -p {STAGE}/installer-checks",
         f"ls -lh {sources} > {STAGE}/installer-checks/files.txt",
     ]
-    return shell_script("Verify installer ZIP files", lines)
+    return shell_script("Verify installer ZIP and RPM files", lines)

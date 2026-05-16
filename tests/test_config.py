@@ -27,6 +27,10 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.primary_site.nodes[0].private_hostname, "db1-site-a-priv.example.com")
         self.assertEqual(config.os.selinux_mode, "permissive")
         self.assertEqual(config.os.ntp_servers, ["192.168.113.41", "192.168.115.41"])
+        self.assertEqual(config.installer.grid_zip, "LINUX.X64_193000_grid_home.zip")
+        self.assertEqual(config.installer.db_zip, "LINUX.X64_193000_db_home.zip")
+        self.assertEqual(config.os.asmlib_rpms["x86_64"], "oracleasmlib-3.1.1-1.el8.x86_64.rpm")
+        self.assertEqual(list(config.os.asmlib_rpms), ["x86_64"])
         self.assertEqual(config.asm.ocr_disks, [])
         self.assertEqual(config.asm.data_disks[0].dm_uuid, "mpath-360060e8008a3cf000050a3cf00000102")
         self.assertEqual(
@@ -85,6 +89,8 @@ class ConfigTest(unittest.TestCase):
     def test_legacy_patch_id_is_parsed_when_configured(self):
         data = json.loads(Path("configs/sample-single.json").read_text(encoding="utf-8"))
         data["installer"].pop("patch_manifest")
+        data["installer"]["grid_zip"] = "LINUX.X64_193000_grid_home.zip"
+        data["installer"]["db_zip"] = "LINUX.X64_193000_db_home.zip"
         data["installer"]["opatch_zip"] = "p6880880_190000_Linux-x86-64.zip"
         data["installer"]["grid_patch"] = {
             "name": "Legacy Grid RU",

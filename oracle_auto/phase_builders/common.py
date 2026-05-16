@@ -18,10 +18,6 @@ GRID_BASE_DIR = "/u01/app/grid"
 ORACLE_BASE = "/u01/app/oracle"
 DB_HOME = "/u01/app/oracle/product/19.0.0/dbhome_1"
 STAGE = "/u01/stage"
-ASMLIB_RPM_PATHS = {
-    "x86_64": "/u01/sources/oracleasmlib-3.1.1-1.el8.x86_64.rpm",
-    "aarch64": "/u01/sources/oracleasmlib-3.1.1-1.el8.aarch64.rpm",
-}
 
 
 def oracle_user_group_lines() -> list[str]:
@@ -74,6 +70,7 @@ def make_step(
     timeout: int | None,
     warn_only: bool = False,
     remote_marker: bool = True,
+    force_rerun: bool = False,
 ) -> AutomationStep:
     return AutomationStep(
         phase=phase,
@@ -83,6 +80,7 @@ def make_step(
         command=_with_remote_marker(phase, name, command) if remote_marker else command,
         timeout=timeout,
         warn_only=warn_only,
+        force_rerun=force_rerun,
     )
 
 
@@ -126,11 +124,11 @@ def ensure_swap_lines() -> list[str]:
     ]
 
 
-def install_asmlib_lines(package_manager: str) -> list[str]:
+def install_asmlib_lines(package_manager: str, sources_path: str, asmlib_rpms: dict[str, str]) -> list[str]:
     pm = shlex.quote(package_manager)
     rpm_path_cases = "\n".join(
-        f"  {arch}) asmlib_rpm={shlex.quote(path)} ;;"
-        for arch, path in ASMLIB_RPM_PATHS.items()
+        f"  {arch}) asmlib_rpm={shlex.quote(f'{sources_path}/{rpm}')} ;;"
+        for arch, rpm in sorted(asmlib_rpms.items())
     )
     return [
         f"if ! rpm -q oracleasm-support >/dev/null 2>&1; then {pm} install -y oracleasm-support || (if grep -Rqs '^\\[ol8_addons\\]' /etc/yum.repos.d; then {pm} config-manager --set-enabled ol8_addons 2>/dev/null || sed -i '/^\\[ol8_addons\\]/,/^\\[/{{s/^enabled=.*/enabled=1/}}' /etc/yum.repos.d/*.repo; fi; {pm} install -y oracleasm-support); fi",

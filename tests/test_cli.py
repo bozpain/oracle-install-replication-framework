@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 
 from oracle_auto.automation import AutomationRunner, AutomationStep, shell_script
-from oracle_auto.cli import _with_remote_resume_override, main
+from oracle_auto.cli import DEPLOYMENT_PHASE_ORDER, WORKFLOW_PHASE_ORDER, _with_remote_resume_override, main
 from oracle_auto.config import NodeConfig, load_config
 from oracle_auto.executor import CommandResult
 from oracle_auto.precheck import _secret_env_check
@@ -114,6 +114,11 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue((tmp / "single-gi-demo.html").exists())
 
+    def test_full_workflow_updates_opatch_inside_install_phases(self):
+        self.assertNotIn("update-opatch", WORKFLOW_PHASE_ORDER)
+        self.assertNotIn("update-opatch", DEPLOYMENT_PHASE_ORDER)
+        self.assertLess(WORKFLOW_PHASE_ORDER.index("install-db-software"), WORKFLOW_PHASE_ORDER.index("apply-ojvm-patch"))
+
     def test_dry_run_results_are_labeled_dryrun(self):
         step = AutomationStep(
             phase="prepare-os",
@@ -170,6 +175,43 @@ class CliTest(unittest.TestCase):
             AutomationRunner(RecordingExecutor(), MemoryState()).run([step])
 
         self.assertIn("RUN   verify-installer:db01:verify_installer", buffer.getvalue())
+
+    def test_force_rerun_step_ignores_completed_local_state(self):
+        step = AutomationStep(
+            phase="install-db-software",
+            name="install_db_home_site-a",
+            node=NodeConfig(host="db01", public_ip="192.0.2.10"),
+            command="true",
+            title="Install DB home",
+            force_rerun=True,
+        )
+
+        class RecordingExecutor:
+            def __init__(self):
+                self.calls = 0
+
+            def run(self, node, command, timeout=60):
+                self.calls += 1
+                return CommandResult(node.host, command, 0, "ok", "")
+
+        class DoneState:
+            def is_done(self, key):
+                return True
+
+            def mark_running(self, key):
+                pass
+
+            def mark_done(self, key, details):
+                pass
+
+            def mark_failed(self, key, details):
+                pass
+
+        executor = RecordingExecutor()
+        result = AutomationRunner(executor, DoneState()).run([step])[0]
+
+        self.assertEqual(executor.calls, 1)
+        self.assertEqual(result.status, "PASS")
 
     def test_runner_parallelizes_host_chains_and_preserves_local_order(self):
         barrier = threading.Barrier(2)
@@ -274,7 +316,7 @@ class CliTest(unittest.TestCase):
 
         self.assertIn("asmlib_packages", checks)
         self.assertIn("dnf list oracleasm-support", checks["asmlib_packages"].command)
-        self.assertIn("Oracle ASMLIB v3 RPM URL", checks["asmlib_packages"].command)
+        self.assertIn("local RPM in configured sources_path", checks["asmlib_packages"].command)
         self.assertTrue(checks["asmlib_packages"].warn_only)
 
     def test_precheck_dnf_checks_have_no_framework_timeout(self):
@@ -305,9 +347,16 @@ class CliTest(unittest.TestCase):
         grid_command = grid_steps[0].command
         root_command = next(step.command for step in grid_steps if step.name.startswith("root_scripts_site-a_"))
         config_tools_command = next(step.command for step in grid_steps if step.name == "config_tools_site-a")
-        db_command = install_db_software_steps(config)[0].command
+        db_steps = install_db_software_steps(config)
+        db_command = db_steps[0].command
 
-        self.assertIn("Resetting unconfigured Grid home before install", grid_command)
+        self.assertTrue(grid_steps[0].force_rerun)
+        self.assertNotIn("oracle-auto remote marker wrapper", grid_command)
+        self.assertTrue(db_steps[0].force_rerun)
+        self.assertNotIn("oracle-auto remote marker wrapper", db_command)
+        self.assertIn("Cleaning unconfigured Grid home before install/resume.", grid_command)
+        self.assertIn("Grid Infrastructure already configured; not cleaning Grid home.", grid_command)
+        self.assertIn("Grid Infrastructure is already configured; preserving Grid home and skipping software setup.", grid_command)
         self.assertIn("Ensuring at least 512 MiB swap for Oracle installer", grid_command)
         self.assertIn("inventory_loc=/u01/app/oraInventory", grid_command)
         self.assertIn("chmod 664 /etc/oraInst.loc", grid_command)
@@ -377,11 +426,12 @@ class CliTest(unittest.TestCase):
         self.assertIn("cat > /u01/app/oracle/product/19.0.0/dbhome_1/oraInst.loc", db_command)
         self.assertIn("chown oracle:oinstall /u01/app/oracle/product/19.0.0/dbhome_1/oraInst.loc", db_command)
         self.assertIn("DB_INSTALL_LOG=/u01/stage/logs/dbInstall-site-a.out", db_command)
-        self.assertLess(db_command.index("DB_INSTALL_LOG=/u01/stage/logs/dbInstall-site-a.out"), db_command.index("DB_HOME_DIRTY=false"))
+        self.assertLess(db_command.index("DB_INSTALL_LOG=/u01/stage/logs/dbInstall-site-a.out"), db_command.index("DB_DATABASE_REGISTERED=false"))
         self.assertIn("DB_PREVIOUS_INSTALL_FAILED=false", db_command)
         self.assertIn("FATAL|ERROR|INS-|failed|failure", db_command)
         self.assertIn("Successfully Setup Software|execute the following script", db_command)
-        self.assertIn("Database home is unpatched, partially installed, or failed a previous installer run; resetting DB home before RU install.", db_command)
+        self.assertIn("Database ORCL_A is already registered; not cleaning DB home.", db_command)
+        self.assertIn("Cleaning Database home before install/resume.", db_command)
         self.assertIn("DB_HOME_INVENTORY_REGISTERED=false", db_command)
         self.assertIn("LOC=\"/u01/app/oracle/product/19.0.0/dbhome_1\"", db_command)
         self.assertIn("-detachHome ORACLE_HOME=/u01/app/oracle/product/19.0.0/dbhome_1", db_command)

@@ -1,6 +1,9 @@
 patch_id: "19.30"
 description: "Oracle 19c RU 19.30 + OJVM + OPatch"
 
+grid_zip: "LINUX.X64_193000_grid_home.zip"
+db_zip: "LINUX.X64_193000_db_home.zip"
+
 opatch_zip: "p6880880_190000_Linux-x86-64.zip"
 gi_zip: "p_gi_19.30_linux_x86-64.zip"
 dbru_zip: "p_dbru_19.30_linux_x86-64.zip"
@@ -10,5 +13,7 @@ opatch_dir: "OPatch"
 gi_dir: "38629535"
 dbru_dir: "38632161"
 ojvm_dir: "38523609"
+
+oracleasmlib_rpm_x86_64: "oracleasmlib-3.1.1-1.el8.x86_64.rpm"
 
 pre_datapatch_sql: "pre_datapatch.sql"

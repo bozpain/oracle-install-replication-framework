@@ -34,6 +34,7 @@ class AutomationStep:
     title: str
     timeout: int | None = 600
     warn_only: bool = False
+    force_rerun: bool = False
 
     @property
     def state_key(self) -> str:
@@ -126,7 +127,7 @@ class AutomationRunner:
         return [result for _index, result in sorted(indexed_results, key=lambda item: item[0])]
 
     def _run_one(self, step: AutomationStep) -> StepResult:
-        if self.resume and self.state.is_done(step.state_key):
+        if self.resume and not step.force_rerun and self.state.is_done(step.state_key):
             return StepResult(
                 phase=step.phase,
                 host=step.node.host,
