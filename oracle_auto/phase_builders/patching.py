@@ -13,8 +13,10 @@ from oracle_auto.config import AutomationConfig, PatchConfig
 from oracle_auto.phase_builders.common import (
     DB_HOME,
     GRID_BASE,
+    INVENTORY_LOCATION,
     make_step,
     oracle_home_inventory_pointer_lines,
+    oracle_user_group_lines,
     patch_top_assignment,
     safe_name,
     stage_patch_lines,
@@ -186,7 +188,7 @@ def _analyze_patch_script(config: AutomationConfig, target: str, patch: PatchCon
         pointer_lines = oracle_home_inventory_pointer_lines(GRID_BASE, "grid")
     else:
         prereq = f"sudo -iu oracle {DB_HOME}/OPatch/opatch prereq CheckConflictAgainstOHWithDetail -phBaseDir \"$PATCH_TOP\""
-        pointer_lines = oracle_home_inventory_pointer_lines(DB_HOME, "oracle")
+        pointer_lines = _db_home_opatch_repair_lines()
     lines = [
         *pointer_lines,
         *stage_patch_lines(config.installer.sources_path, patch.file, patch_id=patch.patch_id),
@@ -219,7 +221,7 @@ def _apply_grid_patch_script(config: AutomationConfig, patch: PatchConfig) -> st
 def _apply_db_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     patch_dir = _patch_dir(patch)
     lines = [
-        *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
+        *_db_home_opatch_repair_lines(),
         patch_top_assignment(patch_dir, patch_id=patch.patch_id),
         "DB_PATCH_APPLY_LOG=$(mktemp /tmp/oracle-auto-db-patch.XXXXXX)",
         "set +e",
@@ -239,7 +241,7 @@ def _apply_db_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
 
 def _apply_ojvm_patch_script(config: AutomationConfig, patch: PatchConfig) -> str:
     lines = [
-        *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
+        *_db_home_opatch_repair_lines(),
         *stage_patch_lines(config.installer.sources_path, patch.file, patch_id=patch.patch_id),
         "OJVM_PATCH_APPLY_LOG=$(mktemp /tmp/oracle-auto-ojvm-patch.XXXXXX)",
         "set +e",
@@ -259,7 +261,7 @@ def _apply_ojvm_patch_script(config: AutomationConfig, patch: PatchConfig) -> st
 
 def _datapatch_script() -> str:
     lines = [
-        *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
+        *_db_home_opatch_repair_lines(),
         f"sudo -iu oracle {DB_HOME}/OPatch/datapatch -verbose",
     ]
     return shell_script("Run datapatch", lines)
@@ -273,6 +275,28 @@ def _patch_inventory_script() -> str:
         f"sudo -iu oracle {DB_HOME}/bin/oraversion -compositeVersion || sudo -iu oracle {DB_HOME}/bin/oraversion -version",
     ]
     return shell_script("Collect Oracle home version summary", lines)
+
+
+def _db_home_opatch_repair_lines() -> list[str]:
+    return [
+        *oracle_user_group_lines(),
+        *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
+        f"mkdir -p {DB_HOME}/.patch_storage {DB_HOME}/cfgtoollogs {INVENTORY_LOCATION}/logs",
+        f"chown -R oracle:oinstall {DB_HOME}/.patch_storage {DB_HOME}/cfgtoollogs {DB_HOME}/OPatch 2>/dev/null || true",
+        f"chmod -R u+rwX,g+rwX {DB_HOME}/.patch_storage {DB_HOME}/cfgtoollogs {DB_HOME}/OPatch 2>/dev/null || true",
+        f"chgrp -R oinstall {INVENTORY_LOCATION} 2>/dev/null || true",
+        f"chmod -R g+rwX {INVENTORY_LOCATION} 2>/dev/null || true",
+        "if ! (pgrep -x runInstaller || pgrep -x opatch || pgrep -x opatchauto || pgrep -x oui) >/dev/null 2>&1; then",
+        f"  find {DB_HOME}/.patch_storage {INVENTORY_LOCATION}/locks -type f \\( -name '*.lock' -o -name 'lock' \\) -delete 2>/dev/null || true",
+        "fi",
+        f"if test -r {INVENTORY_LOCATION}/ContentsXML/inventory.xml && ! grep -Fq 'LOC=\"{DB_HOME}\"' {INVENTORY_LOCATION}/ContentsXML/inventory.xml; then",
+        "  echo 'Database home missing from central inventory; attaching home before OPatch.'",
+        f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE=/u01/app/oracle {DB_HOME}/runInstaller -silent -attachHome ORACLE_HOME={DB_HOME} ORACLE_HOME_NAME=OraDB19Home1 ORACLE_BASE=/u01/app/oracle -ignorePrereqFailure >/dev/null 2>&1 || true",
+        "fi",
+        f"test -r {INVENTORY_LOCATION}/ContentsXML/inventory.xml",
+        f"grep -Fq 'LOC=\"{DB_HOME}\"' {INVENTORY_LOCATION}/ContentsXML/inventory.xml",
+        f"sudo -iu oracle test -w {DB_HOME}/.patch_storage",
+    ]
 
 
 def _configured_patches(config: AutomationConfig) -> list[tuple[str, PatchConfig]]:
