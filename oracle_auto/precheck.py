@@ -246,10 +246,9 @@ class PrecheckRunner:
                 fail_message="One or more configured ASM disk source values are not visible.",
             ),
             Check(
-                name="multipath_health",
-                command="command -v multipath && multipath -ll",
-                fail_message="multipath command is unavailable or no multipath output is visible.",
-                warn_only=True,
+                name="storage_mode_detection",
+                command=_storage_mode_check(self.config),
+                fail_message="Cannot determine a compatible ASM storage mode.",
             ),
             Check(
                 name="asm_disk_signatures",
@@ -411,6 +410,38 @@ def _disk_check(config: AutomationConfig, node: NodeConfig | None = None) -> str
         )
 
     return " && ".join(commands)
+
+
+def _storage_mode_check(config: AutomationConfig) -> str:
+    requires_multipath = any(disk.uuid for disk in config.asm.all_disks)
+    no_multipath_message = (
+        "virtual-machine/direct-asmlib: no active multipath output; "
+        "using persistent by-id/ID_SERIAL/ID_WWN devices directly"
+    )
+    lines = [
+        "probe=$(mktemp /tmp/oracle-auto-multipath-precheck.XXXXXX)",
+        "trap 'rm -f \"$probe\"' EXIT",
+        "if command -v multipath >/dev/null 2>&1 && multipath -ll >\"$probe\" 2>/dev/null && test -s \"$probe\"; then",
+        "  echo 'physical/multipath-udev: active multipath devices detected'",
+        "  cat \"$probe\"",
+        "  exit 0",
+        "fi",
+    ]
+    if requires_multipath:
+        lines.extend(
+            [
+                "echo 'ASM config uses DM_UUID/multipath disks but no active multipath output was detected.' >&2",
+                "exit 1",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"echo {shlex.quote(no_multipath_message)}",
+                "exit 0",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def _hosts_file_check(config: AutomationConfig) -> str:

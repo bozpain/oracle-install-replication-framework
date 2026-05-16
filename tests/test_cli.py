@@ -376,6 +376,29 @@ class CliTest(unittest.TestCase):
         self.assertIsNone(checks["preinstall_package"].timeout)
         self.assertIsNone(checks["asmlib_packages"].timeout)
 
+    def test_precheck_detects_vm_storage_mode_without_warning(self):
+        from oracle_auto.precheck import PrecheckRunner
+
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
+        checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
+
+        self.assertIn("storage_mode_detection", checks)
+        self.assertFalse(checks["storage_mode_detection"].warn_only)
+        self.assertIn("virtual-machine/direct-asmlib", checks["storage_mode_detection"].command)
+        self.assertNotIn("multipath_health", checks)
+
+    def test_precheck_requires_multipath_when_dm_uuid_is_configured(self):
+        from oracle_auto.precheck import PrecheckRunner
+
+        config = load_config(Path("configs/sample-rac-dg.json"))
+        runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
+        checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
+
+        self.assertIn("storage_mode_detection", checks)
+        self.assertIn("DM_UUID/multipath", checks["storage_mode_detection"].command)
+        self.assertIn("exit 1", checks["storage_mode_detection"].command)
+
     def test_precheck_checks_asmlib_kernel_interface(self):
         from oracle_auto.precheck import PrecheckRunner
 
