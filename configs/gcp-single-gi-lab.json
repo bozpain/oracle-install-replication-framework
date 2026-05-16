@@ -58,8 +58,8 @@
     "data_disks": [
       {
         "site_paths": {
-          "site-a": "/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1",
-          "site-b": "/dev/disk/by-id/scsi-0Google_PersistentDisk_s-data-1"
+          "site-a": "/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1",
+          "site-b": "/dev/disk/by-id/scsi-0Google_PersistentDisk_s-data-1-part1"
         },
         "name": "DATA1"
       }
@@ -67,8 +67,8 @@
     "reco_disks": [
       {
         "site_paths": {
-          "site-a": "/dev/disk/by-id/scsi-0Google_PersistentDisk_p-reco-1",
-          "site-b": "/dev/disk/by-id/scsi-0Google_PersistentDisk_s-reco-1"
+          "site-a": "/dev/disk/by-id/scsi-0Google_PersistentDisk_p-reco-1-part1",
+          "site-b": "/dev/disk/by-id/scsi-0Google_PersistentDisk_s-reco-1-part1"
         },
         "name": "RECO1"
       }
