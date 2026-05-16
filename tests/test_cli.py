@@ -697,6 +697,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("Validating Database root script before DBCA.", command)
         self.assertIn("Database root script marker is missing; running root.sh before DBCA.", command)
         self.assertIn("/u01/app/19.0.0/grid/bin/crsctl check has", command)
+        self.assertIn("Oracle Grid Infrastructure HAS is not online; attempting startup before DBCA.", command)
+        self.assertIn("/u01/app/19.0.0/grid/bin/crsctl start has", command)
         self.assertIn("/u01/app/19.0.0/grid/bin/asmcmd lsdg", command)
         self.assertIn("ORACLE_HOME=/u01/app/19.0.0/grid", command)
         self.assertIn("/u01/app/19.0.0/grid/bin/sqlplus -L -s / as sysdba", command)

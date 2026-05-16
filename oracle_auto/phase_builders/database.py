@@ -282,9 +282,15 @@ def _db_root_script_precheck_lines() -> list[str]:
 
 def _asm_diskgroup_precheck_lines(config: AutomationConfig) -> list[str]:
     crs_check = "crs" if config.install_type == "rac" else "has"
+    crs_start = "crs" if config.install_type == "rac" else "has"
     return [
         "echo 'Validating ASM diskgroups before DBCA.'",
-        f"sudo -iu grid {GRID_BASE}/bin/crsctl check {crs_check}",
+        f"if ! sudo -iu grid {GRID_BASE}/bin/crsctl check {crs_check}; then",
+        f"  echo 'Oracle Grid Infrastructure {crs_check.upper()} is not online; attempting startup before DBCA.'",
+        f"  {GRID_BASE}/bin/crsctl start {crs_start} || true",
+        "  sleep 10",
+        f"  sudo -iu grid {GRID_BASE}/bin/crsctl check {crs_check}",
+        "fi",
         *asm_sid_detection_lines(),
         "ASM_LSDG_LOG=$(mktemp /tmp/oracle-auto-asm-lsdg.XXXXXX)",
         "set +e",
