@@ -67,6 +67,7 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
     lines = [
         f"mkdir -p {STAGE}/responses",
         *ensure_swap_lines(),
+        *_fresh_db_home_lines(config, site),
         f"test -x {DB_HOME}/runInstaller || sudo -iu oracle unzip -oq {shlex.quote(config.installer.sources_path)}/{shlex.quote(config.installer.db_zip)} -d {DB_HOME}",
         *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
         *_db_opatch_lines(config),
@@ -103,6 +104,34 @@ def _install_db_software_script(config: AutomationConfig, site: SiteConfig) -> s
     return shell_script(f"Install Database home for {site.name}", lines)
 
 
+def _fresh_db_home_lines(config: AutomationConfig, site: SiteConfig) -> list[str]:
+    if config.installer.db_patch is None:
+        return []
+    db_zip = f"{config.installer.sources_path}/{config.installer.db_zip}"
+    unique = site.db_unique_name
+    return [
+        "DB_HOME_DIRTY=false",
+        f"if test -x {DB_HOME}/bin/oraversion; then",
+        f"  db_home_version=$(sudo -iu oracle {DB_HOME}/bin/oraversion -compositeVersion 2>/dev/null || sudo -iu oracle {DB_HOME}/bin/oraversion -version 2>/dev/null || true)",
+        "  case \"$db_home_version\" in",
+        "    *19.3.0.0.0*) DB_HOME_DIRTY=true ;;",
+        "  esac",
+        f"elif test -x {DB_HOME}/runInstaller; then",
+        "  DB_HOME_DIRTY=true",
+        "fi",
+        "if test \"$DB_HOME_DIRTY\" = true; then",
+        f"  if test -x {DB_HOME}/bin/srvctl && sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {unique} >/dev/null 2>&1; then",
+        f"    echo 'ERROR: Database home looks unpatched/dirty, but database {unique} is already registered. Refusing to clean DB home automatically.' >&2",
+        "    exit 1",
+        "  fi",
+        "  echo 'Database home is unpatched or partially installed; resetting DB home before RU install.'",
+        f"  if test -x {DB_HOME}/runInstaller; then sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE=/u01/app/oracle {DB_HOME}/runInstaller -silent -detachHome ORACLE_HOME={DB_HOME} >/dev/null 2>&1 || true; fi",
+        f"  find {DB_HOME} -mindepth 1 -maxdepth 1 -exec rm -rf -- {{}} +",
+        f"  sudo -iu oracle unzip -oq {shlex.quote(db_zip)} -d {DB_HOME}",
+        "fi",
+    ]
+
+
 def _db_opatch_lines(config: AutomationConfig) -> list[str]:
     if not config.installer.opatch_zip:
         return []
@@ -110,6 +139,7 @@ def _db_opatch_lines(config: AutomationConfig) -> list[str]:
     return [
         f"test -s {shlex.quote(opatch_zip)}",
         "echo 'Updating Database OPatch before Database RU apply.'",
+        f"rm -rf {DB_HOME}/OPatch",
         f"sudo -iu oracle unzip -oq {shlex.quote(opatch_zip)} -d {DB_HOME}",
         *oracle_home_inventory_pointer_lines(DB_HOME, "oracle"),
         f"sudo -iu oracle {DB_HOME}/OPatch/opatch version",
