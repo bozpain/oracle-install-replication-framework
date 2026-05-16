@@ -245,7 +245,7 @@ def _create_database_script(config: AutomationConfig) -> str:
         f"if sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {unique} >/dev/null 2>&1; then",
         f"  echo 'Database {unique} already registered in srvctl; skipping DBCA createDatabase.'",
         "else",
-        f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} GRID_HOME={GRID_BASE} ORACLE_SID={unique} ASM_DISCOVERY_STRING='ORCL:*' PATH={DB_HOME}/bin:{GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib:{GRID_BASE}/lib {DB_HOME}/bin/dbca -silent -createDatabase -responseFile {STAGE}/responses/dbca-primary.rsp -storageType ASM -diskGroupName DATA -datafileDestination +DATA -recoveryAreaDestination +RECO -asmsnmpPassword \"$ASMSNMP_PASSWORD\"",
+        f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} GRID_HOME={GRID_BASE} TNS_ADMIN={GRID_BASE}/network/admin ORACLE_SID={unique} ASM_DISCOVERY_STRING='ORCL:*' PATH={DB_HOME}/bin:{GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib:{GRID_BASE}/lib {DB_HOME}/bin/dbca -silent -createDatabase -responseFile {STAGE}/responses/dbca-primary.rsp -storageType ASM -diskGroupName DATA -datafileDestination +DATA -recoveryAreaDestination +RECO -asmsnmpPassword \"$ASMSNMP_PASSWORD\"",
         "fi",
         f"shred -u {STAGE}/responses/dbca-primary.rsp 2>/dev/null || rm -f {STAGE}/responses/dbca-primary.rsp",
         f"sudo -iu oracle {DB_HOME}/bin/srvctl status database -db {unique} || true",
