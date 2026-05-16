@@ -24,6 +24,20 @@ ASMLIB_RPM_PATHS = {
 }
 
 
+def inventory_pointer_lines() -> list[str]:
+    return [
+        f"mkdir -p {INVENTORY_LOCATION}",
+        f"chown -R grid:oinstall {INVENTORY_LOCATION}",
+        f"chmod -R 775 {INVENTORY_LOCATION}",
+        "cat > /etc/oraInst.loc <<'EOF'\n"
+        f"inventory_loc={INVENTORY_LOCATION}\n"
+        "inst_group=oinstall\n"
+        "EOF",
+        "chown root:oinstall /etc/oraInst.loc",
+        "chmod 664 /etc/oraInst.loc",
+    ]
+
+
 def make_step(
     phase: str,
     name: str,

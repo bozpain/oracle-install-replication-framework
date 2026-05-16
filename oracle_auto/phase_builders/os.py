@@ -20,6 +20,7 @@ from oracle_auto.phase_builders.common import (
     STAGE,
     ensure_swap_lines,
     install_asmlib_lines,
+    inventory_pointer_lines,
     make_step,
 )
 
@@ -54,6 +55,7 @@ def _prepare_os_script(config: AutomationConfig) -> str:
         f"chown -R grid:oinstall {GRID_BASE_DIR} {GRID_BASE} {INVENTORY_LOCATION}",
         f"chown -R oracle:oinstall {ORACLE_BASE}",
         f"chmod -R 775 {GRID_BASE_DIR} {ORACLE_BASE} {INVENTORY_LOCATION}",
+        *inventory_pointer_lines(),
         "cp -p /etc/resolv.conf /etc/resolv.conf.oracle-auto.bak.$(date +%Y%m%d%H%M%S) 2>/dev/null || true",
         f"cat > /etc/resolv.conf <<'EOF'\n{resolv_conf}\nEOF",
         "awk '/# BEGIN ORACLE-AUTO HOSTS/{skip=1} /# END ORACLE-AUTO HOSTS/{skip=0; next} !skip{print}' /etc/hosts > /etc/hosts.oracle-auto",

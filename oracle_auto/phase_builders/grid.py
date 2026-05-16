@@ -11,7 +11,7 @@ import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, SiteConfig
-from oracle_auto.phase_builders.common import GRID_BASE, GRID_BASE_DIR, STAGE, ensure_swap_lines, make_step, stage_patch_lines
+from oracle_auto.phase_builders.common import GRID_BASE, GRID_BASE_DIR, STAGE, ensure_swap_lines, inventory_pointer_lines, make_step, stage_patch_lines
 from oracle_auto.phase_builders.storage import asm_discovery_string, asm_disk_spec, asm_entries
 from oracle_auto.response_files.grid import grid_response
 
@@ -63,6 +63,7 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         _scan_dns_guard(site),
         _hosts_guard(config),
         *ensure_swap_lines(),
+        *inventory_pointer_lines(),
         *_fresh_grid_home_lines(config),
         *_grid_opatch_lines(config),
         *_grid_patch_stage_lines(config),
@@ -170,8 +171,13 @@ def _grid_ru_applied_detection_lines(config: AutomationConfig) -> list[str]:
     return [
         *lines,
         f"if test -x {GRID_BASE}/OPatch/opatch; then",
-        f"  if sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches | grep -Eq '^({patch_id});'; then",
-        "    GRID_RU_APPLIED=true",
+        f"  if sudo -iu grid {GRID_BASE}/OPatch/opatch lspatches >/tmp/oracle-auto-grid-lspatches.out 2>&1; then",
+        f"    if grep -Eq '^({patch_id});' /tmp/oracle-auto-grid-lspatches.out; then",
+        "      GRID_RU_APPLIED=true",
+        "    fi",
+        "  else",
+        "    echo 'Grid RU inventory check could not read OPatch inventory yet; will run gridSetup unless root/config state proves complete.'",
+        "    cat /tmp/oracle-auto-grid-lspatches.out || true",
         "  fi",
         "fi",
     ]
