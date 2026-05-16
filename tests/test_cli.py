@@ -562,8 +562,11 @@ class CliTest(unittest.TestCase):
         self.assertIn("oracleasm status || true", command)
         self.assertLess(
             command.index("resolve_asm_source_device DATA1"),
-            command.index("oracleasm createdisk DATA1"),
+            command.index("validate_asmlib_label DATA1"),
         )
+        self.assertLess(command.index("oracleasm createdisk DATA1"), command.rindex("validate_asmlib_label DATA1"))
+        self.assertIn("device_major=$((16#$device_major_hex))", command)
+        self.assertIn("does not match configured device", command)
         self.assertIn("ASMLIB v3 kernel interface: UEK driverless/io_uring", command)
         self.assertIn("/boot/vmlinuz-5.15.0-320.202.8.2.el8uek.x86_64", command)
         self.assertIn("config-manager --set-enabled ol8_addons", command)

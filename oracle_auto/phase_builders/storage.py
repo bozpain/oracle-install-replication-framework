@@ -197,14 +197,16 @@ def asmlib_label_command(label: str, disk: ASMDiskConfig, path: str) -> str:
         )
     )
     return (
+        f"echo 'Preparing ASMLIB disk {label}'; "
         f"resolved=$(resolve_asm_source_device {args}); test -b \"$resolved\"; "
         f"if oracleasm querydisk {quoted_label} >/dev/null 2>&1; then "
-        f"echo 'ASMLIB disk already exists: {label}'; "
+        f"validate_asmlib_label {quoted_label} \"$resolved\"; "
         "else "
+        f"echo 'Creating ASMLIB disk {label} from' \"$resolved\"; "
         f"oracleasm createdisk {quoted_label} \"$resolved\"; "
         "fi; "
         "oracleasm scandisks; "
-        f"oracleasm querydisk {quoted_label}"
+        f"validate_asmlib_label {quoted_label} \"$resolved\""
     )
 
 
@@ -262,6 +264,28 @@ def _asm_device_resolver_function() -> str:
 }"""
 
 
+def _asmlib_label_validator_function() -> str:
+    return r"""validate_asmlib_label() {
+  label="$1"
+  resolved="$2"
+  test -b "$resolved"
+  device_major_hex=$(stat -c '%t' "$resolved")
+  device_minor_hex=$(stat -c '%T' "$resolved")
+  device_major=$((16#$device_major_hex))
+  device_minor=$((16#$device_minor_hex))
+  query_output=$(oracleasm querydisk "$label" 2>&1)
+  printf '%s\n' "$query_output"
+  compact_query=$(printf '%s' "$query_output" | tr -d '[:space:]')
+  if printf '%s\n' "$compact_query" | grep -Fq "[$device_major,$device_minor]"; then
+    echo "ASMLIB disk $label matches configured device $resolved [$device_major,$device_minor]"
+    return 0
+  fi
+  echo "ERROR: ASMLIB disk $label exists but does not match configured device $resolved [$device_major,$device_minor]." >&2
+  echo "ERROR: querydisk output: $query_output" >&2
+  exit 1
+}"""
+
+
 def _multipath_udev_lines(entries: list[ASMEntry]) -> list[str]:
     rules = "\n".join(
         f'KERNEL=="dm-*", ENV{{DM_UUID}}=="{disk.dm_uuid}", SYMLINK+="asm/{label}", OWNER:="grid", GROUP:="{ASM_UDEV_GROUP}", MODE="0660"'
@@ -308,6 +332,7 @@ def _prepare_storage_rules_script(config: AutomationConfig, node: NodeConfig) ->
         asmlib_kernel_check_command(),
         *_multipath_detection_lines(),
         _asm_device_resolver_function(),
+        _asmlib_label_validator_function(),
         "echo 'Planned ASM disk mapping:'",
         "cat <<'MAP'\n" + storage_mapping_text(config, site, node) + "\nMAP",
         *uuid_checks,
