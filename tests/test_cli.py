@@ -530,6 +530,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("DB_HOME_INVENTORY_REGISTERED=false", db_command)
         self.assertIn("LOC=\"/u01/app/oracle/product/19.0.0/dbhome_1\"", db_command)
         self.assertIn("-detachHome ORACLE_HOME=/u01/app/oracle/product/19.0.0/dbhome_1", db_command)
+        self.assertIn("Database home is registered but not ready; detaching stale inventory entry before retry.", db_command)
+        self.assertIn("Database home is still registered in central inventory after detachHome.", db_command)
         self.assertIn("find /u01/app/oracle/product/19.0.0/dbhome_1 -mindepth 1 -maxdepth 1 -exec rm -rf", db_command)
         self.assertIn("rm -rf /u01/app/oracle/product/19.0.0/dbhome_1/OPatch", db_command)
         self.assertIn("Updating Database OPatch before Database RU apply.", db_command)
