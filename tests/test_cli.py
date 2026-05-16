@@ -280,6 +280,19 @@ class CliTest(unittest.TestCase):
         self.assertIn("Content check: gridSetup.sh", command)
         self.assertNotIn("grep -q 'gridSetup.sh'", command)
 
+    def test_precheck_keeps_installer_checks_lightweight(self):
+        from oracle_auto.precheck import PrecheckRunner
+
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
+        checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
+
+        self.assertIn("installer_zip_files", checks)
+        self.assertIn("installer_zip_contents", checks)
+        self.assertNotIn("installer_zip_integrity", checks)
+        self.assertNotIn("unzip -t", checks["installer_zip_files"].command)
+        self.assertNotIn("unzip -t", checks["installer_zip_contents"].command)
+
     def test_storage_prepares_multipath_udev_rules_without_oracleasm_symlinks(self):
         config = load_config(Path("configs/sample-rac-dg.json"))
         command = prepare_storage_rules_steps(config)[0].command

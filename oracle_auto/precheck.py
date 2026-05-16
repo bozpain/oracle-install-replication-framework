@@ -179,12 +179,6 @@ class PrecheckRunner:
                 fail_message="One or more configured installer/patch ZIP files or ASMLIB RPMs are missing or empty.",
             ),
             Check(
-                name="installer_zip_integrity",
-                command=_installer_integrity_check(self.config),
-                fail_message="One or more configured installer/patch ZIP files failed unzip integrity testing.",
-                timeout=None,
-            ),
-            Check(
                 name="installer_zip_contents",
                 command=_installer_content_check(self.config),
                 fail_message="Configured installer ZIP files do not contain expected Oracle installer entry points.",
@@ -344,16 +338,6 @@ def _asmlib_rpm_check(config: AutomationConfig) -> str:
         for arch, rpm in sorted(config.os.asmlib_rpms.items())
     )
     return f"arch=$(uname -m); case \"$arch\" in {cases} *) echo \"Unsupported ASMLIB architecture: $arch\" >&2; exit 1 ;; esac"
-
-
-def _installer_integrity_check(config: AutomationConfig) -> str:
-    return " && ".join(
-        (
-            f"printf 'Integrity check: %s\\n' {shlex.quote(file)} && "
-            f"unzip -t {shlex.quote(config.installer.sources_path + '/' + file)} >/dev/null"
-        )
-        for file in _installer_files(config)
-    )
 
 
 def _installer_content_check(config: AutomationConfig) -> str:
