@@ -20,7 +20,7 @@ from oracle_auto.phase_builders.common import GRID_BASE, GRID_BASE_DIR, install_
 
 ASMEntry = tuple[str, str, str, ASMDiskConfig]
 ASM_DEVICE_GROUP = "asmdba"
-ASM_UDEV_GROUP = "asmadmin"
+ASM_UDEV_GROUP = ASM_DEVICE_GROUP
 ASM_UDEV_RULES = "/etc/udev/rules.d/99-oracle-asm.rules"
 
 

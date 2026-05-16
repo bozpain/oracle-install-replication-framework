@@ -313,7 +313,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("multipath -ll", command)
         self.assertIn("/etc/udev/rules.d/99-oracle-asm.rules", command)
         self.assertIn(
-            'KERNEL=="dm-*", ENV{DM_UUID}=="mpath-360060e8008a3cf000050a3cf00000101", SYMLINK+="asm/OCR01", OWNER:="grid", GROUP:="asmadmin", MODE="0660"',
+            'KERNEL=="dm-*", ENV{DM_UUID}=="mpath-360060e8008a3cf000050a3cf00000101", SYMLINK+="asm/OCR01", OWNER:="grid", GROUP:="asmdba", MODE="0660"',
             command,
         )
         self.assertIn("udevadm control --reload-rules", command)
@@ -552,10 +552,12 @@ class CliTest(unittest.TestCase):
         self.assertIn("ORACLE_AUTO_MULTIPATH=false", command)
         self.assertIn("multipath -ll", command)
         self.assertIn("No multipath devices detected; ASMLIB will label", command)
-        self.assertIn("resolve_asm_source_device DATA1 /dev/disk/by-id/scsi-0Google_PersistentDisk_data-part2", command)
-        self.assertIn("resolve_asm_source_device RECO1 /dev/disk/by-id/scsi-0Google_PersistentDisk_reco-part1", command)
-        self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_data2-part2", command)
+        self.assertIn("resolve_asm_source_device DATA1 /dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1", command)
+        self.assertIn("resolve_asm_source_device RECO1 /dev/disk/by-id/scsi-0Google_PersistentDisk_p-reco-1", command)
+        self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_data-part2", command)
         self.assertIn("oracleasm configure -u grid -g asmdba -e -s y -m 2048", command)
+        self.assertIn("chown grid:asmdba", command)
+        self.assertNotIn("grid:asmadmin", command)
         self.assertIn("systemctl restart oracleasm || oracleasm init", command)
         self.assertIn("oracleasm status || true", command)
         self.assertLess(
