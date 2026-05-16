@@ -255,6 +255,7 @@ def _create_database_script(config: AutomationConfig) -> str:
         f"chmod 600 {STAGE}/responses/dbca-primary.rsp",
         *_db_root_script_precheck_lines(),
         *_asm_diskgroup_precheck_lines(config),
+        *_stale_dbca_cleanup_lines(db_name, unique),
         f"if sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {unique} >/dev/null 2>&1; then",
         f"  echo 'Database {unique} already registered in srvctl; skipping DBCA createDatabase.'",
         "else",
@@ -265,6 +266,23 @@ def _create_database_script(config: AutomationConfig) -> str:
         f"sudo -iu oracle bash -lc \"export ORACLE_SID={unique}; sqlplus -s / as sysdba <<'SQL'\nALTER DATABASE FORCE LOGGING;\nARCHIVE LOG LIST;\nSELECT name, open_mode, database_role FROM v\\$database;\nSQL\"",
     ]
     return shell_script("Create primary database", lines)
+
+
+def _stale_dbca_cleanup_lines(db_name: str, unique: str) -> list[str]:
+    quoted_db_name = shlex.quote(db_name)
+    quoted_unique = shlex.quote(unique)
+    return [
+        "echo 'Checking for stale partial DBCA database state before createDatabase.'",
+        f"if ! sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {quoted_unique} >/dev/null 2>&1; then",
+        f"  if ps -ef | awk '{{print $8}}' | grep -qx \"ora_pmon_{unique}\"; then",
+        f"    echo 'Stale {unique} instance detected without srvctl registration; shutting it down before DBCA retry.'",
+        f"    sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} ORACLE_SID={quoted_unique} PATH={DB_HOME}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib {DB_HOME}/bin/sqlplus -s / as sysdba <<'SQL' || true\nshutdown abort;\nSQL",
+        "  fi",
+        f"  rm -f {DB_HOME}/dbs/hc_{quoted_unique}.dat {DB_HOME}/dbs/lk{quoted_db_name} {DB_HOME}/dbs/spfile{quoted_unique}.ora {DB_HOME}/dbs/init{quoted_unique}.ora",
+        f"  {grid_env_command(f'{GRID_BASE}/bin/asmcmd rm -r +DATA/{quoted_db_name}')} 2>/dev/null || true",
+        f"  {grid_env_command(f'{GRID_BASE}/bin/asmcmd rm -r +RECO/{quoted_db_name}')} 2>/dev/null || true",
+        "fi",
+    ]
 
 
 def _db_root_script_precheck_lines() -> list[str]:
