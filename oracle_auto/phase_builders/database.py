@@ -129,10 +129,22 @@ def _fresh_db_home_lines(config: AutomationConfig, site: SiteConfig) -> list[str
     db_zip = f"{config.installer.sources_path}/{config.installer.db_zip}"
     unique = site.db_unique_name
     return [
+        "DB_HOME_INVENTORY_REGISTERED=false",
+        f"if test -r {INVENTORY_LOCATION}/ContentsXML/inventory.xml && grep -Fq 'LOC=\"{DB_HOME}\"' {INVENTORY_LOCATION}/ContentsXML/inventory.xml; then DB_HOME_INVENTORY_REGISTERED=true; fi",
+        "DB_PREVIOUS_INSTALL_FAILED=false",
+        "if test -f \"$DB_INSTALL_LOG\" && grep -Eq 'FATAL|ERROR|INS-|failed|failure' \"$DB_INSTALL_LOG\" && ! grep -Eq 'Successfully Setup Software|execute the following script' \"$DB_INSTALL_LOG\"; then DB_PREVIOUS_INSTALL_FAILED=true; fi",
+        "DB_SOFTWARE_READY=false",
+        "DB_HOME_VERSION=\"\"",
+        f"if test -x {DB_HOME}/bin/oraversion; then DB_HOME_VERSION=$(sudo -iu oracle {DB_HOME}/bin/oraversion -compositeVersion 2>/dev/null || sudo -iu oracle {DB_HOME}/bin/oraversion -version 2>/dev/null || true); fi",
+        "if test -n \"$DB_HOME_VERSION\"; then",
+        "  echo \"Existing Database Oracle version before home cleanup: $DB_HOME_VERSION\"",
+        "  db_version=\"$DB_HOME_VERSION\"",
+        *_db_existing_version_ready_lines(config),
+        "fi",
         "DB_DATABASE_REGISTERED=false",
         f"if test -x {DB_HOME}/bin/srvctl && sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {unique} >/dev/null 2>&1; then DB_DATABASE_REGISTERED=true; fi",
-        "if test \"$DB_DATABASE_REGISTERED\" = true; then",
-        f"  echo 'Database {unique} is already registered; not cleaning DB home.'",
+        "if test \"$DB_DATABASE_REGISTERED\" = true || test \"$DB_SOFTWARE_READY\" = true; then",
+        f"  echo 'Database home is already usable for {unique}; not cleaning DB home.'",
         "else",
         f"  if test -d {DB_HOME} && find {DB_HOME} -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then",
         "    echo 'Cleaning Database home before install/resume.'",
@@ -141,10 +153,6 @@ def _fresh_db_home_lines(config: AutomationConfig, site: SiteConfig) -> list[str
         "  fi",
         f"  sudo -iu oracle unzip -oq {shlex.quote(db_zip)} -d {DB_HOME}",
         "fi",
-        "DB_HOME_INVENTORY_REGISTERED=false",
-        f"if test -r {INVENTORY_LOCATION}/ContentsXML/inventory.xml && grep -Fq 'LOC=\"{DB_HOME}\"' {INVENTORY_LOCATION}/ContentsXML/inventory.xml; then DB_HOME_INVENTORY_REGISTERED=true; fi",
-        "DB_PREVIOUS_INSTALL_FAILED=false",
-        "if test -f \"$DB_INSTALL_LOG\" && grep -Eq 'FATAL|ERROR|INS-|failed|failure' \"$DB_INSTALL_LOG\" && ! grep -Eq 'Successfully Setup Software|execute the following script' \"$DB_INSTALL_LOG\"; then DB_PREVIOUS_INSTALL_FAILED=true; fi",
     ]
 
 
