@@ -285,6 +285,17 @@ def _asm_diskgroup_precheck_lines(config: AutomationConfig) -> list[str]:
     crs_start = "crs" if config.install_type == "rac" else "has"
     return [
         "echo 'Validating ASM diskgroups before DBCA.'",
+        "if command -v oracleasm >/dev/null 2>&1; then",
+        "  ORACLE_AUTO_MULTIPATH=false",
+        "  if command -v multipath >/dev/null 2>&1 && multipath -ll >/tmp/oracle-auto-create-db-multipath.$$ 2>/dev/null && test -s /tmp/oracle-auto-create-db-multipath.$$; then",
+        "    ORACLE_AUTO_MULTIPATH=true",
+        "  fi",
+        "  rm -f /tmp/oracle-auto-create-db-multipath.$$",
+        "  if test \"$ORACLE_AUTO_MULTIPATH\" != true && oracleasm configure | grep -Fxq 'ORACLEASM_ENABLE_IOFILTER=true'; then",
+        "    echo 'ERROR: Direct ASMLIB VM mode has ORACLEASM I/O filter enabled; run prepare-storage-rules again before create-database.' >&2",
+        "    exit 1",
+        "  fi",
+        "fi",
         f"if ! sudo -iu grid {GRID_BASE}/bin/crsctl check {crs_check}; then",
         f"  echo 'Oracle Grid Infrastructure {crs_check.upper()} is not online; attempting startup before DBCA.'",
         f"  {GRID_BASE}/bin/crsctl start {crs_start} || true",
