@@ -18,6 +18,7 @@ from oracle_auto.phase_builders.os import prepare_os_steps
 from oracle_auto.phase_builders.storage import configure_asm_storage_steps, prepare_storage_rules_steps
 from oracle_auto.phase_builders.grid import install_grid_steps
 from oracle_auto.phase_builders.database import create_database_steps, install_db_software_steps
+from oracle_auto.phase_builders.dataguard import configure_dataguard_steps
 from oracle_auto.phase_builders.patching import apply_ojvm_patch_steps, patch_inventory_steps
 from oracle_auto.response_files.grid import grid_response
 from oracle_auto.state import NoopStateStore
@@ -102,6 +103,86 @@ class CliTest(unittest.TestCase):
         ])
 
         self.assertEqual(code, 2)
+
+    def test_manual_dataguard_steps_prepare_network_auxiliary_and_duplicate(self):
+        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = replace(base, dataguard=replace(base.dataguard, configuration_method="manual"))
+
+        steps = configure_dataguard_steps(config)
+        names = [step.name for step in steps]
+        command = "\n".join(step.command for step in steps)
+
+        self.assertEqual(names, [
+            "configure_dataguard_network",
+            "configure_dataguard_network",
+            "validate_dataguard_network",
+            "validate_dataguard_network",
+            "configure_primary_dataguard",
+            "prepare_standby_auxiliary",
+            "duplicate_standby_database",
+            "configure_dataguard_final_network",
+            "configure_dataguard_final_network",
+            "validate_dataguard_final_network",
+            "validate_dataguard_final_network",
+            "start_managed_recovery",
+            "verify_primary_dataguard",
+            "verify_standby_dataguard",
+        ])
+        self.assertNotIn("configure_broker", names)
+        self.assertIn("tnsnames.ora", command)
+        self.assertIn("SID_LIST_LISTENER", command)
+        self.assertIn("(HOST = 10.128.0.3)", command)
+        self.assertIn("(HOST = 10.128.0.4)", command)
+        self.assertIn("tnsping ORCL_A", command)
+        self.assertIn("tnsping ORCL_B", command)
+        self.assertIn("ALTER DATABASE ADD STANDBY LOGFILE THREAD", command)
+        self.assertIn("STARTUP NOMOUNT", command)
+        self.assertIn("CREATE SPFILE=", command)
+        self.assertIn("+DATA/ORCL_B/PARAMETERFILE/spfileORCL_B.ora", command)
+        self.assertIn("srvctl start database -db ORCL_B -startoption NOMOUNT", command)
+        self.assertIn("DUPLICATE TARGET DATABASE FOR STANDBY FROM ACTIVE DATABASE", command)
+        self.assertIn("ALTER SYSTEM ARCHIVE LOG CURRENT", command)
+        self.assertIn("dataguard_stats", command)
+
+    def test_broker_dataguard_adds_broker_after_manual_steps(self):
+        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = replace(base, dataguard=replace(base.dataguard, configuration_method="broker"))
+
+        steps = configure_dataguard_steps(config)
+
+        self.assertEqual(steps[-1].name, "configure_broker")
+        self.assertIn("CREATE CONFIGURATION", steps[-1].command)
+        self.assertIn("DG_BROKER_START=TRUE", steps[-1].command)
+        self.assertIn("StaticConnectIdentifier", steps[-1].command)
+        self.assertIn("VALIDATE DATABASE", steps[-1].command)
+        self.assertIn("ORCL_A", steps[-1].command)
+        self.assertIn("ORCL_B", steps[-1].command)
+        self.assertIn("SHOW CONFIGURATION VERBOSE", steps[-1].command)
+
+    def test_rac_dataguard_registers_instances_and_switches_final_tns_to_scan(self):
+        base = load_config(Path("configs/sample-rac-dg.json"))
+        config = replace(base, dataguard=replace(base.dataguard, configuration_method="broker"))
+
+        steps = configure_dataguard_steps(config)
+        names = [step.name for step in steps]
+        command = "\n".join(step.command for step in steps)
+        broker_command = steps[-1].command
+
+        self.assertEqual(names.count("configure_dataguard_network"), 4)
+        self.assertEqual(names.count("configure_dataguard_final_network"), 4)
+        self.assertEqual(names.count("validate_dataguard_final_network"), 4)
+        self.assertIn("export ORACLE_SID=ORCL_A1", command)
+        self.assertIn("export ORACLE_SID=ORCL_B1", command)
+        self.assertIn("SID_NAME = ORCL_B1", command)
+        self.assertIn("SID_NAME = ORCL_B2", command)
+        self.assertIn("srvctl config database -db ORCL_B | grep -qw ORCL_B1", command)
+        self.assertIn("srvctl add instance -db ORCL_B -instance ORCL_B1 -node db1-site-b.example.com", command)
+        self.assertIn("srvctl add instance -db ORCL_B -instance ORCL_B2 -node db2-site-b.example.com", command)
+        self.assertIn("(HOST = 192.168.113.101)", command)
+        self.assertIn("(HOST = scan-site-a.example.com)", command)
+        self.assertIn("(HOST = scan-site-b.example.com)", command)
+        self.assertIn("HOST=scan-site-a.example.com", broker_command)
+        self.assertIn("HOST=scan-site-b.example.com", broker_command)
 
     def test_full_guardrail_blocks_real_execution_without_flags(self):
         code = main([
