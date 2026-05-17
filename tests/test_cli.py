@@ -139,6 +139,10 @@ class CliTest(unittest.TestCase):
             "validate_dataguard_network",
             "ensure_primary_archivelog",
             "configure_primary_dataguard",
+            "export_primary_dataguard_baseline",
+            "prepare_standby_dataguard_baseline_directory",
+            "transfer_primary_pfile_to_standby",
+            "transfer_primary_passwordfile_to_standby",
             "refresh_dataguard_duplicate_network",
             "refresh_dataguard_duplicate_network",
             "validate_dataguard_duplicate_network",
@@ -180,6 +184,21 @@ class CliTest(unittest.TestCase):
         self.assertIn("CONNECT TARGET", command)
         self.assertIn("CONNECT AUXILIARY", command)
         self.assertIn("ALTER SYSTEM ARCHIVE LOG CURRENT", command)
+        self.assertIn("CREATE PFILE=", command)
+        self.assertIn("/tmp/oracle-auto-dataguard-baseline/initORCL.ora", command)
+        self.assertIn("Prepare standby baseline transfer directory", command)
+        self.assertIn("chown rori_learning /tmp/oracle-auto-dataguard-baseline", command)
+        pfile_transfer = next(step for step in steps if step.name == "transfer_primary_pfile_to_standby")
+        pwfile_transfer = next(step for step in steps if step.name == "transfer_primary_passwordfile_to_standby")
+        self.assertIn("scp", pfile_transfer.command)
+        self.assertIn("scp", pwfile_transfer.command)
+        self.assertIn("orapwORCL", command)
+        self.assertIn("cp /tmp/oracle-auto-dataguard-baseline/orapwORCL /u01/app/oracle/product/19.0.0/dbhome_1/dbs/orapwORCLSTBY", command)
+        self.assertIn("LOG_ARCHIVE_CONFIG", command)
+        self.assertIn("DG_CONFIG=(ORCL,ORCLSTBY)", command)
+        self.assertIn("DB_UNIQUE_NAME=ORCLSTBY", command)
+        self.assertIn("fal_server", command)
+        self.assertIn("fal_client", command)
         self.assertIn("SELECT dest_id, status, type, database_mode, recovery_mode, destination, error", command)
         self.assertIn("WHERE dest_id <= 2 OR destination IS NOT NULL", command)
         self.assertNotIn("target, destination", command)
@@ -228,13 +247,20 @@ class CliTest(unittest.TestCase):
             if step.name in {
                 "refresh_dataguard_duplicate_network",
                 "validate_dataguard_duplicate_network",
+                "export_primary_dataguard_baseline",
+                "prepare_standby_dataguard_baseline_directory",
+                "transfer_primary_pfile_to_standby",
+                "transfer_primary_passwordfile_to_standby",
                 "configure_dataguard_final_network",
             }:
                 self.assertTrue(step.force_rerun)
             else:
                 self.assertFalse(step.force_rerun)
-            self.assertIn("oracle-auto remote marker wrapper", step.command)
-            self.assertIn(f"/u01/stage/oracle-auto/state/{step.phase.replace('-', '_')}", step.command)
+            if step.transfer:
+                self.assertNotIn("oracle-auto remote marker wrapper", step.command)
+            else:
+                self.assertIn("oracle-auto remote marker wrapper", step.command)
+                self.assertIn(f"/u01/stage/oracle-auto/state/{step.phase.replace('-', '_')}", step.command)
 
     def test_broker_dataguard_adds_broker_after_manual_steps(self):
         base = load_config(Path("configs/gcp-single-gi-lab.json"))

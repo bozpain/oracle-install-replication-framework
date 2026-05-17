@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import shlex
 
-from oracle_auto.automation import AutomationStep, shell_script
+from oracle_auto.automation import AutomationStep, FileTransfer, shell_script
 from oracle_auto.config import AutomationConfig
 from oracle_auto.phase_builders.common import DB_HOME, GRID_BASE, ORACLE_BASE, make_step
 
@@ -73,6 +73,7 @@ def _dataguard_final_network_validation_steps(config: AutomationConfig, phase: s
 def _physical_standby_steps(config: AutomationConfig, phase: str) -> list[AutomationStep]:
     if not config.standby_site:
         return []
+    standby = config.standby_site
     return [
         make_step(
             phase,
@@ -90,6 +91,25 @@ def _physical_standby_steps(config: AutomationConfig, phase: str) -> list[Automa
             _primary_dataguard_script(config),
             timeout=1800,
         ),
+        make_step(
+            phase,
+            "export_primary_dataguard_baseline",
+            config.primary_site.nodes[0],
+            "Export primary pfile and password file baseline for standby",
+            _export_primary_dataguard_baseline_script(config),
+            timeout=900,
+            force_rerun=True,
+        ),
+        make_step(
+            phase,
+            "prepare_standby_dataguard_baseline_directory",
+            standby.nodes[0],
+            "Prepare standby baseline transfer directory",
+            _prepare_standby_dataguard_baseline_directory_script(config),
+            timeout=300,
+            force_rerun=True,
+        ),
+        *_dataguard_baseline_transfer_steps(config, phase),
         *_dataguard_duplicate_network_refresh_steps(config, phase),
         *_dataguard_duplicate_network_validation_steps(config, phase),
         make_step(
@@ -174,6 +194,53 @@ def _dataguard_duplicate_network_validation_steps(config: AutomationConfig, phas
             force_rerun=True,
         )
         for node in config.all_nodes
+    ]
+
+
+def _dataguard_baseline_transfer_steps(config: AutomationConfig, phase: str) -> list[AutomationStep]:
+    standby = config.standby_site
+    if not standby:
+        return []
+    primary_node = config.primary_site.nodes[0]
+    standby_node = standby.nodes[0]
+    primary_unique = config.primary_site.db_unique_name
+    primary_user = primary_node.ssh_user or config.ssh.user
+    standby_user = standby_node.ssh_user or config.ssh.user
+    pfile_path = _primary_baseline_pfile_path(primary_unique)
+    pwfile_path = _primary_baseline_pwfile_path(primary_unique)
+    return [
+        make_step(
+            phase,
+            "transfer_primary_pfile_to_standby",
+            standby_node,
+            "Transfer primary pfile baseline to standby",
+            f"scp {primary_user}@{primary_node.host}:{pfile_path} {standby_user}@{standby_node.host}:{pfile_path}",
+            timeout=900,
+            remote_marker=False,
+            force_rerun=True,
+            transfer=FileTransfer(
+                source_node=primary_node,
+                source_path=pfile_path,
+                target_node=standby_node,
+                target_path=pfile_path,
+            ),
+        ),
+        make_step(
+            phase,
+            "transfer_primary_passwordfile_to_standby",
+            standby_node,
+            "Transfer primary password file baseline to standby",
+            f"scp {primary_user}@{primary_node.host}:{pwfile_path} {standby_user}@{standby_node.host}:{pwfile_path}",
+            timeout=900,
+            remote_marker=False,
+            force_rerun=True,
+            transfer=FileTransfer(
+                source_node=primary_node,
+                source_path=pwfile_path,
+                target_node=standby_node,
+                target_path=pwfile_path,
+            ),
+        ),
     ]
 
 
@@ -469,10 +536,10 @@ def _prepare_standby_auxiliary_script(config: AutomationConfig) -> str:
     standby = config.standby_site
     assert standby is not None
     primary_db_name = config.primary_site.db_name or config.primary_site.db_unique_name
+    primary_unique = config.primary_site.db_unique_name
     standby_unique = standby.db_unique_name
     standby_sid = _instance_name(standby, 0, config.install_type)
     standby_host = standby.nodes[0].host
-    pfile = _standby_pfile_content(primary_db_name, standby_unique, standby_host)
     instance_lines = _srvctl_instance_lines(standby, standby_unique, config.install_type)
     spfile_alias = f"+DATA/{standby_unique}/PARAMETERFILE/spfile{standby_unique}.ora"
     if config.install_type == "rac":
@@ -490,9 +557,11 @@ def _prepare_standby_auxiliary_script(config: AutomationConfig) -> str:
         _dg_secret_export(config),
         f"mkdir -p {ORACLE_BASE}/admin/{standby_unique}/adump {DB_HOME}/dbs {GRID_BASE}/dbs",
         f"chown -R oracle:oinstall {ORACLE_BASE}/admin/{standby_unique}",
-        f"sudo -iu oracle {DB_HOME}/bin/orapwd file={DB_HOME}/dbs/orapw{standby_unique} force=y format=12 password=\"$DG_PASSWORD\"",
-        f"cp {DB_HOME}/dbs/orapw{standby_unique} {GRID_BASE}/dbs/orapw{standby_unique}",
-        f"cat > {DB_HOME}/dbs/init{standby_unique}.ora <<'EOF'\n{pfile}\nEOF",
+        f"test -s {_primary_baseline_pfile_path(primary_unique)}",
+        f"test -s {_primary_baseline_pwfile_path(primary_unique)}",
+        *_standby_pfile_from_primary_lines(primary_db_name, primary_unique, standby_unique, standby_host),
+        f"cp {_primary_baseline_pwfile_path(primary_unique)} {DB_HOME}/dbs/orapw{standby_unique}",
+        f"cp {_primary_baseline_pwfile_path(primary_unique)} {GRID_BASE}/dbs/orapw{standby_unique}",
         f"chown oracle:oinstall {DB_HOME}/dbs/init{standby_unique}.ora {DB_HOME}/dbs/orapw{standby_unique}",
         f"chmod 600 {DB_HOME}/dbs/init{standby_unique}.ora {DB_HOME}/dbs/orapw{standby_unique}",
         f"chown grid:oinstall {GRID_BASE}/dbs/orapw{standby_unique}",
@@ -522,6 +591,66 @@ def _prepare_standby_auxiliary_script(config: AutomationConfig) -> str:
         _oracle_sqlplus(standby_sid, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT instance_name, status FROM v$instance;"),
     ]
     return shell_script("Prepare standby auxiliary instance", lines)
+
+
+def _standby_pfile_from_primary_lines(
+    primary_db_name: str,
+    primary_unique: str,
+    standby_unique: str,
+    standby_host: str,
+) -> list[str]:
+    source_pfile = _primary_baseline_pfile_path(primary_unique)
+    standby_pfile = f"{DB_HOME}/dbs/init{standby_unique}.ora"
+    return [
+        f"awk '{_standby_pfile_filter_awk()}' {source_pfile} > {standby_pfile}",
+        f"cat >> {standby_pfile} <<'EOF'\n"
+        f"*.db_name='{primary_db_name}'\n"
+        f"*.db_unique_name='{standby_unique}'\n"
+        "*.remote_login_passwordfile='EXCLUSIVE'\n"
+        f"*.audit_file_dest='{ORACLE_BASE}/admin/{standby_unique}/adump'\n"
+        f"*.local_listener='(ADDRESS=(PROTOCOL=TCP)(HOST={standby_host})(PORT=1521))'\n"
+        f"*.log_archive_config='DG_CONFIG=({primary_unique},{standby_unique})'\n"
+        f"*.log_archive_dest_1='LOCATION=USE_DB_RECOVERY_FILE_DEST VALID_FOR=(ALL_LOGFILES,ALL_ROLES) DB_UNIQUE_NAME={standby_unique}'\n"
+        f"*.log_archive_dest_2='SERVICE={primary_unique} ASYNC VALID_FOR=(ONLINE_LOGFILES,PRIMARY_ROLE) DB_UNIQUE_NAME={primary_unique}'\n"
+        f"*.fal_server='{primary_unique}'\n"
+        f"*.fal_client='{standby_unique}'\n"
+        "*.standby_file_management='AUTO'\n"
+        "EOF",
+        f"echo 'Standby auxiliary pfile derived from primary baseline:'",
+        f"grep -E \"^(\\*\\.)?(db_name|db_unique_name|log_archive_config|log_archive_dest_|fal_|standby_file_management|local_listener|audit_file_dest)\" {standby_pfile} || true",
+    ]
+
+
+def _standby_pfile_filter_awk() -> str:
+    skip_names = [
+        "audit_file_dest",
+        "control_files",
+        "db_unique_name",
+        "fal_client",
+        "fal_server",
+        "instance_name",
+        "local_listener",
+        "log_archive_config",
+        "remote_listener",
+        "service_names",
+        "standby_file_management",
+    ]
+    skip_patterns = [
+        "db_file_name_convert",
+        "log_archive_dest_",
+        "log_archive_dest_state_",
+        "log_file_name_convert",
+    ]
+    skip_map = "; ".join(f'skip["*.{name}"]=1' for name in skip_names)
+    pattern_checks = " || ".join(f'index(key, "*.{pattern}") == 1' for pattern in skip_patterns)
+    return (
+        "BEGIN { IGNORECASE=1; " + skip_map + " } "
+        "{ line=$0; key=line; sub(/^[[:space:]]*/, \"\", key); "
+        "if (key ~ /^#/ || key == \"\") { print line; next } "
+        "sub(/[[:space:]]*=.*/, \"\", key); key=tolower(key); sub(/^[^.]+\\./, \"*.\", key); "
+        f"if (key in skip || {pattern_checks}) next; "
+        "print line }"
+    )
 
 
 def _primary_dataguard_script(config: AutomationConfig) -> str:
@@ -582,6 +711,46 @@ SELECT thread#, group#, bytes/1024/1024 size_mb FROM v$standby_log ORDER BY thre
         "echo 'Password file baseline created from target environment secret.'",
     ]
     return shell_script("Configure primary for Active Data Guard", lines)
+
+
+def _export_primary_dataguard_baseline_script(config: AutomationConfig) -> str:
+    primary_unique = config.primary_site.db_unique_name
+    primary_sid = _instance_name(config.primary_site, 0, config.install_type)
+    transfer_user = config.primary_site.nodes[0].ssh_user or config.ssh.user
+    pfile_path = _primary_baseline_pfile_path(primary_unique)
+    pwfile_path = _primary_baseline_pwfile_path(primary_unique)
+    lines = [
+        "mkdir -p /tmp/oracle-auto-dataguard-baseline",
+        _oracle_sqlplus(
+            primary_sid,
+            f"WHENEVER SQLERROR EXIT SQL.SQLCODE\nCREATE PFILE='{pfile_path}' FROM SPFILE;\n",
+        ),
+        f"cp {DB_HOME}/dbs/orapw{primary_unique} {pwfile_path}",
+        f"chown {shlex.quote(transfer_user)} {pfile_path} {pwfile_path}",
+        f"chmod 600 {pfile_path} {pwfile_path}",
+        f"ls -l {pfile_path} {pwfile_path}",
+    ]
+    return shell_script("Export primary Data Guard baseline", lines)
+
+
+def _prepare_standby_dataguard_baseline_directory_script(config: AutomationConfig) -> str:
+    standby = config.standby_site
+    assert standby is not None
+    transfer_user = standby.nodes[0].ssh_user or config.ssh.user
+    lines = [
+        "mkdir -p /tmp/oracle-auto-dataguard-baseline",
+        f"chown {shlex.quote(transfer_user)} /tmp/oracle-auto-dataguard-baseline",
+        "chmod 700 /tmp/oracle-auto-dataguard-baseline",
+    ]
+    return shell_script("Prepare standby baseline transfer directory", lines)
+
+
+def _primary_baseline_pfile_path(primary_unique: str) -> str:
+    return f"/tmp/oracle-auto-dataguard-baseline/init{primary_unique}.ora"
+
+
+def _primary_baseline_pwfile_path(primary_unique: str) -> str:
+    return f"/tmp/oracle-auto-dataguard-baseline/orapw{primary_unique}"
 
 
 def _duplicate_standby_script(config: AutomationConfig) -> str:
@@ -838,17 +1007,3 @@ def _listener_address_content(local_host: str) -> str:
       (ADDRESS = (PROTOCOL = TCP)(HOST = {local_host})(PORT = 1521))
     )
   )"""
-
-
-def _standby_pfile_content(primary_db_name: str, standby_unique: str, standby_host: str) -> str:
-    return f"""*.db_name='{primary_db_name}'
-*.db_unique_name='{standby_unique}'
-*.compatible='19.0.0'
-*.remote_login_passwordfile='EXCLUSIVE'
-*.db_create_file_dest='+DATA'
-*.db_recovery_file_dest='+RECO'
-*.db_recovery_file_dest_size='50G'
-*.diagnostic_dest='{ORACLE_BASE}'
-*.audit_file_dest='{ORACLE_BASE}/admin/{standby_unique}/adump'
-*.local_listener='(ADDRESS=(PROTOCOL=TCP)(HOST={standby_host})(PORT=1521))'
-*.standby_file_management='AUTO'"""

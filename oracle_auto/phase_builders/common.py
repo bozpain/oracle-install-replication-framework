@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import shlex
 
-from oracle_auto.automation import AutomationStep
+from oracle_auto.automation import AutomationStep, FileTransfer
 from oracle_auto.config import NodeConfig
 
 INVENTORY_LOCATION = "/u01/app/oraInventory"
@@ -71,6 +71,7 @@ def make_step(
     warn_only: bool = False,
     remote_marker: bool = True,
     force_rerun: bool = False,
+    transfer: FileTransfer | None = None,
 ) -> AutomationStep:
     return AutomationStep(
         phase=phase,
@@ -81,6 +82,7 @@ def make_step(
         timeout=timeout,
         warn_only=warn_only,
         force_rerun=force_rerun,
+        transfer=transfer,
     )
 
 

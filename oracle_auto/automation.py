@@ -26,6 +26,14 @@ from oracle_auto.state import StateBackend
 
 
 @dataclass(frozen=True)
+class FileTransfer:
+    source_node: NodeConfig
+    source_path: str
+    target_node: NodeConfig
+    target_path: str
+
+
+@dataclass(frozen=True)
 class AutomationStep:
     phase: str
     name: str
@@ -35,6 +43,7 @@ class AutomationStep:
     timeout: int | None = 600
     warn_only: bool = False
     force_rerun: bool = False
+    transfer: FileTransfer | None = None
 
     @property
     def state_key(self) -> str:
@@ -139,7 +148,10 @@ class AutomationRunner:
 
         print(f"RUN   {step.phase}:{step.node.host}:{step.name}  {step.title}", flush=True)
         self.state.mark_running(step.state_key)
-        command_result = self.executor.run(step.node, step.command, timeout=step.timeout)
+        if step.transfer:
+            command_result = self.executor.transfer(step.transfer, timeout=step.timeout)
+        else:
+            command_result = self.executor.run(step.node, step.command, timeout=step.timeout)
         result = self._to_step_result(step, command_result)
         result = self._with_log_path(step, result)
         if result.status == "FAIL":
