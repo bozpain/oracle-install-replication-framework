@@ -35,7 +35,7 @@
   "primary_site": {
     "name": "site-a",
     "db_name": "ORCL",
-    "db_unique_name": "ORCL_A",
+    "db_unique_name": "ORCL",
     "nodes": [
       {
         "host": "ora-primary-01",
@@ -45,7 +45,7 @@
   },
   "standby_site": {
     "name": "site-b",
-    "db_unique_name": "ORCL_B",
+    "db_unique_name": "ORCLSTBY",
     "nodes": [
       {
         "host": "ora-standby-01",
