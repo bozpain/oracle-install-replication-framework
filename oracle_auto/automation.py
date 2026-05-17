@@ -266,7 +266,7 @@ def results_to_html_rows(results: list[StepResult]) -> str:
             f"<td>{html.escape(item.phase)}</td>"
             f"<td>{html.escape(item.host)}</td>"
             f"<td>{html.escape(item.name)}</td>"
-            f"<td class=\"status-{html.escape(item.status.lower())}\">{html.escape(item.status)}</td>"
+            f"<td class=\"status-{html.escape(item.status.lower())}\">{_status_badge(item.status)}</td>"
             f"<td>{html.escape(item.message)}{_log_suffix(item)}</td>"
             "</tr>"
         )
@@ -284,6 +284,11 @@ def _log_suffix(item: StepResult) -> str:
     if not item.log_path:
         return ""
     return f"<br><code>{html.escape(item.log_path)}</code>"
+
+
+def _status_badge(status: str) -> str:
+    normalized = status.lower()
+    return f'<span class="badge badge-{html.escape(normalized)}">{html.escape(status)}</span>'
 
 
 def _safe_filename(value: str) -> str:
