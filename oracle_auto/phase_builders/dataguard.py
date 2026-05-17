@@ -295,6 +295,17 @@ def _prepare_standby_auxiliary_script(config: AutomationConfig) -> str:
     pfile = _standby_pfile_content(primary_db_name, standby_unique, standby_host)
     instance_lines = _srvctl_instance_lines(standby, standby_unique, config.install_type)
     spfile_alias = f"+DATA/{standby_unique}/PARAMETERFILE/spfile{standby_unique}.ora"
+    if config.install_type == "rac":
+        start_auxiliary_lines = [
+            f"sudo -iu oracle {DB_HOME}/bin/srvctl start instance -db {standby_unique} -instance {standby_sid} -startoption NOMOUNT || sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {standby_unique} -startoption NOMOUNT",
+        ]
+    else:
+        start_auxiliary_lines = [
+            _oracle_sqlplus(
+                standby_sid,
+                "WHENEVER SQLERROR CONTINUE\nSHUTDOWN ABORT;\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSTARTUP NOMOUNT;",
+            ),
+        ]
     lines = [
         _dg_secret_export(config),
         f"mkdir -p {ORACLE_BASE}/admin/{standby_unique}/adump {DB_HOME}/dbs {GRID_BASE}/dbs",
@@ -306,8 +317,8 @@ def _prepare_standby_auxiliary_script(config: AutomationConfig) -> str:
         f"chmod 600 {DB_HOME}/dbs/init{standby_unique}.ora {DB_HOME}/dbs/orapw{standby_unique}",
         f"chown grid:oinstall {GRID_BASE}/dbs/orapw{standby_unique}",
         f"chmod 600 {GRID_BASE}/dbs/orapw{standby_unique}",
-        f"sudo -iu grid {GRID_BASE}/bin/asmcmd mkdir +DATA/{standby_unique} || true",
-        f"sudo -iu grid {GRID_BASE}/bin/asmcmd mkdir +DATA/{standby_unique}/PARAMETERFILE || true",
+        f"sudo -iu grid {GRID_BASE}/bin/asmcmd ls +DATA/{standby_unique} >/dev/null 2>&1 || sudo -iu grid {GRID_BASE}/bin/asmcmd mkdir +DATA/{standby_unique}",
+        f"sudo -iu grid {GRID_BASE}/bin/asmcmd ls +DATA/{standby_unique}/PARAMETERFILE >/dev/null 2>&1 || sudo -iu grid {GRID_BASE}/bin/asmcmd mkdir +DATA/{standby_unique}/PARAMETERFILE",
         f"spfile_alias={shlex.quote(spfile_alias)}",
         'if sudo -iu grid asmcmd ls "$spfile_alias" >/dev/null 2>&1; then',
         '  echo "Standby ASM spfile already exists; preserving it for resume."',
@@ -327,7 +338,7 @@ def _prepare_standby_auxiliary_script(config: AutomationConfig) -> str:
         "fi",
         *instance_lines,
         f"sudo -iu oracle {DB_HOME}/bin/srvctl stop database -db {standby_unique} -stopoption ABORT || true",
-        f"sudo -iu oracle {DB_HOME}/bin/srvctl start instance -db {standby_unique} -instance {standby_sid} -startoption NOMOUNT || sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {standby_unique} -startoption NOMOUNT",
+        *start_auxiliary_lines,
         _oracle_sqlplus(standby_sid, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT instance_name, status FROM v$instance;"),
     ]
     return shell_script("Prepare standby auxiliary instance", lines)
