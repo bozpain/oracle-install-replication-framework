@@ -101,6 +101,8 @@ WORKFLOW_PHASE_ORDER = [
 ]
 
 
+ASM_STORAGE_MODE_CHOICES = sorted({*VALID_ASM_STORAGE_MODES, "asmlib", "raw_udev"})
+
 DEPLOYMENT_PHASE_ORDER = [
     "prepare-os",
     "verify-installer",
@@ -272,8 +274,8 @@ def _add_execution_args(parser: argparse.ArgumentParser) -> None:
 def _add_asm_storage_mode_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--asm-storage-mode",
-        choices=sorted(VALID_ASM_STORAGE_MODES),
-        help="Override asm.storage_mode for this run. Choices: raw_udev, asmlib, afd.",
+        choices=ASM_STORAGE_MODE_CHOICES,
+        help="Override asm.storage_mode for this run. Choices: raw, asmlibv3, afd.",
     )
 
 
@@ -510,6 +512,10 @@ def _with_asm_storage_mode_override(args, config: AutomationConfig) -> Automatio
     mode = getattr(args, "asm_storage_mode", None)
     if not mode:
         return config
+    if mode == "asmlib":
+        mode = "asmlibv3"
+    if mode == "raw_udev":
+        mode = "raw"
     return replace(config, asm=replace(config.asm, storage_mode=mode))
 
 
@@ -520,6 +526,10 @@ def _is_execution_command(command: str) -> bool:
 def _validate_or_record_run_context(args, config: AutomationConfig, state: StateStore) -> None:
     context = state.data.setdefault("context", {})
     previous = context.get("asm_storage_mode")
+    if previous == "asmlib":
+        previous = "asmlibv3"
+    if previous == "raw_udev":
+        previous = "raw"
     current = config.asm.storage_mode
     if previous and previous != current and not args.no_resume:
         raise ConfigError(

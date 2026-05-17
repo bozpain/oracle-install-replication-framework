@@ -1,7 +1,7 @@
 """ASM storage phase manual.
 
 Prepares ASM storage in one of three modes:
-`asmlib` labels disks and uses `ORCL:*`, `raw_udev` keeps stable by-id paths
+`asmlibv3` labels disks and uses `ORCL:*`, `raw` keeps stable by-id paths
 with udev ownership, and `afd` labels disks with ASM Filter Driver.
 The old `prepare-storage` command remains as a compatibility wrapper for
 dry-run review.
@@ -110,7 +110,7 @@ def asm_discovery_string(
     site: SiteConfig | None = None,
     node: NodeConfig | None = None,
 ) -> str:
-    if config.asm.storage_mode == "asmlib":
+    if config.asm.storage_mode == "asmlibv3":
         return "ORCL:*"
     if config.asm.storage_mode == "afd":
         return "AFD:*"
@@ -118,7 +118,7 @@ def asm_discovery_string(
 
 
 def asm_disk_spec(config: AutomationConfig, label: str, path: str) -> str:
-    if config.asm.storage_mode == "asmlib":
+    if config.asm.storage_mode == "asmlibv3":
         return f"ORCL:{label}"
     if config.asm.storage_mode == "afd":
         return f"AFD:{label}"
@@ -344,10 +344,10 @@ def _multipath_udev_lines(entries: list[ASMEntry]) -> list[str]:
     ]
 
 
-def _raw_udev_rules_lines(entries: list[ASMEntry]) -> list[str]:
+def _raw_storage_rules_lines(entries: list[ASMEntry]) -> list[str]:
     labels = " ".join(shlex.quote(label) for label, _path, _group, _disk in entries)
     return [
-        "echo 'Writing raw ASM udev ownership rules for configured devices.'",
+        "echo 'Writing raw ASM ownership rules for configured devices.'",
         f": > {ASM_UDEV_RULES}",
         f"chmod 0644 {ASM_UDEV_RULES}",
         f"for label in {labels}; do",
@@ -400,16 +400,16 @@ def _prepare_storage_rules_script(config: AutomationConfig, node: NodeConfig) ->
         ],
     ]
 
-    if config.asm.storage_mode == "raw_udev":
+    if config.asm.storage_mode == "raw":
         lines = [
             *common_lines,
-            *_raw_udev_rules_lines(entries),
-            "echo 'Raw udev ASM storage prepared; ASMLIB labels are not used.'",
+            *_raw_storage_rules_lines(entries),
+            "echo 'Raw ASM storage prepared; ASMLIB labels are not used.'",
         ]
     elif config.asm.storage_mode == "afd":
         lines = [
             *common_lines,
-            *_raw_udev_rules_lines(entries),
+            *_raw_storage_rules_lines(entries),
             f"test -x {GRID_BASE}/bin/asmcmd || true",
             "echo 'AFD ASM storage prepared for labeling during configure-asm-storage.'",
         ]
@@ -453,7 +453,7 @@ def _configure_asm_storage_script(config: AutomationConfig, node: NodeConfig) ->
             diskgroup_commands.append(create_diskgroup_sql(diskgroup_name, group_entries, config.asm.redundancy, config))
 
     mode_prelude: list[str]
-    if config.asm.storage_mode == "asmlib":
+    if config.asm.storage_mode == "asmlibv3":
         mode_prelude = [
             "oracleasm scandisks",
             "oracleasm listdisks",
@@ -472,7 +472,7 @@ def _configure_asm_storage_script(config: AutomationConfig, node: NodeConfig) ->
         ]
     else:
         mode_prelude = [
-            "echo 'Using raw udev ASM storage; ASMLIB/AFD labels are not used.'",
+            "echo 'Using raw ASM storage; ASMLIB/AFD labels are not used.'",
         ]
 
     lines = [

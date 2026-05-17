@@ -25,7 +25,7 @@ from typing import Any
 
 VALID_INSTALL_TYPES = {"single-gi", "rac"}
 VALID_DATAGUARD_METHODS = {"manual", "broker"}
-VALID_ASM_STORAGE_MODES = {"asmlib", "raw_udev", "afd"}
+VALID_ASM_STORAGE_MODES = {"asmlibv3", "raw", "afd"}
 DEFAULT_NTP_SERVERS = ["192.168.113.41", "192.168.115.41"]
 DEFAULT_ASMLIB_RPMS = {
     "x86_64": "oracleasmlib-3.1.1-1.el8.x86_64.rpm",
@@ -183,7 +183,7 @@ class ASMConfig:
     reco_disks: list[ASMDiskConfig]
     ocr_disks: list[ASMDiskConfig] = field(default_factory=list)
     redundancy: str = "EXTERNAL"
-    storage_mode: str = "asmlib"
+    storage_mode: str = "asmlibv3"
 
     @property
     def all_disks(self) -> list[ASMDiskConfig]:
@@ -415,7 +415,7 @@ def _parse_node(data: Any, location: str) -> NodeConfig:
 def _parse_asm(data: Any) -> ASMConfig:
     if not isinstance(data, dict):
         raise ConfigError("asm must be an object/mapping.")
-    storage_mode = str(data.get("storage_mode", "asmlib")).lower().replace("-", "_")
+    storage_mode = _normalize_asm_storage_mode(data.get("storage_mode", "asmlibv3"))
     return ASMConfig(
         data_disks=_required_asm_disk_list(data.get("data_disks"), "asm.data_disks"),
         reco_disks=_required_asm_disk_list(data.get("reco_disks"), "asm.reco_disks"),
@@ -423,6 +423,15 @@ def _parse_asm(data: Any) -> ASMConfig:
         redundancy=str(data.get("redundancy", "EXTERNAL")).upper(),
         storage_mode=storage_mode,
     )
+
+
+def _normalize_asm_storage_mode(value: Any) -> str:
+    storage_mode = str(value).lower().replace("-", "_")
+    if storage_mode == "asmlib":
+        return "asmlibv3"
+    if storage_mode == "raw_udev":
+        return "raw"
+    return storage_mode
 
 
 def _parse_dns(data: Any) -> DNSConfig:

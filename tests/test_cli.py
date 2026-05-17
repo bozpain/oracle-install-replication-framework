@@ -594,20 +594,20 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("/dev/oracleasm/", command)
         self.assertNotIn("ln -sfn", command)
 
-    def test_raw_udev_storage_uses_by_id_paths_without_asmlib_labels(self):
+    def test_raw_storage_uses_by_id_paths_without_asmlib_labels(self):
         base = load_config(Path("configs/gcp-single-gi-lab.json"))
-        config = replace(base, asm=replace(base.asm, storage_mode="raw_udev"))
+        config = replace(base, asm=replace(base.asm, storage_mode="raw"))
         rules_command = prepare_storage_rules_steps(config)[0].command
         asm_command = configure_asm_storage_steps(config)[0].command
         response = grid_response(config, config.primary_site)
 
-        self.assertIn("Writing raw ASM udev ownership rules", rules_command)
+        self.assertIn("Writing raw ASM ownership rules", rules_command)
         self.assertIn("ENV{ID_SERIAL}", rules_command)
-        self.assertIn("Raw udev ASM storage prepared", rules_command)
+        self.assertIn("Raw ASM storage prepared", rules_command)
         self.assertNotIn("oracleasm createdisk", rules_command)
         self.assertNotIn("oracleasm configure", rules_command)
         self.assertIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", asm_command)
-        self.assertIn("Using raw udev ASM storage", asm_command)
+        self.assertIn("Using raw ASM storage", asm_command)
         self.assertNotIn("ORCL:DATA1", asm_command)
         self.assertIn("oracle.install.asm.diskGroup.disks=/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", response)
         self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", response)
@@ -746,11 +746,19 @@ class CliTest(unittest.TestCase):
         self.assertIn("for diskgroup in DATA RECO", command)
         self.assertIn("Checking for stale partial DBCA database state before createDatabase.", command)
         self.assertIn("ora_pmon_ORCL_A", command)
+        self.assertIn("Detected running ORCL_A instance without srvctl registration; validating before DBCA retry.", command)
+        self.assertIn("Database ORCL_A is already queryable; skipping destructive stale cleanup.", command)
+        self.assertIn("DB_ALREADY_CREATED=true", command)
         self.assertIn("shutdown abort;", command)
         self.assertIn("asmcmd rm -r +DATA/ORCL", command)
         self.assertIn("ORACLE_HOME=/u01/app/oracle/product/19.0.0/dbhome_1", command)
         self.assertIn("GRID_HOME=/u01/app/19.0.0/grid", command)
         self.assertIn("-storageType ASM -diskGroupName DATA -datafileDestination +DATA -recoveryAreaDestination +RECO", command)
+        self.assertIn("/u01/app/oracle/product/19.0.0/dbhome_1/bin/sqlplus -s / as sysdba", command)
+        self.assertIn("ALTER DATABASE FORCE LOGGING;", command)
+        self.assertIn("ARCHIVE LOG LIST;", command)
+        self.assertIn("SELECT name, open_mode, database_role FROM v$database;", command)
+        self.assertNotIn("bash -lc \"export ORACLE_SID=ORCL_A; sqlplus -s / as sysdba <<'SQL'", command)
         self.assertLess(command.index("Validating ASM diskgroups before DBCA."), command.index("dbca -silent -createDatabase"))
 
     def test_doctor_command_runs(self):

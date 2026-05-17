@@ -256,14 +256,20 @@ def _create_database_script(config: AutomationConfig) -> str:
         *_db_root_script_precheck_lines(),
         *_asm_diskgroup_precheck_lines(config),
         *_stale_dbca_cleanup_lines(db_name, unique),
-        f"if sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {unique} >/dev/null 2>&1; then",
-        f"  echo 'Database {unique} already registered in srvctl; skipping DBCA createDatabase.'",
+        f"if sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {unique} >/dev/null 2>&1 || test \"${{DB_ALREADY_CREATED:-false}}\" = true; then",
+        f"  echo 'Database {unique} already exists; skipping DBCA createDatabase.'",
         "else",
         f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} GRID_HOME={GRID_BASE} TNS_ADMIN={GRID_BASE}/network/admin ORACLE_SID={unique} ASM_DISCOVERY_STRING='ORCL:*' PATH={DB_HOME}/bin:{GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib:{GRID_BASE}/lib {DB_HOME}/bin/dbca -silent -createDatabase -responseFile {STAGE}/responses/dbca-primary.rsp -storageType ASM -diskGroupName DATA -datafileDestination +DATA -recoveryAreaDestination +RECO -asmsnmpPassword \"$ASMSNMP_PASSWORD\"",
         "fi",
         f"shred -u {STAGE}/responses/dbca-primary.rsp 2>/dev/null || rm -f {STAGE}/responses/dbca-primary.rsp",
-        f"sudo -iu oracle {DB_HOME}/bin/srvctl status database -db {unique} || true",
-        f"sudo -iu oracle bash -lc \"export ORACLE_SID={unique}; sqlplus -s / as sysdba <<'SQL'\nALTER DATABASE FORCE LOGGING;\nARCHIVE LOG LIST;\nSELECT name, open_mode, database_role FROM v\\$database;\nSQL\"",
+        f"sudo -iu oracle {DB_HOME}/bin/srvctl status database -db {unique} || sudo -iu oracle {DB_HOME}/bin/srvctl status database -db {db_name} || true",
+        f"sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} GRID_HOME={GRID_BASE} ORACLE_SID={unique} "
+        f"PATH={DB_HOME}/bin:{GRID_BASE}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib:{GRID_BASE}/lib "
+        f"{DB_HOME}/bin/sqlplus -s / as sysdba <<'SQL'\n"
+        "ALTER DATABASE FORCE LOGGING;\n"
+        "ARCHIVE LOG LIST;\n"
+        "SELECT name, open_mode, database_role FROM v$database;\n"
+        "SQL",
     ]
     return shell_script("Create primary database", lines)
 
@@ -272,15 +278,24 @@ def _stale_dbca_cleanup_lines(db_name: str, unique: str) -> list[str]:
     quoted_db_name = shlex.quote(db_name)
     quoted_unique = shlex.quote(unique)
     return [
+        "DB_ALREADY_CREATED=false",
         "echo 'Checking for stale partial DBCA database state before createDatabase.'",
         f"if ! sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {quoted_unique} >/dev/null 2>&1; then",
         f"  if ps -ef | awk '{{print $8}}' | grep -qx \"ora_pmon_{unique}\"; then",
-        f"    echo 'Stale {unique} instance detected without srvctl registration; shutting it down before DBCA retry.'",
-        f"    sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} ORACLE_SID={quoted_unique} PATH={DB_HOME}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib {DB_HOME}/bin/sqlplus -s / as sysdba <<'SQL' || true\nshutdown abort;\nSQL",
+        f"    echo 'Detected running {unique} instance without srvctl registration; validating before DBCA retry.'",
+        f"    if sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} ORACLE_SID={quoted_unique} PATH={DB_HOME}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib {DB_HOME}/bin/sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT name, open_mode FROM v$database;\nSQL\n    then",
+        f"      echo 'Database {unique} is already queryable; skipping destructive stale cleanup.'",
+        "      DB_ALREADY_CREATED=true",
+        "    else",
+        f"      echo 'Stale {unique} instance is not queryable; shutting it down before DBCA retry.'",
+        f"      sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} ORACLE_SID={quoted_unique} PATH={DB_HOME}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib {DB_HOME}/bin/sqlplus -s / as sysdba <<'SQL' || true\nshutdown abort;\nSQL",
+        "    fi",
         "  fi",
-        f"  rm -f {DB_HOME}/dbs/hc_{quoted_unique}.dat {DB_HOME}/dbs/lk{quoted_db_name} {DB_HOME}/dbs/spfile{quoted_unique}.ora {DB_HOME}/dbs/init{quoted_unique}.ora",
-        f"  {grid_env_command(f'{GRID_BASE}/bin/asmcmd rm -r +DATA/{quoted_db_name}')} 2>/dev/null || true",
-        f"  {grid_env_command(f'{GRID_BASE}/bin/asmcmd rm -r +RECO/{quoted_db_name}')} 2>/dev/null || true",
+        "  if test \"$DB_ALREADY_CREATED\" != true; then",
+        f"    rm -f {DB_HOME}/dbs/hc_{quoted_unique}.dat {DB_HOME}/dbs/lk{quoted_db_name} {DB_HOME}/dbs/spfile{quoted_unique}.ora {DB_HOME}/dbs/init{quoted_unique}.ora",
+        f"    {grid_env_command(f'{GRID_BASE}/bin/asmcmd rm -r +DATA/{quoted_db_name}')} 2>/dev/null || true",
+        f"    {grid_env_command(f'{GRID_BASE}/bin/asmcmd rm -r +RECO/{quoted_db_name}')} 2>/dev/null || true",
+        "  fi",
         "fi",
     ]
 
@@ -303,7 +318,7 @@ def _asm_diskgroup_precheck_lines(config: AutomationConfig) -> list[str]:
     crs_start = "crs" if config.install_type == "rac" else "has"
     return [
         "echo 'Validating ASM diskgroups before DBCA.'",
-        f"if test {shlex.quote(config.asm.storage_mode)} = asmlib && command -v oracleasm >/dev/null 2>&1; then",
+        f"if test {shlex.quote(config.asm.storage_mode)} = asmlibv3 && command -v oracleasm >/dev/null 2>&1; then",
         "  ORACLE_AUTO_MULTIPATH=false",
         "  if command -v multipath >/dev/null 2>&1 && multipath -ll >/tmp/oracle-auto-create-db-multipath.$$ 2>/dev/null && test -s /tmp/oracle-auto-create-db-multipath.$$; then",
         "    ORACLE_AUTO_MULTIPATH=true",
