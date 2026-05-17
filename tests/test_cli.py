@@ -95,11 +95,21 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(code, 2)
 
-    def test_standby_config_requires_dataguard_mode_cli_arg(self):
+    def test_validate_config_allows_standby_without_dataguard_mode(self):
         code = main([
             "validate-config",
             "--config",
             "configs/gcp-single-gi-lab.json",
+        ])
+
+        self.assertEqual(code, 0)
+
+    def test_dataguard_action_requires_dataguard_mode_cli_arg(self):
+        code = main([
+            "configure-dataguard",
+            "--config",
+            "configs/gcp-single-gi-lab.json",
+            "--dry-run",
         ])
 
         self.assertEqual(code, 2)

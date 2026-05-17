@@ -324,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     config = _with_asm_storage_mode_override(args, config)
     config = _with_dataguard_mode_override(args, config)
     try:
-        _ensure_dataguard_mode_selected(config)
+        _ensure_dataguard_mode_selected(args, config)
     except ConfigError as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         return 2
@@ -541,9 +541,22 @@ def _with_dataguard_mode_override(args, config: AutomationConfig) -> AutomationC
     return replace(config, dataguard=replace(config.dataguard, configuration_method=mode))
 
 
-def _ensure_dataguard_mode_selected(config: AutomationConfig) -> None:
-    if config.standby_site and config.dataguard.configuration_method is None:
-        raise ConfigError("Data Guard mode must be supplied with --dataguard-mode when standby_site is configured.")
+def _ensure_dataguard_mode_selected(args, config: AutomationConfig) -> None:
+    if (
+        config.standby_site
+        and config.dataguard.configuration_method is None
+        and _command_requires_dataguard_mode(args)
+    ):
+        raise ConfigError("Data Guard mode must be supplied with --dataguard-mode for Data Guard actions.")
+
+
+def _command_requires_dataguard_mode(args) -> bool:
+    if args.command in {"configure-dataguard", "switchover", "failover"}:
+        return True
+    if args.command in {"full", "resume"}:
+        phases = _selected_workflow_phases(args.from_phase, args.to_phase)
+        return "configure-dataguard" in phases
+    return False
 
 
 def _is_execution_command(command: str) -> bool:
@@ -645,7 +658,8 @@ def _print_config_summary(config: AutomationConfig) -> None:
     print(f"Installer path     : {config.installer.sources_path}")
     print(f"Patch set          : {config.version.patch_set}")
     if config.active_dataguard_enabled and config.standby_site:
+        method = config.dataguard.configuration_method or "not selected"
         print(f"Standby site       : {config.standby_site.name} ({len(config.standby_site.nodes)} node(s))")
-        print(f"Active Data Guard  : enabled ({config.dataguard.configuration_method}, max_performance)")
+        print(f"Active Data Guard  : enabled ({method}, max_performance)")
     else:
         print("Active Data Guard  : disabled")
