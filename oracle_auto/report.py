@@ -99,7 +99,7 @@ def deployment_table(config: AutomationConfig) -> str:
         ("Oracle Home Version", config.version.oracle_home_version),
         ("Patch Set", config.version.patch_set),
         ("Active Data Guard", "enabled" if config.active_dataguard_enabled else "disabled"),
-        ("Data Guard Method", config.dataguard.configuration_method),
+        ("Data Guard Method", config.dataguard.configuration_method or "not selected"),
         ("Protection Mode", config.dataguard.protection_mode),
         ("DNS Resolvers", ", ".join(config.dns.resolvers)),
         ("DNS Model", "SCAN only; public/private/VIP are managed in /etc/hosts"),
@@ -167,7 +167,7 @@ def scan_table(config: AutomationConfig) -> str:
 def dataguard_table(config: AutomationConfig) -> str:
     rows = [
         ("Enabled", "yes" if config.active_dataguard_enabled else "no"),
-        ("Method", config.dataguard.configuration_method),
+        ("Method", config.dataguard.configuration_method or "not selected"),
         ("Protection Mode", config.dataguard.protection_mode),
         ("Primary DB Unique Name", config.primary_site.db_unique_name),
         ("Standby DB Unique Name", config.standby_site.db_unique_name if config.standby_site else ""),
@@ -239,11 +239,17 @@ def results_from_state(data: dict[str, Any]) -> list[StepResult]:
     return results
 
 
-def _kv_table(rows: list[tuple[str, str]]) -> str:
+def _kv_table(rows: list[tuple[str, Any]]) -> str:
     body = "\n".join(
-        f"<tr><th>{html.escape(key)}</th><td>{html.escape(value)}</td></tr>" for key, value in rows
+        f"<tr><th>{html.escape(str(key))}</th><td>{html.escape(_display_value(value))}</td></tr>" for key, value in rows
     )
     return f"<table><tbody>{body}</tbody></table>"
+
+
+def _display_value(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value)
 
 
 def _private_cell(node: NodeConfig) -> str:

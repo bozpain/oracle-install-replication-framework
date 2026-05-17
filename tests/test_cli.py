@@ -11,6 +11,7 @@ from oracle_auto.config import NodeConfig, load_config
 from oracle_auto.executor import CommandResult
 from oracle_auto.precheck import _secret_env_check
 from oracle_auto.progress import render_progress_line
+from oracle_auto.report import render_html_report
 from oracle_auto.secrets import redact
 from oracle_auto.phase_builders.inventory import inventory_steps
 from oracle_auto.phase_builders.installer import verify_installer_steps
@@ -113,6 +114,14 @@ class CliTest(unittest.TestCase):
         ])
 
         self.assertEqual(code, 2)
+
+    def test_report_renders_standby_config_without_dataguard_mode(self):
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+
+        html = render_html_report(config, [])
+
+        self.assertIn("not selected", html)
+        self.assertIn("Active Data Guard", html)
 
     def test_manual_dataguard_steps_prepare_network_auxiliary_and_duplicate(self):
         base = load_config(Path("configs/gcp-single-gi-lab.json"))
