@@ -89,7 +89,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("RUN   generate-report:local:generate_report", buffer.getvalue())
         self.assertIn("Report published:", buffer.getvalue())
-        self.assertIn("Report URL: https://dbaportal/reports/single-gi-demo.html", buffer.getvalue())
+        self.assertIn("REPORT_URL=https://dbaportal/reports/single-gi-demo.html", buffer.getvalue())
         self.assertTrue((publish / "single-gi-demo.html").exists())
 
     def test_generate_report_can_publish_without_url(self):
