@@ -54,6 +54,7 @@
     ]
   },
   "asm": {
+    "storage_mode": "raw",
     "redundancy": "EXTERNAL",
     "data_disks": [
       {
