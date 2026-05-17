@@ -203,7 +203,7 @@ def render_html_report(
     .result-table td:nth-child(5) {{ color: #dbeafe; }}
     .result-table td:nth-child(3), .result-table td:nth-child(5) {{ overflow-wrap: anywhere; }}
     .evidence-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }}
-    .site-table-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }}
+    .site-table-grid {{ display: grid; grid-template-columns: 1fr; gap: 14px; }}
     .site-table {{
       min-width: 0;
       border: 1px solid var(--line-soft);
@@ -263,7 +263,7 @@ def render_html_report(
     }}
     @media (max-width: 980px) {{
       .hero, .grid {{ grid-template-columns: 1fr; }}
-      .metrics, .readiness, .evidence-grid, .site-table-grid, .readiness-list {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .metrics, .readiness, .evidence-grid, .readiness-list {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .shell {{ width: min(100% - 22px, 1560px); padding-top: 12px; }}
     }}
   </style>
