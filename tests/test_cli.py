@@ -185,8 +185,35 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("WHERE target = 'STANDBY'", command)
         self.assertIn("dataguard_stats", command)
 
+        primary_refresh = next(
+            step for step in steps if step.name == "refresh_dataguard_duplicate_network" and step.node.host == "ora-primary-01"
+        )
+        standby_refresh = next(
+            step for step in steps if step.name == "refresh_dataguard_duplicate_network" and step.node.host == "ora-standby-01"
+        )
+        primary_final = next(
+            step for step in steps if step.name == "configure_dataguard_final_network" and step.node.host == "ora-primary-01"
+        )
+        standby_final = next(
+            step for step in steps if step.name == "configure_dataguard_final_network" and step.node.host == "ora-standby-01"
+        )
+        self.assertNotIn("listener_file", primary_refresh.command)
+        self.assertNotIn("lsnrctl", primary_refresh.command)
+        self.assertNotIn("listener_file", primary_final.command)
+        self.assertNotIn("lsnrctl", primary_final.command)
+        self.assertIn("SID_LIST_LISTENER", standby_refresh.command)
+        self.assertIn("SID_NAME = ORCLSTBY", standby_refresh.command)
+        self.assertIn("lsnrctl reload LISTENER", standby_refresh.command)
+        self.assertIn("listener_file", standby_final.command)
+        self.assertIn("lsnrctl reload LISTENER || true", standby_final.command)
+        self.assertNotIn("SID_LIST_LISTENER", standby_final.command)
+
         for step in steps:
-            if step.name in {"refresh_dataguard_duplicate_network", "validate_dataguard_duplicate_network"}:
+            if step.name in {
+                "refresh_dataguard_duplicate_network",
+                "validate_dataguard_duplicate_network",
+                "configure_dataguard_final_network",
+            }:
                 self.assertTrue(step.force_rerun)
             else:
                 self.assertFalse(step.force_rerun)

@@ -30,7 +30,7 @@ def _dataguard_network_steps(config: AutomationConfig, phase: str) -> list[Autom
             phase,
             "configure_dataguard_network",
             node,
-            "Configure Data Guard network aliases and static listener",
+            "Configure Data Guard network aliases",
             _dataguard_network_script(config, node.host),
             timeout=1800,
         )
@@ -140,13 +140,19 @@ def _physical_standby_steps(config: AutomationConfig, phase: str) -> list[Automa
 def _dataguard_duplicate_network_refresh_steps(config: AutomationConfig, phase: str) -> list[AutomationStep]:
     if not config.standby_site:
         return []
+    standby_hosts = {node.host for node in config.standby_site.nodes}
     return [
         make_step(
             phase,
             "refresh_dataguard_duplicate_network",
             node,
             "Refresh Data Guard network before RMAN duplicate",
-            _dataguard_network_script(config, node.host),
+            _dataguard_network_script_for(
+                config,
+                node.host,
+                final=False,
+                install_static_listener=node.host in standby_hosts,
+            ),
             timeout=1800,
             force_rerun=True,
         )
@@ -178,20 +184,34 @@ def _dataguard_network_script(config: AutomationConfig, node_host: str) -> str:
 def _dataguard_final_network_steps(config: AutomationConfig, phase: str) -> list[AutomationStep]:
     if not config.standby_site:
         return []
+    standby_hosts = {node.host for node in config.standby_site.nodes}
     return [
         make_step(
             phase,
             "configure_dataguard_final_network",
             node,
             "Configure final Data Guard network aliases",
-            _dataguard_network_script_for(config, node.host, final=True),
+            _dataguard_network_script_for(
+                config,
+                node.host,
+                final=True,
+                cleanup_static_listener=node.host in standby_hosts,
+            ),
             timeout=1800,
+            force_rerun=True,
         )
         for node in config.all_nodes
     ]
 
 
-def _dataguard_network_script_for(config: AutomationConfig, node_host: str, *, final: bool) -> str:
+def _dataguard_network_script_for(
+    config: AutomationConfig,
+    node_host: str,
+    *,
+    final: bool,
+    install_static_listener: bool = False,
+    cleanup_static_listener: bool = False,
+) -> str:
     standby = config.standby_site
     assert standby is not None
     primary_unique = config.primary_site.db_unique_name
@@ -202,10 +222,7 @@ def _dataguard_network_script_for(config: AutomationConfig, node_host: str, *, f
     local_site = config.site_for_node(local_node)
     local_unique = local_site.db_unique_name
     local_sid = _instance_name(local_site, local_site.nodes.index(local_node), config.install_type)
-    local_host = node_host
     tnsnames = _tnsnames_content(primary_unique, primary_host, standby_unique, standby_host)
-    listener_sid = _listener_sid_content(local_unique, local_sid)
-    listener_address = _listener_address_content(local_host)
     title = "Configure final Data Guard network" if final else "Configure Data Guard network"
     lines = [
         f"mkdir -p {GRID_BASE}/network/admin {DB_HOME}/network/admin",
@@ -213,24 +230,55 @@ def _dataguard_network_script_for(config: AutomationConfig, node_host: str, *, f
         f"cp {DB_HOME}/network/admin/tnsnames.ora {GRID_BASE}/network/admin/tnsnames.ora",
         f"chown -R oracle:oinstall {DB_HOME}/network",
         f"chown -R grid:oinstall {GRID_BASE}/network",
+        *_dataguard_static_listener_lines(
+            local_unique,
+            local_sid,
+            install=install_static_listener,
+            cleanup=cleanup_static_listener,
+        ),
+    ]
+    return shell_script(title, lines)
+
+
+def _dataguard_static_listener_lines(
+    local_unique: str,
+    local_sid: str,
+    *,
+    install: bool,
+    cleanup: bool,
+) -> list[str]:
+    if not install and not cleanup:
+        return []
+
+    listener_sid = _listener_sid_content(local_unique, local_sid)
+    lines = [
         f"listener_file={shlex.quote(f'{GRID_BASE}/network/admin/listener.ora')}",
+        'test -f "$listener_file"',
         'if test -f "$listener_file"; then',
         '  awk \'/# BEGIN ORACLE-AUTO DATAGUARD/{skip=1} /# END ORACLE-AUTO DATAGUARD/{skip=0; next} !skip{print}\' "$listener_file" > "$listener_file.tmp"',
         '  mv "$listener_file.tmp" "$listener_file"',
         "fi",
-        'if grep -qi "^[[:space:]]*LISTENER[[:space:]]*=" "$listener_file"; then',
-        f"  cat >> \"$listener_file\" <<'EOF'\n{listener_sid}\nEOF",
-        "else",
-        f"  cat >> \"$listener_file\" <<'EOF'\n{listener_sid}\n\n{listener_address}\nEOF",
-        "fi",
-        'chown grid:oinstall "$listener_file"',
-        'chmod 664 "$listener_file"',
-        f"sudo -iu grid env ORACLE_HOME={GRID_BASE} TNS_ADMIN={GRID_BASE}/network/admin {GRID_BASE}/bin/lsnrctl status LISTENER >/tmp/oracle-auto-listener.status 2>&1 "
-        f"&& sudo -iu grid env ORACLE_HOME={GRID_BASE} TNS_ADMIN={GRID_BASE}/network/admin {GRID_BASE}/bin/lsnrctl reload LISTENER "
-        f"|| sudo -iu grid env ORACLE_HOME={GRID_BASE} TNS_ADMIN={GRID_BASE}/network/admin {GRID_BASE}/bin/lsnrctl start LISTENER",
-        f"sudo -iu grid env ORACLE_HOME={GRID_BASE} TNS_ADMIN={GRID_BASE}/network/admin {GRID_BASE}/bin/lsnrctl status LISTENER",
     ]
-    return shell_script(title, lines)
+    if install:
+        lines.extend([
+            f"cat >> \"$listener_file\" <<'EOF'\n{listener_sid}\nEOF",
+            'chown grid:oinstall "$listener_file"',
+            'chmod 664 "$listener_file"',
+            f"sudo -iu grid env ORACLE_HOME={GRID_BASE} TNS_ADMIN={GRID_BASE}/network/admin {GRID_BASE}/bin/lsnrctl status LISTENER >/tmp/oracle-auto-listener.status 2>&1 "
+            f"&& sudo -iu grid env ORACLE_HOME={GRID_BASE} TNS_ADMIN={GRID_BASE}/network/admin {GRID_BASE}/bin/lsnrctl reload LISTENER "
+            f"|| sudo -iu grid env ORACLE_HOME={GRID_BASE} TNS_ADMIN={GRID_BASE}/network/admin {GRID_BASE}/bin/lsnrctl start LISTENER",
+            f"sudo -iu grid env ORACLE_HOME={GRID_BASE} TNS_ADMIN={GRID_BASE}/network/admin {GRID_BASE}/bin/lsnrctl status LISTENER",
+        ])
+    else:
+        lines.extend([
+            'if test -f "$listener_file"; then',
+            '  chown grid:oinstall "$listener_file"',
+            '  chmod 664 "$listener_file"',
+            f"  sudo -iu grid env ORACLE_HOME={GRID_BASE} TNS_ADMIN={GRID_BASE}/network/admin {GRID_BASE}/bin/lsnrctl reload LISTENER || true",
+            f"  sudo -iu grid env ORACLE_HOME={GRID_BASE} TNS_ADMIN={GRID_BASE}/network/admin {GRID_BASE}/bin/lsnrctl status LISTENER || true",
+            "fi",
+        ])
+    return lines
 
 
 def _dataguard_network_validation_script(config: AutomationConfig) -> str:
@@ -680,17 +728,6 @@ SID_LIST_LISTENER =
     )
   )
 # END ORACLE-AUTO DATAGUARD"""
-
-
-def _listener_address_content(local_host: str) -> str:
-    return f"""# BEGIN ORACLE-AUTO DATAGUARD LISTENER ADDRESS
-LISTENER =
-  (DESCRIPTION_LIST =
-    (DESCRIPTION =
-      (ADDRESS = (PROTOCOL = TCP)(HOST = {local_host})(PORT = 1521))
-    )
-  )
-# END ORACLE-AUTO DATAGUARD LISTENER ADDRESS"""
 
 
 def _standby_pfile_content(primary_db_name: str, standby_unique: str, standby_host: str) -> str:
