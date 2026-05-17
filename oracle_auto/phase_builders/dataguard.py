@@ -738,12 +738,16 @@ def _export_primary_dataguard_baseline_script(config: AutomationConfig) -> str:
     pwfile_path = _primary_baseline_pwfile_path(primary_unique)
     lines = [
         "mkdir -p /tmp/oracle-auto-dataguard-baseline",
+        "chown oracle:oinstall /tmp/oracle-auto-dataguard-baseline",
+        "chmod 700 /tmp/oracle-auto-dataguard-baseline",
+        f"rm -f {pfile_path} {pwfile_path}",
         _oracle_sqlplus(
             primary_sid,
             f"WHENEVER SQLERROR EXIT SQL.SQLCODE\nCREATE PFILE='{pfile_path}' FROM SPFILE;\n",
         ),
         f"cp {DB_HOME}/dbs/orapw{primary_unique} {pwfile_path}",
-        f"chown {shlex.quote(transfer_user)} {pfile_path} {pwfile_path}",
+        f"chown {shlex.quote(transfer_user)} /tmp/oracle-auto-dataguard-baseline {pfile_path} {pwfile_path}",
+        "chmod 700 /tmp/oracle-auto-dataguard-baseline",
         f"chmod 600 {pfile_path} {pwfile_path}",
         f"ls -l {pfile_path} {pwfile_path}",
     ]
