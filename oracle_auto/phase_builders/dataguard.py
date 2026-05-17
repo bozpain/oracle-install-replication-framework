@@ -226,8 +226,7 @@ def _dataguard_network_script_for(
     title = "Configure final Data Guard network" if final else "Configure Data Guard network"
     lines = [
         f"mkdir -p {GRID_BASE}/network/admin {DB_HOME}/network/admin",
-        f"cat > {DB_HOME}/network/admin/tnsnames.ora <<'EOF'\n{tnsnames}\nEOF",
-        f"cp {DB_HOME}/network/admin/tnsnames.ora {GRID_BASE}/network/admin/tnsnames.ora",
+        *_dataguard_tnsnames_lines(tnsnames),
         f"chown -R oracle:oinstall {DB_HOME}/network",
         f"chown -R grid:oinstall {GRID_BASE}/network",
         *_dataguard_static_listener_lines(
@@ -291,6 +290,17 @@ def _dataguard_network_validation_script(config: AutomationConfig) -> str:
         f"sudo -iu oracle env ORACLE_HOME={DB_HOME} TNS_ADMIN={DB_HOME}/network/admin {DB_HOME}/bin/tnsping {standby_unique}",
     ]
     return shell_script("Validate Data Guard network", lines)
+
+
+def _dataguard_tnsnames_lines(tnsnames: str, *, indent: str = "") -> list[str]:
+    managed_tnsnames = _managed_tnsnames_content(tnsnames)
+    return [
+        f"{indent}tns_file={DB_HOME}/network/admin/tnsnames.ora",
+        f"{indent}touch \"$tns_file\"",
+        f"{indent}awk '/# BEGIN ORACLE-AUTO DATAGUARD TNSNAMES/{{skip=1}} /# END ORACLE-AUTO DATAGUARD TNSNAMES/{{skip=0; next}} !skip{{print}}' \"$tns_file\" > \"$tns_file.tmp\"",
+        f"{indent}mv \"$tns_file.tmp\" \"$tns_file\"",
+        f"{indent}cat >> \"$tns_file\" <<'EOF'\n{managed_tnsnames}\nEOF",
+    ]
 
 
 def _ensure_primary_archivelog_script(config: AutomationConfig) -> str:
@@ -516,8 +526,7 @@ def _duplicate_standby_script(config: AutomationConfig) -> str:
         "else",
         "  echo 'Refreshing Data Guard tnsnames before RMAN duplicate.'",
         f"  mkdir -p {DB_HOME}/network/admin {GRID_BASE}/network/admin",
-        f"  cat > {DB_HOME}/network/admin/tnsnames.ora <<'EOF'\n{tnsnames}\nEOF",
-        f"  cp {DB_HOME}/network/admin/tnsnames.ora {GRID_BASE}/network/admin/tnsnames.ora",
+        *_dataguard_tnsnames_lines(tnsnames, indent="  "),
         f"  chown -R oracle:oinstall {DB_HOME}/network",
         f"  chown -R grid:oinstall {GRID_BASE}/network",
         f"  cat {DB_HOME}/network/admin/tnsnames.ora",
@@ -675,6 +684,12 @@ def _tnsnames_content(primary_unique: str, primary_host: str, standby_unique: st
       (SERVICE_NAME = {standby_unique})
     )
   )"""
+
+
+def _managed_tnsnames_content(tnsnames: str) -> str:
+    return f"""# BEGIN ORACLE-AUTO DATAGUARD TNSNAMES
+{tnsnames}
+# END ORACLE-AUTO DATAGUARD TNSNAMES"""
 
 
 def _dataguard_endpoint(config: AutomationConfig, site, *, final: bool) -> str:

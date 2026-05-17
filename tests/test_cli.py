@@ -184,6 +184,13 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("target, destination", command)
         self.assertNotIn("WHERE target = 'STANDBY'", command)
         self.assertIn("dataguard_stats", command)
+        self.assertIn("# BEGIN ORACLE-AUTO DATAGUARD TNSNAMES", command)
+        self.assertIn("# END ORACLE-AUTO DATAGUARD TNSNAMES", command)
+        self.assertIn("tns_file=/u01/app/oracle/product/19.0.0/dbhome_1/network/admin/tnsnames.ora", command)
+        self.assertIn("!skip{print}", command)
+        self.assertNotIn("cat > /u01/app/oracle/product/19.0.0/dbhome_1/network/admin/tnsnames.ora", command)
+        self.assertNotIn("cp /u01/app/oracle/product/19.0.0/dbhome_1/network/admin/tnsnames.ora /u01/app/19.0.0/grid/network/admin/tnsnames.ora", command)
+        self.assertNotIn("tns_file=/u01/app/19.0.0/grid/network/admin/tnsnames.ora", command)
 
         primary_refresh = next(
             step for step in steps if step.name == "refresh_dataguard_duplicate_network" and step.node.host == "ora-primary-01"
