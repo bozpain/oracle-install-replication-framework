@@ -162,6 +162,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("ALTER DATABASE ADD STANDBY LOGFILE THREAD", command)
         self.assertIn("STARTUP NOMOUNT", command)
         self.assertIn("CREATE SPFILE=", command)
+        self.assertIn("CREATE SPFILE='+DATA/ORCLSTBY/PARAMETERFILE/spfileORCLSTBY.ora' FROM PFILE='/u01/app/oracle/product/19.0.0/dbhome_1/dbs/initORCLSTBY.ora';\nWHENEVER SQLERROR CONTINUE\nSHUTDOWN IMMEDIATE;", command)
         self.assertIn("asmcmd ls \"$spfile_alias\"", command)
         self.assertIn("Standby ASM spfile already exists; preserving it for resume.", command)
         self.assertIn("+DATA/ORCL_B/PARAMETERFILE/spfileORCL_B.ora", command)

@@ -314,7 +314,7 @@ def _prepare_standby_auxiliary_script(config: AutomationConfig) -> str:
         "else",
         _oracle_sqlplus(
             standby_sid,
-            f"WHENEVER SQLERROR CONTINUE\nSHUTDOWN ABORT;\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSTARTUP NOMOUNT PFILE='{DB_HOME}/dbs/init{standby_unique}.ora';\nCREATE SPFILE='{spfile_alias}' FROM PFILE='{DB_HOME}/dbs/init{standby_unique}.ora';\nSHUTDOWN IMMEDIATE;",
+            f"WHENEVER SQLERROR CONTINUE\nSHUTDOWN ABORT;\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSTARTUP NOMOUNT PFILE='{DB_HOME}/dbs/init{standby_unique}.ora';\nCREATE SPFILE='{spfile_alias}' FROM PFILE='{DB_HOME}/dbs/init{standby_unique}.ora';\nWHENEVER SQLERROR CONTINUE\nSHUTDOWN IMMEDIATE;",
         ),
         "fi",
         f"printf \"SPFILE='{spfile_alias}'\\n\" > {DB_HOME}/dbs/init{standby_unique}.ora",
