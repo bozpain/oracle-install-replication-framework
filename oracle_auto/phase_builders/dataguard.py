@@ -235,6 +235,7 @@ def _ensure_primary_archivelog_script(config: AutomationConfig) -> str:
             f"  echo 'Primary database is not registered with srvctl as {primary_unique} or {primary_db_name}; falling back to SQLPlus startup handling.'",
             "  PRIMARY_SRVCTL_DB=",
             "fi",
+            *_single_gi_initfile_repair_lines(primary_sid, primary_unique, primary_db_name),
             "if test -n \"$PRIMARY_SRVCTL_DB\"; then",
             f"  sudo -iu oracle {DB_HOME}/bin/srvctl start database -db \"$PRIMARY_SRVCTL_DB\" || true",
             "else",
@@ -267,6 +268,13 @@ def _ensure_primary_archivelog_script(config: AutomationConfig) -> str:
         f"  echo 'Primary database {primary_unique} already runs in ARCHIVELOG mode.'",
         "else",
         f"  echo 'Primary database {primary_unique} is not in ARCHIVELOG mode; enabling it now.'",
+        f"rm -f {DB_HOME}/dbs/init{primary_sid}.ora",
+        _oracle_sqlplus(
+            primary_sid,
+            f"WHENEVER SQLERROR EXIT SQL.SQLCODE\nCREATE PFILE='{DB_HOME}/dbs/init{primary_sid}.ora' FROM MEMORY;",
+        ),
+        f"chown oracle:oinstall {DB_HOME}/dbs/init{primary_sid}.ora",
+        f"chmod 600 {DB_HOME}/dbs/init{primary_sid}.ora",
         *mount_lines,
         _oracle_sqlplus(primary_sid, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER DATABASE ARCHIVELOG;\nSHUTDOWN IMMEDIATE;"),
         *restart_lines,
@@ -461,6 +469,37 @@ def _dg_secret_export(config: AutomationConfig) -> str:
         f'DG_PASSWORD="${{{config.secrets.dg_password_env}:?Set {config.secrets.dg_password_env} on target before running Data Guard steps}}"\n'
         "export DG_PASSWORD"
     )
+
+
+def _single_gi_initfile_repair_lines(primary_sid: str, primary_unique: str, primary_db_name: str) -> list[str]:
+    init_file = f"{DB_HOME}/dbs/init{primary_sid}.ora"
+    return [
+        f"PRIMARY_INIT_FILE={shlex.quote(init_file)}",
+        'if test ! -s "$PRIMARY_INIT_FILE"; then',
+        f"  echo 'Primary init file {init_file} is missing; looking for an spfile before restart.'",
+        "  PRIMARY_SPFILE=",
+        '  if test -n "$PRIMARY_SRVCTL_DB"; then',
+        f"    PRIMARY_SPFILE=$(sudo -iu oracle {DB_HOME}/bin/srvctl config database -db \"$PRIMARY_SRVCTL_DB\" 2>/dev/null | awk -F: '/^[[:space:]]*Spfile[[:space:]]*:/ {{gsub(/^[[:space:]]+|[[:space:]]+$/, \"\", $2); print $2; exit}}')",
+        "  fi",
+        '  if test -z "$PRIMARY_SPFILE"; then',
+        f"    PRIMARY_SPFILE=$(sudo -iu grid {GRID_BASE}/bin/asmcmd find +DATA {shlex.quote(f'spfile{primary_sid}.ora')} 2>/dev/null | head -1 || true)",
+        "  fi",
+        '  if test -z "$PRIMARY_SPFILE"; then',
+        f"    PRIMARY_SPFILE=$(sudo -iu grid {GRID_BASE}/bin/asmcmd find +DATA/{shlex.quote(primary_db_name)} spfile*.ora 2>/dev/null | head -1 || true)",
+        "  fi",
+        '  if test -z "$PRIMARY_SPFILE"; then',
+        f"    PRIMARY_SPFILE=$(sudo -iu grid {GRID_BASE}/bin/asmcmd find +DATA/{shlex.quote(primary_unique)} spfile*.ora 2>/dev/null | head -1 || true)",
+        "  fi",
+        '  if test -n "$PRIMARY_SPFILE"; then',
+        "    printf \"SPFILE='%s'\\n\" \"$PRIMARY_SPFILE\" > \"$PRIMARY_INIT_FILE\"",
+        "    chown oracle:oinstall \"$PRIMARY_INIT_FILE\"",
+        "    chmod 600 \"$PRIMARY_INIT_FILE\"",
+        '    echo "Created $PRIMARY_INIT_FILE pointing to $PRIMARY_SPFILE."',
+        "  else",
+        f"    echo 'No ASM spfile found for {primary_sid}; startup will continue and report the Oracle error if recovery is still needed.'",
+        "  fi",
+        "fi",
+    ]
 
 
 def _oracle_sqlplus(
