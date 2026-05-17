@@ -18,7 +18,7 @@ from oracle_auto.phase_builders.os import prepare_os_steps
 from oracle_auto.phase_builders.storage import configure_asm_storage_steps, prepare_storage_rules_steps
 from oracle_auto.phase_builders.grid import install_grid_steps
 from oracle_auto.phase_builders.database import create_database_steps, install_db_software_steps
-from oracle_auto.phase_builders.patching import apply_ojvm_patch_steps
+from oracle_auto.phase_builders.patching import apply_ojvm_patch_steps, patch_inventory_steps
 from oracle_auto.response_files.grid import grid_response
 from oracle_auto.state import NoopStateStore
 
@@ -723,6 +723,24 @@ class CliTest(unittest.TestCase):
         self.assertIn("Validating OJVM patch $OJVM_PATCH_ID in DB home patch list.", steps[0].command)
         self.assertIn("OPatch/opatch lspatches", steps[0].command)
         self.assertIn("is not visible in DB home patch list after apply", steps[0].command)
+
+    def test_patch_inventory_collects_versions_and_patch_lists(self):
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        command = patch_inventory_steps(config)[0].command
+
+        self.assertIn("== Grid home version ==", command)
+        self.assertIn("/u01/app/19.0.0/grid/bin/oraversion -compositeVersion", command)
+        self.assertIn("== Grid OPatch version ==", command)
+        self.assertIn("/u01/app/19.0.0/grid/OPatch/opatch version", command)
+        self.assertIn("== Grid patches ==", command)
+        self.assertIn("/u01/app/19.0.0/grid/OPatch/opatch lspatches", command)
+        self.assertIn("== Database home version ==", command)
+        self.assertIn("/u01/app/oracle/product/19.0.0/dbhome_1/bin/oraversion -compositeVersion", command)
+        self.assertIn("== Database OPatch version ==", command)
+        self.assertIn("/u01/app/oracle/product/19.0.0/dbhome_1/OPatch/opatch version", command)
+        self.assertIn("== Database patches ==", command)
+        self.assertIn("/u01/app/oracle/product/19.0.0/dbhome_1/OPatch/opatch lspatches", command)
+        self.assertNotIn("opatch lsinventory", command)
 
     def test_create_database_validates_asm_before_dbca(self):
         config = load_config(Path("configs/gcp-single-gi-lab.json"))
