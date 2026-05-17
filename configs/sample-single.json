@@ -66,8 +66,7 @@
     "patch_manifest": "19.30"
   },
   "dataguard": {
-    "configuration_method": "broker",
-    "protection_mode": "max_performance"
+    "configuration_method": "broker"
   },
   "secrets": {
     "sys_password_env": "ORACLE_AUTO_SYS_PASSWORD",

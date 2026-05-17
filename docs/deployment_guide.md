@@ -457,8 +457,7 @@ Jika `standby_site` diisi, Active Data Guard otomatis aktif.
 
 ```json
 "dataguard": {
-  "configuration_method": "broker",
-  "protection_mode": "max_performance"
+  "configuration_method": "broker"
 }
 ```
 
@@ -467,7 +466,7 @@ Jika `standby_site` diisi, Active Data Guard otomatis aktif.
 | 🟡 `manual` | Physical standby tanpa Broker |
 | 🟢 `broker` | Recommended untuk manageability dan role operation |
 
-Protection mode baseline:
+Protection mode is fixed by the framework baseline:
 
 ```text
 max_performance
