@@ -45,7 +45,7 @@ def render_html_report(
     results: list[StepResult],
     title: str | None = None,
 ) -> str:
-    page_title = title or f"Oracle Automation Report - {config.run_id}"
+    page_title = title or "Oracle Installation & Replication Framework"
     generated_at = datetime.now(timezone.utc).isoformat()
     counts = _status_counts(results)
     total_steps = sum(counts.values())
@@ -203,6 +203,23 @@ def render_html_report(
     .result-table td:nth-child(5) {{ color: #dbeafe; }}
     .result-table td:nth-child(3), .result-table td:nth-child(5) {{ overflow-wrap: anywhere; }}
     .evidence-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }}
+    .site-table-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }}
+    .site-table {{
+      min-width: 0;
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      overflow: hidden;
+      background: rgba(2, 6, 23, 0.30);
+    }}
+    .site-table h3 {{
+      margin: 0;
+      padding: 13px 15px;
+      font-size: 15px;
+      background: rgba(30, 41, 59, 0.90);
+      border-bottom: 1px solid var(--line-soft);
+    }}
+    .site-table h3 span {{ color: var(--muted); font-weight: 700; }}
+    .site-table table {{ border: 0; border-radius: 0; }}
     .evidence {{
       min-width: 0;
       border: 1px solid var(--line-soft);
@@ -222,15 +239,31 @@ def render_html_report(
     .evidence-block:last-child {{ border-bottom: 0; }}
     .evidence-title {{ color: var(--cyan); font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }}
     pre {{
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
+      white-space: pre;
+      overflow-x: auto;
       margin: 0;
       color: #dbeafe;
       font: 12px/1.5 "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
     }}
+    .readiness-list {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }}
+    .readiness-list li {{
+      padding: 9px 10px;
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.66);
+      color: #dbeafe;
+      font: 12px/1.45 "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+    }}
     @media (max-width: 980px) {{
       .hero, .grid {{ grid-template-columns: 1fr; }}
-      .metrics, .readiness, .evidence-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .metrics, .readiness, .evidence-grid, .site-table-grid, .readiness-list {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .shell {{ width: min(100% - 22px, 1560px); padding-top: 12px; }}
     }}
   </style>
@@ -264,7 +297,7 @@ def render_html_report(
       </section>
       <section>
         <h2>Data Guard</h2>
-        {dataguard_table(config)}
+        {dataguard_table(config, results)}
       </section>
       <section class="wide">
         <h2>Topology</h2>
@@ -342,12 +375,12 @@ def topology_table(config: AutomationConfig) -> str:
 
 
 def asm_table(config: AutomationConfig) -> str:
-    rows = []
+    site_tables = []
     for site in config.sites:
+        rows = []
         for label, path, group, disk in asm_entries(config, site):
             rows.append(
                 "<tr>"
-                f"<td>{html.escape(site.name)}</td>"
                 f"<td>{html.escape(group)}</td>"
                 f"<td>{html.escape(label)}</td>"
                 f"<td>{html.escape(disk.source_for(site_name=site.name))}</td>"
@@ -355,10 +388,14 @@ def asm_table(config: AutomationConfig) -> str:
                 f"<td>{html.escape(config.asm.redundancy)}</td>"
                 "</tr>"
             )
-    return (
-        "<table><thead><tr><th>Site</th><th>Diskgroup</th><th>ASMLIB Label</th><th>Source</th><th>Device Path</th><th>Redundancy</th></tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody></table>"
-    )
+        site_tables.append(
+            '<article class="site-table">'
+            f"<h3>{html.escape(site.name)} <span>{html.escape(site.db_unique_name)}</span></h3>"
+            "<table><thead><tr><th>Diskgroup</th><th>ASMLIB Label</th><th>Source</th><th>Device Path</th><th>Redundancy</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table>"
+            "</article>"
+        )
+    return f'<div class="site-table-grid">{"".join(site_tables)}</div>'
 
 
 def scan_table(config: AutomationConfig) -> str:
@@ -374,10 +411,10 @@ def scan_table(config: AutomationConfig) -> str:
     return "<table><thead><tr><th>Site</th><th>SCAN Name</th><th>Validation Source</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
 
 
-def dataguard_table(config: AutomationConfig) -> str:
+def dataguard_table(config: AutomationConfig, results: list[StepResult] | None = None) -> str:
     rows = [
         ("Enabled", "yes" if config.active_dataguard_enabled else "no"),
-        ("Method", config.dataguard.configuration_method or "not selected"),
+        ("Method", _dataguard_method(config, results or [])),
         ("Protection Mode", config.dataguard.protection_mode),
         ("Primary DB Unique Name", config.primary_site.db_unique_name),
         ("Standby DB Unique Name", config.standby_site.db_unique_name if config.standby_site else ""),
@@ -460,7 +497,7 @@ def validation_evidence_panel(validation: list[StepResult]) -> str:
             blocks.append(
                 '<div class="evidence-block">'
                 f'<div class="evidence-title">{html.escape(section_title)}</div>'
-                f"<pre>{html.escape(_trim_evidence(text))}</pre>"
+                f"{_evidence_body(section_title, text)}"
                 "</div>"
             )
         cards.append(
@@ -652,6 +689,18 @@ def _trim_evidence(text: str, limit: int = 2200) -> str:
     return compact[: limit - 80].rstrip() + "\n... evidence trimmed; see automation audit trail for full step log ..."
 
 
+def _evidence_body(section_title: str, text: str) -> str:
+    trimmed = _trim_evidence(text)
+    if section_title.upper() == "READINESS SUMMARY":
+        items = []
+        for line in trimmed.splitlines():
+            if not line.strip():
+                continue
+            items.append(f"<li>{html.escape(line.strip())}</li>")
+        return f'<ul class="readiness-list">{"".join(items)}</ul>'
+    return f"<pre>{html.escape(trimmed)}</pre>"
+
+
 def _evidence_state(validation: list[StepResult], pass_text: str, warn_text: str) -> str:
     combined = "\n".join(item.stdout for item in validation)
     if pass_text in combined:
@@ -688,6 +737,17 @@ def _display_value(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _dataguard_method(config: AutomationConfig, results: list[StepResult]) -> str:
+    method = (config.dataguard.configuration_method or "").strip()
+    if method:
+        return method
+    if any(item.phase == "configure-dataguard" for item in results):
+        return "manual"
+    if config.active_dataguard_enabled and config.standby_site:
+        return "manual"
+    return "not selected"
 
 
 def _private_cell(node: NodeConfig) -> str:
