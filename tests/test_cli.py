@@ -210,8 +210,12 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("lsnrctl", primary_final.command)
         self.assertIn("SID_LIST_LISTENER", standby_refresh.command)
         self.assertIn("SID_NAME = ORCLSTBY", standby_refresh.command)
+        self.assertIn("LISTENER =", standby_refresh.command)
+        self.assertIn("(HOST = ora-standby-01)(PORT = 1521)", standby_refresh.command)
         self.assertIn("lsnrctl reload LISTENER", standby_refresh.command)
         self.assertIn("listener_file", standby_final.command)
+        self.assertIn("LISTENER =", standby_final.command)
+        self.assertIn("(HOST = ora-standby-01)(PORT = 1521)", standby_final.command)
         self.assertIn("lsnrctl reload LISTENER || true", standby_final.command)
         self.assertNotIn("SID_LIST_LISTENER", standby_final.command)
 

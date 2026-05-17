@@ -222,6 +222,7 @@ def _dataguard_network_script_for(
     local_site = config.site_for_node(local_node)
     local_unique = local_site.db_unique_name
     local_sid = _instance_name(local_site, local_site.nodes.index(local_node), config.install_type)
+    local_host = node_host
     tnsnames = _tnsnames_content(primary_unique, primary_host, standby_unique, standby_host)
     title = "Configure final Data Guard network" if final else "Configure Data Guard network"
     lines = [
@@ -232,6 +233,7 @@ def _dataguard_network_script_for(
         *_dataguard_static_listener_lines(
             local_unique,
             local_sid,
+            local_host,
             install=install_static_listener,
             cleanup=cleanup_static_listener,
         ),
@@ -242,6 +244,7 @@ def _dataguard_network_script_for(
 def _dataguard_static_listener_lines(
     local_unique: str,
     local_sid: str,
+    local_host: str,
     *,
     install: bool,
     cleanup: bool,
@@ -250,12 +253,16 @@ def _dataguard_static_listener_lines(
         return []
 
     listener_sid = _listener_sid_content(local_unique, local_sid)
+    listener_address = _listener_address_content(local_host)
     lines = [
         f"listener_file={shlex.quote(f'{GRID_BASE}/network/admin/listener.ora')}",
         'test -f "$listener_file"',
         'if test -f "$listener_file"; then',
         '  awk \'/# BEGIN ORACLE-AUTO DATAGUARD/{skip=1} /# END ORACLE-AUTO DATAGUARD/{skip=0; next} !skip{print}\' "$listener_file" > "$listener_file.tmp"',
         '  mv "$listener_file.tmp" "$listener_file"',
+        "fi",
+        'if ! grep -qi "^[[:space:]]*LISTENER[[:space:]]*=" "$listener_file"; then',
+        f"  cat >> \"$listener_file\" <<'EOF'\n{listener_address}\nEOF",
         "fi",
     ]
     if install:
@@ -743,6 +750,15 @@ SID_LIST_LISTENER =
     )
   )
 # END ORACLE-AUTO DATAGUARD"""
+
+
+def _listener_address_content(local_host: str) -> str:
+    return f"""LISTENER =
+  (DESCRIPTION_LIST =
+    (DESCRIPTION =
+      (ADDRESS = (PROTOCOL = TCP)(HOST = {local_host})(PORT = 1521))
+    )
+  )"""
 
 
 def _standby_pfile_content(primary_db_name: str, standby_unique: str, standby_host: str) -> str:
