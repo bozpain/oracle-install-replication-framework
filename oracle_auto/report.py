@@ -272,7 +272,7 @@ def render_html_report(
   <main class="shell">
     <header class="hero">
       <div>
-        <div class="eyebrow">DBA Automation Report</div>
+        <div class="eyebrow">DBA Automation</div>
         <h1>{html.escape(page_title)}</h1>
         <div class="hero-meta">
           <span class="pill">Run <code>{html.escape(config.run_id)}</code></span>
