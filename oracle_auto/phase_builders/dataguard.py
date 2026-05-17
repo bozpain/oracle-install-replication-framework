@@ -12,6 +12,8 @@ from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig
 from oracle_auto.phase_builders.common import DB_HOME, GRID_BASE, ORACLE_BASE, make_step
 
+STANDBY_REDO_LOG_SIZE = "200M"
+
 
 def configure_dataguard_steps(config: AutomationConfig) -> list[AutomationStep]:
     return [
@@ -339,12 +341,49 @@ def _primary_dataguard_script(config: AutomationConfig) -> str:
     primary_unique = config.primary_site.db_unique_name
     primary_sid = _instance_name(config.primary_site, 0, config.install_type)
     standby_unique = standby.db_unique_name
+    primary_sql = f"""WHENEVER SQLERROR EXIT SQL.SQLCODE
+SET SERVEROUTPUT ON
+DECLARE
+  l_force_logging VARCHAR2(3);
+  l_supplemental_min VARCHAR2(8);
+  l_existing NUMBER;
+BEGIN
+  SELECT force_logging, supplemental_log_data_min
+    INTO l_force_logging, l_supplemental_min
+    FROM v$database;
+
+  IF l_force_logging = 'YES' THEN
+    DBMS_OUTPUT.PUT_LINE('Database already runs in FORCE LOGGING mode.');
+  ELSE
+    EXECUTE IMMEDIATE 'ALTER DATABASE FORCE LOGGING';
+    DBMS_OUTPUT.PUT_LINE('Enabled FORCE LOGGING mode.');
+  END IF;
+
+  IF l_supplemental_min = 'YES' THEN
+    DBMS_OUTPUT.PUT_LINE('Supplemental logging is already enabled.');
+  ELSE
+    EXECUTE IMMEDIATE 'ALTER DATABASE ADD SUPPLEMENTAL LOG DATA';
+    DBMS_OUTPUT.PUT_LINE('Enabled supplemental logging.');
+  END IF;
+
+  FOR thread_rec IN (SELECT thread# FROM v$thread WHERE enabled = 'PUBLIC' ORDER BY thread#) LOOP
+    SELECT COUNT(*) INTO l_existing FROM v$standby_log WHERE thread# = thread_rec.thread#;
+    FOR item IN (l_existing + 1)..4 LOOP
+      EXECUTE IMMEDIATE 'ALTER DATABASE ADD STANDBY LOGFILE THREAD ' || thread_rec.thread# || ' SIZE {STANDBY_REDO_LOG_SIZE}';
+      DBMS_OUTPUT.PUT_LINE('Added standby redo log for thread ' || thread_rec.thread# || ', slot ' || item);
+    END LOOP;
+  END LOOP;
+END;
+/
+ALTER SYSTEM SET LOG_ARCHIVE_CONFIG='DG_CONFIG=({primary_unique},{standby_unique})' SCOPE=BOTH SID='*';
+ALTER SYSTEM SET LOG_ARCHIVE_DEST_1='LOCATION=USE_DB_RECOVERY_FILE_DEST VALID_FOR=(ALL_LOGFILES,ALL_ROLES) DB_UNIQUE_NAME={primary_unique}' SCOPE=BOTH SID='*';
+ALTER SYSTEM SET LOG_ARCHIVE_DEST_2='SERVICE={standby_unique} ASYNC VALID_FOR=(ONLINE_LOGFILES,PRIMARY_ROLE) DB_UNIQUE_NAME={standby_unique}' SCOPE=BOTH SID='*';
+ALTER SYSTEM SET FAL_SERVER='{standby_unique}' SCOPE=BOTH SID='*';
+ALTER SYSTEM SET STANDBY_FILE_MANAGEMENT='AUTO' SCOPE=BOTH SID='*';
+SELECT thread#, group#, bytes/1024/1024 size_mb FROM v$standby_log ORDER BY thread#, group#;"""
     lines = [
         _dg_secret_export(config),
-        _oracle_sqlplus(
-            primary_sid,
-            f"WHENEVER SQLERROR EXIT SQL.SQLCODE\nSET SERVEROUTPUT ON\nDECLARE\n  l_force_logging VARCHAR2(3);\n  l_supplemental_min VARCHAR2(8);\n  l_existing NUMBER;\nBEGIN\n  SELECT force_logging, supplemental_log_data_min\n    INTO l_force_logging, l_supplemental_min\n    FROM v$database;\n\n  IF l_force_logging = 'YES' THEN\n    DBMS_OUTPUT.PUT_LINE('Database already runs in FORCE LOGGING mode.');\n  ELSE\n    EXECUTE IMMEDIATE 'ALTER DATABASE FORCE LOGGING';\n    DBMS_OUTPUT.PUT_LINE('Enabled FORCE LOGGING mode.');\n  END IF;\n\n  IF l_supplemental_min = 'YES' THEN\n    DBMS_OUTPUT.PUT_LINE('Supplemental logging is already enabled.');\n  ELSE\n    EXECUTE IMMEDIATE 'ALTER DATABASE ADD SUPPLEMENTAL LOG DATA';\n    DBMS_OUTPUT.PUT_LINE('Enabled supplemental logging.');\n  END IF;\n\n  FOR thread_rec IN (SELECT thread# FROM v$thread WHERE enabled = 'PUBLIC' ORDER BY thread#) LOOP\n    SELECT COUNT(*) INTO l_existing FROM v$standby_log WHERE thread# = thread_rec.thread#;\n    FOR item IN (l_existing + 1)..4 LOOP\n      EXECUTE IMMEDIATE 'ALTER DATABASE ADD STANDBY LOGFILE THREAD ' || thread_rec.thread# || ' SIZE 2G';\n      DBMS_OUTPUT.PUT_LINE('Added standby redo log for thread ' || thread_rec.thread# || ', slot ' || item);\n    END LOOP;\n  END LOOP;\nEND;\n/\nALTER SYSTEM SET LOG_ARCHIVE_CONFIG='DG_CONFIG=({primary_unique},{standby_unique})' SCOPE=BOTH SID='*';\nALTER SYSTEM SET LOG_ARCHIVE_DEST_1='LOCATION=USE_DB_RECOVERY_FILE_DEST VALID_FOR=(ALL_LOGFILES,ALL_ROLES) DB_UNIQUE_NAME={primary_unique}' SCOPE=BOTH SID='*';\nALTER SYSTEM SET LOG_ARCHIVE_DEST_2='SERVICE={standby_unique} ASYNC VALID_FOR=(ONLINE_LOGFILES,PRIMARY_ROLE) DB_UNIQUE_NAME={standby_unique}' SCOPE=BOTH SID='*';\nALTER SYSTEM SET FAL_SERVER='{standby_unique}' SCOPE=BOTH SID='*';\nALTER SYSTEM SET STANDBY_FILE_MANAGEMENT='AUTO' SCOPE=BOTH SID='*';\nSELECT thread#, group#, bytes/1024/1024 size_mb FROM v$standby_log ORDER BY thread#, group#;",
-        ),
+        _oracle_sqlplus(primary_sid, primary_sql),
         f"sudo -iu oracle {DB_HOME}/bin/orapwd file={DB_HOME}/dbs/orapw{primary_unique} force=y format=12 password=\"$DG_PASSWORD\"",
         f"mkdir -p {GRID_BASE}/dbs",
         f"cp {DB_HOME}/dbs/orapw{primary_unique} {GRID_BASE}/dbs/orapw{primary_unique}",
