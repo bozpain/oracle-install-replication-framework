@@ -470,7 +470,7 @@ def _single_gi_initfile_repair_lines(
         f"PRIMARY_INIT_FILE={shlex.quote(init_file)}",
         "PRIMARY_INIT_VALID=false",
         'if test -s "$PRIMARY_INIT_FILE" && grep -Eq "^[[:space:]]*SPFILE=" "$PRIMARY_INIT_FILE"; then',
-        "  PRIMARY_EXISTING_SPFILE=$(awk -F= '/^[[:space:]]*SPFILE=/ {gsub(/'\''/, \"\", $2); gsub(/^[[:space:]]+|[[:space:]]+$/, \"\", $2); print $2; exit}' \"$PRIMARY_INIT_FILE\")",
+        "  PRIMARY_EXISTING_SPFILE=$(grep -Ei '^[[:space:]]*SPFILE=' \"$PRIMARY_INIT_FILE\" | head -1 | cut -d= -f2- | tr -d \"'\" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')",
         '  if test -n "$PRIMARY_EXISTING_SPFILE" && sudo -iu grid {grid_base}/bin/asmcmd ls "$PRIMARY_EXISTING_SPFILE" >/dev/null 2>&1; then'.format(grid_base=GRID_BASE),
         "    PRIMARY_INIT_VALID=true",
         "  else",
