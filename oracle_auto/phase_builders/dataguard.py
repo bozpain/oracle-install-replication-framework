@@ -227,7 +227,7 @@ def _dataguard_network_script_for(
     title = "Configure final Data Guard network" if final else "Configure Data Guard network"
     lines = [
         f"mkdir -p {GRID_BASE}/network/admin {DB_HOME}/network/admin",
-        *_dataguard_tnsnames_lines(tnsnames),
+        *_dataguard_tnsnames_lines(tnsnames, [primary_unique, standby_unique]),
         f"chown -R oracle:oinstall {DB_HOME}/network",
         f"chown -R grid:oinstall {GRID_BASE}/network",
         *_dataguard_static_listener_lines(
@@ -299,15 +299,94 @@ def _dataguard_network_validation_script(config: AutomationConfig) -> str:
     return shell_script("Validate Data Guard network", lines)
 
 
-def _dataguard_tnsnames_lines(tnsnames: str, *, indent: str = "") -> list[str]:
+def _dataguard_tnsnames_lines(tnsnames: str, managed_aliases: list[str], *, indent: str = "") -> list[str]:
     managed_tnsnames = _managed_tnsnames_content(tnsnames)
+    aliases = shlex.quote(" ".join(managed_aliases))
+    cleanup_awk = shlex.quote(_tnsnames_cleanup_awk())
     return [
         f"{indent}tns_file={DB_HOME}/network/admin/tnsnames.ora",
         f"{indent}touch \"$tns_file\"",
-        f"{indent}awk '/# BEGIN ORACLE-AUTO DATAGUARD TNSNAMES/{{skip=1}} /# END ORACLE-AUTO DATAGUARD TNSNAMES/{{skip=0; next}} !skip{{print}}' \"$tns_file\" > \"$tns_file.tmp\"",
+        f"{indent}awk -v aliases={aliases} {cleanup_awk} \"$tns_file\" > \"$tns_file.tmp\"",
         f"{indent}mv \"$tns_file.tmp\" \"$tns_file\"",
         f"{indent}cat >> \"$tns_file\" <<'EOF'\n{managed_tnsnames}\nEOF",
     ]
+
+
+def _tnsnames_cleanup_awk() -> str:
+    return r"""BEGIN {
+  n = split(tolower(aliases), managed, /[[:space:]]+/)
+  for (i = 1; i <= n; i++) {
+    remove_alias[managed[i]] = 1
+  }
+}
+
+function paren_delta(line,   i, char, delta) {
+  delta = 0
+  for (i = 1; i <= length(line); i++) {
+    char = substr(line, i, 1)
+    if (char == "(") {
+      delta++
+    } else if (char == ")") {
+      delta--
+    }
+  }
+  return delta
+}
+
+function entry_alias(line,   raw, names) {
+  raw = line
+  sub(/^[[:space:]]*/, "", raw)
+  if (raw !~ /^[^#=]+[[:space:]]*=/) {
+    return ""
+  }
+  sub(/[[:space:]]*=.*/, "", raw)
+  gsub(/[[:space:]]/, "", raw)
+  split(raw, names, ",")
+  return tolower(names[1])
+}
+
+/# BEGIN ORACLE-AUTO DATAGUARD TNSNAMES/ {
+  skip_managed = 1
+  next
+}
+
+/# END ORACLE-AUTO DATAGUARD TNSNAMES/ {
+  skip_managed = 0
+  next
+}
+
+skip_managed {
+  next
+}
+
+skip_entry {
+  if ($0 ~ /\(/) {
+    seen_paren = 1
+  }
+  depth += paren_delta($0)
+  if (seen_paren && depth <= 0) {
+    skip_entry = 0
+    seen_paren = 0
+    depth = 0
+  }
+  next
+}
+
+{
+  alias_name = entry_alias($0)
+  if (alias_name != "" && alias_name in remove_alias) {
+    skip_entry = 1
+    seen_paren = ($0 ~ /\(/)
+    depth = paren_delta($0)
+    if (seen_paren && depth <= 0) {
+      skip_entry = 0
+      seen_paren = 0
+      depth = 0
+    }
+    next
+  }
+  print
+}"""
 
 
 def _ensure_primary_archivelog_script(config: AutomationConfig) -> str:
@@ -533,7 +612,7 @@ def _duplicate_standby_script(config: AutomationConfig) -> str:
         "else",
         "  echo 'Refreshing Data Guard tnsnames before RMAN duplicate.'",
         f"  mkdir -p {DB_HOME}/network/admin {GRID_BASE}/network/admin",
-        *_dataguard_tnsnames_lines(tnsnames, indent="  "),
+        *_dataguard_tnsnames_lines(tnsnames, [primary_unique, standby_unique], indent="  "),
         f"  chown -R oracle:oinstall {DB_HOME}/network",
         f"  chown -R grid:oinstall {GRID_BASE}/network",
         f"  cat {DB_HOME}/network/admin/tnsnames.ora",
