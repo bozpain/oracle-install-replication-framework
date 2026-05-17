@@ -745,6 +745,8 @@ class CliTest(unittest.TestCase):
         self.assertIn('sub(/\\/$/, "", name)', command)
         self.assertIn("for diskgroup in DATA RECO", command)
         self.assertIn("Checking for stale partial DBCA database state before createDatabase.", command)
+        self.assertIn("srvctl config database -db ORCL", command)
+        self.assertIn("ps -eo args=", command)
         self.assertIn("ora_pmon_ORCL_A", command)
         self.assertIn("Detected running ORCL_A instance without srvctl registration; validating before DBCA retry.", command)
         self.assertIn("Database ORCL_A is already queryable; skipping destructive stale cleanup.", command)
