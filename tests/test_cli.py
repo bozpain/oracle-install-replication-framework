@@ -117,6 +117,7 @@ class CliTest(unittest.TestCase):
             "configure_dataguard_network",
             "validate_dataguard_network",
             "validate_dataguard_network",
+            "ensure_primary_archivelog",
             "configure_primary_dataguard",
             "prepare_standby_auxiliary",
             "duplicate_standby_database",
@@ -135,14 +136,25 @@ class CliTest(unittest.TestCase):
         self.assertIn("(HOST = 10.128.0.4)", command)
         self.assertIn("tnsping ORCL_A", command)
         self.assertIn("tnsping ORCL_B", command)
+        self.assertIn("ALTER DATABASE ARCHIVELOG", command)
+        self.assertIn("grep -Eqi", command)
+        self.assertIn("^[[:space:]]*ARCHIVELOG[[:space:]]*$", command)
+        self.assertIn("Primary database ORCL_A already runs in ARCHIVELOG mode.", command)
         self.assertIn("ALTER DATABASE ADD STANDBY LOGFILE THREAD", command)
         self.assertIn("STARTUP NOMOUNT", command)
         self.assertIn("CREATE SPFILE=", command)
+        self.assertIn("asmcmd ls \"$spfile_alias\"", command)
+        self.assertIn("Standby ASM spfile already exists; preserving it for resume.", command)
         self.assertIn("+DATA/ORCL_B/PARAMETERFILE/spfileORCL_B.ora", command)
         self.assertIn("srvctl start database -db ORCL_B -startoption NOMOUNT", command)
         self.assertIn("DUPLICATE TARGET DATABASE FOR STANDBY FROM ACTIVE DATABASE", command)
         self.assertIn("ALTER SYSTEM ARCHIVE LOG CURRENT", command)
         self.assertIn("dataguard_stats", command)
+
+        for step in steps:
+            self.assertFalse(step.force_rerun)
+            self.assertIn("oracle-auto remote marker wrapper", step.command)
+            self.assertIn(f"/u01/stage/oracle-auto/state/{step.phase.replace('-', '_')}", step.command)
 
     def test_broker_dataguard_adds_broker_after_manual_steps(self):
         base = load_config(Path("configs/gcp-single-gi-lab.json"))
@@ -171,8 +183,10 @@ class CliTest(unittest.TestCase):
         self.assertEqual(names.count("configure_dataguard_network"), 4)
         self.assertEqual(names.count("configure_dataguard_final_network"), 4)
         self.assertEqual(names.count("validate_dataguard_final_network"), 4)
+        self.assertEqual(names.count("ensure_primary_archivelog"), 1)
         self.assertIn("export ORACLE_SID=ORCL_A1", command)
         self.assertIn("export ORACLE_SID=ORCL_B1", command)
+        self.assertIn("srvctl start instance -db ORCL_A -instance ORCL_A1 -startoption MOUNT", command)
         self.assertIn("SID_NAME = ORCL_B1", command)
         self.assertIn("SID_NAME = ORCL_B2", command)
         self.assertIn("srvctl config database -db ORCL_B | grep -qw ORCL_B1", command)

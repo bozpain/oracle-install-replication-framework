@@ -76,6 +76,14 @@ def _physical_standby_steps(config: AutomationConfig, phase: str) -> list[Automa
     return [
         make_step(
             phase,
+            "ensure_primary_archivelog",
+            config.primary_site.nodes[0],
+            "Ensure primary database runs in ARCHIVELOG mode",
+            _ensure_primary_archivelog_script(config),
+            timeout=1800,
+        ),
+        make_step(
+            phase,
             "configure_primary_dataguard",
             config.primary_site.nodes[0],
             "Configure primary database for Active Data Guard",
@@ -201,6 +209,26 @@ def _dataguard_network_validation_script(config: AutomationConfig) -> str:
     return shell_script("Validate Data Guard network", lines)
 
 
+def _ensure_primary_archivelog_script(config: AutomationConfig) -> str:
+    primary_unique = config.primary_site.db_unique_name
+    primary_sid = _instance_name(config.primary_site, 0, config.install_type)
+    lines = [
+        f"sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {primary_unique} || true",
+        f"sudo -iu oracle bash -lc \"export ORACLE_SID={primary_sid}; sqlplus -s / as sysdba <<'SQL' >/tmp/oracle-auto-{primary_unique}-archivelog.out\nSET HEADING OFF FEEDBACK OFF PAGESIZE 0\nSELECT log_mode FROM v\\$database;\nSQL\"",
+        f"if grep -Eqi '^[[:space:]]*ARCHIVELOG[[:space:]]*$' /tmp/oracle-auto-{primary_unique}-archivelog.out; then",
+        f"  echo 'Primary database {primary_unique} already runs in ARCHIVELOG mode.'",
+        "else",
+        f"  echo 'Primary database {primary_unique} is not in ARCHIVELOG mode; enabling it now.'",
+        f"  sudo -iu oracle {DB_HOME}/bin/srvctl stop database -db {primary_unique} -stopoption IMMEDIATE || true",
+        f"  sudo -iu oracle {DB_HOME}/bin/srvctl start instance -db {primary_unique} -instance {primary_sid} -startoption MOUNT || sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {primary_unique} -startoption MOUNT",
+        f"  sudo -iu oracle bash -lc \"export ORACLE_SID={primary_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER DATABASE ARCHIVELOG;\nSHUTDOWN IMMEDIATE;\nSQL\"",
+        f"  sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {primary_unique}",
+        "fi",
+        f"sudo -iu oracle bash -lc \"export ORACLE_SID={primary_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT name, log_mode, open_mode, database_role FROM v\\$database;\nSQL\"",
+    ]
+    return shell_script("Ensure primary ARCHIVELOG mode", lines)
+
+
 def _broker_steps(config: AutomationConfig, phase: str) -> list[AutomationStep]:
     if not config.standby_site or config.dataguard.configuration_method != "broker":
         return []
@@ -225,6 +253,7 @@ def _prepare_standby_auxiliary_script(config: AutomationConfig) -> str:
     standby_host = standby.nodes[0].host
     pfile = _standby_pfile_content(primary_db_name, standby_unique, standby_host)
     instance_lines = _srvctl_instance_lines(standby, standby_unique, config.install_type)
+    spfile_alias = f"+DATA/{standby_unique}/PARAMETERFILE/spfile{standby_unique}.ora"
     lines = [
         _dg_secret_export(config),
         f"mkdir -p {ORACLE_BASE}/admin/{standby_unique}/adump {DB_HOME}/dbs {GRID_BASE}/dbs",
@@ -238,8 +267,13 @@ def _prepare_standby_auxiliary_script(config: AutomationConfig) -> str:
         f"chmod 600 {GRID_BASE}/dbs/orapw{standby_unique}",
         f"sudo -iu grid {GRID_BASE}/bin/asmcmd mkdir +DATA/{standby_unique} || true",
         f"sudo -iu grid {GRID_BASE}/bin/asmcmd mkdir +DATA/{standby_unique}/PARAMETERFILE || true",
-        f"sudo -iu oracle bash -lc \"export ORACLE_SID={standby_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR CONTINUE\nSHUTDOWN ABORT;\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSTARTUP NOMOUNT PFILE='{DB_HOME}/dbs/init{standby_unique}.ora';\nCREATE SPFILE='+DATA/{standby_unique}/PARAMETERFILE/spfile{standby_unique}.ora' FROM PFILE='{DB_HOME}/dbs/init{standby_unique}.ora';\nSHUTDOWN IMMEDIATE;\nSQL\"",
-        f"printf \"SPFILE='+DATA/{standby_unique}/PARAMETERFILE/spfile{standby_unique}.ora'\\n\" > {DB_HOME}/dbs/init{standby_unique}.ora",
+        f"spfile_alias={shlex.quote(spfile_alias)}",
+        'if sudo -iu grid asmcmd ls "$spfile_alias" >/dev/null 2>&1; then',
+        '  echo "Standby ASM spfile already exists; preserving it for resume."',
+        "else",
+        f"  sudo -iu oracle bash -lc \"export ORACLE_SID={standby_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR CONTINUE\nSHUTDOWN ABORT;\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSTARTUP NOMOUNT PFILE='{DB_HOME}/dbs/init{standby_unique}.ora';\nCREATE SPFILE='{spfile_alias}' FROM PFILE='{DB_HOME}/dbs/init{standby_unique}.ora';\nSHUTDOWN IMMEDIATE;\nSQL\"",
+        "fi",
+        f"printf \"SPFILE='{spfile_alias}'\\n\" > {DB_HOME}/dbs/init{standby_unique}.ora",
         f"chown oracle:oinstall {DB_HOME}/dbs/init{standby_unique}.ora",
         f"chmod 600 {DB_HOME}/dbs/init{standby_unique}.ora",
         f"if sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {standby_unique} >/dev/null 2>&1; then",
