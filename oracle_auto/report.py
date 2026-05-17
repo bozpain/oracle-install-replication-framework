@@ -45,7 +45,7 @@ def render_html_report(
     results: list[StepResult],
     title: str | None = None,
 ) -> str:
-    page_title = title or "Oracle Installation & Replication Framework"
+    page_title = title or "Oracle Installation & Replication Report"
     generated_at = datetime.now(timezone.utc).isoformat()
     counts = _status_counts(results)
     total_steps = sum(counts.values())
@@ -272,7 +272,7 @@ def render_html_report(
   <main class="shell">
     <header class="hero">
       <div>
-        <div class="eyebrow">Oracle Automation Report</div>
+        <div class="eyebrow">DBA Automation Report</div>
         <h1>{html.escape(page_title)}</h1>
         <div class="hero-meta">
           <span class="pill">Run <code>{html.escape(config.run_id)}</code></span>
