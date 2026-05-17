@@ -559,7 +559,7 @@ def _prepare_standby_auxiliary_script(config: AutomationConfig) -> str:
         f"chown -R oracle:oinstall {ORACLE_BASE}/admin/{standby_unique}",
         f"test -s {_primary_baseline_pfile_path(primary_unique)}",
         f"test -s {_primary_baseline_pwfile_path(primary_unique)}",
-        *_standby_pfile_from_primary_lines(primary_db_name, primary_unique, standby_unique, standby_host),
+        *_standby_pfile_from_primary_lines(primary_db_name, primary_unique, standby_unique, standby, config.install_type),
         f"cp {_primary_baseline_pwfile_path(primary_unique)} {DB_HOME}/dbs/orapw{standby_unique}",
         f"cp {_primary_baseline_pwfile_path(primary_unique)} {GRID_BASE}/dbs/orapw{standby_unique}",
         f"chown oracle:oinstall {DB_HOME}/dbs/init{standby_unique}.ora {DB_HOME}/dbs/orapw{standby_unique}",
@@ -597,18 +597,20 @@ def _standby_pfile_from_primary_lines(
     primary_db_name: str,
     primary_unique: str,
     standby_unique: str,
-    standby_host: str,
+    standby_site,
+    install_type: str,
 ) -> list[str]:
     source_pfile = _primary_baseline_pfile_path(primary_unique)
     standby_pfile = f"{DB_HOME}/dbs/init{standby_unique}.ora"
+    listener_lines = _standby_pfile_listener_lines(standby_site, standby_unique, install_type)
     return [
-        f"awk '{_standby_pfile_filter_awk()}' {source_pfile} > {standby_pfile}",
+        f"awk -v primary_unique={shlex.quote(primary_unique)} -v standby_unique={shlex.quote(standby_unique)} '{_standby_pfile_filter_awk()}' {source_pfile} > {standby_pfile}",
         f"cat >> {standby_pfile} <<'EOF'\n"
         f"*.db_name='{primary_db_name}'\n"
         f"*.db_unique_name='{standby_unique}'\n"
         "*.remote_login_passwordfile='EXCLUSIVE'\n"
         f"*.audit_file_dest='{ORACLE_BASE}/admin/{standby_unique}/adump'\n"
-        f"*.local_listener='(ADDRESS=(PROTOCOL=TCP)(HOST={standby_host})(PORT=1521))'\n"
+        f"{listener_lines}"
         f"*.log_archive_config='DG_CONFIG=({primary_unique},{standby_unique})'\n"
         f"*.log_archive_dest_1='LOCATION=USE_DB_RECOVERY_FILE_DEST VALID_FOR=(ALL_LOGFILES,ALL_ROLES) DB_UNIQUE_NAME={standby_unique}'\n"
         f"*.log_archive_dest_2='SERVICE={primary_unique} ASYNC VALID_FOR=(ONLINE_LOGFILES,PRIMARY_ROLE) DB_UNIQUE_NAME={primary_unique}'\n"
@@ -619,6 +621,19 @@ def _standby_pfile_from_primary_lines(
         f"echo 'Standby auxiliary pfile derived from primary baseline:'",
         f"grep -E \"^(\\*\\.)?(db_name|db_unique_name|log_archive_config|log_archive_dest_|fal_|standby_file_management|local_listener|audit_file_dest)\" {standby_pfile} || true",
     ]
+
+
+def _standby_pfile_listener_lines(standby_site, standby_unique: str, install_type: str) -> str:
+    if install_type == "rac":
+        lines = []
+        if standby_site.scan_name:
+            lines.append(f"*.remote_listener='{standby_site.scan_name}:1521'")
+        for index, node in enumerate(standby_site.nodes):
+            instance_name = _instance_name(standby_site, index, install_type)
+            lines.append(f"{instance_name}.local_listener='(ADDRESS=(PROTOCOL=TCP)(HOST={node.host})(PORT=1521))'")
+        return "\n".join(lines) + "\n"
+    standby_host = standby_site.nodes[0].host
+    return f"*.local_listener='(ADDRESS=(PROTOCOL=TCP)(HOST={standby_host})(PORT=1521))'\n"
 
 
 def _standby_pfile_filter_awk() -> str:
@@ -644,11 +659,13 @@ def _standby_pfile_filter_awk() -> str:
     skip_map = "; ".join(f'skip["*.{name}"]=1' for name in skip_names)
     pattern_checks = " || ".join(f'index(key, "*.{pattern}") == 1' for pattern in skip_patterns)
     return (
-        "BEGIN { IGNORECASE=1; " + skip_map + " } "
+        "BEGIN { IGNORECASE=1; primary=tolower(primary_unique); standby=standby_unique; " + skip_map + " } "
         "{ line=$0; key=line; sub(/^[[:space:]]*/, \"\", key); "
         "if (key ~ /^#/ || key == \"\") { print line; next } "
         "sub(/[[:space:]]*=.*/, \"\", key); key=tolower(key); sub(/^[^.]+\\./, \"*.\", key); "
         f"if (key in skip || {pattern_checks}) next; "
+        "body=line; leading=\"\"; if (match(body, /^[[:space:]]*/)) { leading=substr(body, RSTART, RLENGTH); body=substr(body, RLENGTH + 1) } "
+        "body_l=tolower(body); if (match(body_l, \"^\" primary \"[0-9]+[.]\")) { instance=substr(body, RSTART, RLENGTH); number=instance; sub(/^[^0-9]*/, \"\", number); sub(/[.].*/, \"\", number); print leading standby number substr(body, RLENGTH); next } "
         "print line }"
     )
 
