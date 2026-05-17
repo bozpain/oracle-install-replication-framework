@@ -439,7 +439,7 @@ def _duplicate_standby_script(config: AutomationConfig) -> str:
         f"  cat {DB_HOME}/network/admin/tnsnames.ora",
         f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} TNS_ADMIN={DB_HOME}/network/admin {DB_HOME}/bin/tnsping {primary_unique}",
         f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} TNS_ADMIN={DB_HOME}/network/admin {DB_HOME}/bin/tnsping {standby_unique}",
-        _oracle_rman(standby_sid, f"target sys/\"$DG_PASSWORD\"@{primary_unique} auxiliary sys/\"$DG_PASSWORD\"@{standby_unique}", "DUPLICATE TARGET DATABASE FOR STANDBY FROM ACTIVE DATABASE DORECOVER NOFILENAMECHECK;"),
+        _oracle_rman(standby_sid, primary_unique, standby_unique, "DUPLICATE TARGET DATABASE FOR STANDBY FROM ACTIVE DATABASE DORECOVER NOFILENAMECHECK;"),
         _oracle_sqlplus(standby_sid, "WHENEVER SQLERROR CONTINUE\nSHUTDOWN IMMEDIATE;"),
         "fi",
         f"sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {standby_unique} -startoption MOUNT || true",
@@ -552,12 +552,14 @@ def _oracle_sqlplus_remote(service: str, sql: str) -> str:
     )
 
 
-def _oracle_rman(sid: str, connect_args: str, script: str) -> str:
+def _oracle_rman(sid: str, target_service: str, auxiliary_service: str, script: str) -> str:
     return (
         f"export ORACLE_SID={shlex.quote(sid)}\n"
         f"sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} ORACLE_SID=\"$ORACLE_SID\" "
         f"TNS_ADMIN={DB_HOME}/network/admin PATH={DB_HOME}/bin:/usr/local/bin:/usr/bin:/bin "
-        f"LD_LIBRARY_PATH={DB_HOME}/lib {DB_HOME}/bin/rman {connect_args} <<'RMAN'\n"
+        f"LD_LIBRARY_PATH={DB_HOME}/lib {DB_HOME}/bin/rman <<RMAN\n"
+        f"CONNECT TARGET sys/\"$DG_PASSWORD\"@{target_service}\n"
+        f"CONNECT AUXILIARY sys/\"$DG_PASSWORD\"@{auxiliary_service}\n"
         f"{script}\n"
         "RMAN"
     )

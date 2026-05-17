@@ -169,6 +169,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("srvctl start database -db ORCL_B -startoption NOMOUNT", command)
         self.assertIn("DUPLICATE TARGET DATABASE FOR STANDBY FROM ACTIVE DATABASE", command)
         self.assertIn("Refreshing Data Guard tnsnames before RMAN duplicate.", command)
+        self.assertIn("CONNECT TARGET", command)
+        self.assertIn("CONNECT AUXILIARY", command)
         self.assertIn("ALTER SYSTEM ARCHIVE LOG CURRENT", command)
         self.assertIn("dataguard_stats", command)
 
