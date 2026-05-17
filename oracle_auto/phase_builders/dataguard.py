@@ -499,8 +499,16 @@ def _verify_primary_dataguard_script(config: AutomationConfig) -> str:
     standby = config.standby_site
     assert standby is not None
     primary_sid = _instance_name(config.primary_site, 0, config.install_type)
+    verify_sql = """WHENEVER SQLERROR EXIT SQL.SQLCODE
+ALTER SYSTEM ARCHIVE LOG CURRENT;
+ALTER SYSTEM SWITCH LOGFILE;
+SELECT name, open_mode, database_role, protection_mode FROM v$database;
+SELECT dest_id, status, type, database_mode, recovery_mode, destination, error
+  FROM v$archive_dest_status
+ WHERE dest_id <= 2 OR destination IS NOT NULL
+ ORDER BY dest_id;"""
     lines = [
-        _oracle_sqlplus(primary_sid, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER SYSTEM ARCHIVE LOG CURRENT;\nALTER SYSTEM SWITCH LOGFILE;\nSELECT name, open_mode, database_role, protection_mode FROM v$database;\nSELECT dest_id, status, target, destination, error FROM v$archive_dest_status WHERE target = 'STANDBY' OR dest_id <= 2 ORDER BY dest_id;"),
+        _oracle_sqlplus(primary_sid, verify_sql),
     ]
     return shell_script("Verify primary Data Guard transport", lines)
 

@@ -179,6 +179,10 @@ class CliTest(unittest.TestCase):
         self.assertIn("CONNECT TARGET", command)
         self.assertIn("CONNECT AUXILIARY", command)
         self.assertIn("ALTER SYSTEM ARCHIVE LOG CURRENT", command)
+        self.assertIn("SELECT dest_id, status, type, database_mode, recovery_mode, destination, error", command)
+        self.assertIn("WHERE dest_id <= 2 OR destination IS NOT NULL", command)
+        self.assertNotIn("target, destination", command)
+        self.assertNotIn("WHERE target = 'STANDBY'", command)
         self.assertIn("dataguard_stats", command)
 
         for step in steps:
