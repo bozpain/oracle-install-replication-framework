@@ -410,6 +410,12 @@ def _duplicate_standby_script(config: AutomationConfig) -> str:
     primary_unique = config.primary_site.db_unique_name
     standby_unique = standby.db_unique_name
     standby_sid = _instance_name(standby, 0, config.install_type)
+    tnsnames = _tnsnames_content(
+        primary_unique,
+        _dataguard_duplicate_endpoint(config, config.primary_site),
+        standby_unique,
+        _dataguard_duplicate_endpoint(config, standby),
+    )
     lines = [
         _dg_secret_export(config),
         "set +e",
@@ -424,6 +430,13 @@ def _duplicate_standby_script(config: AutomationConfig) -> str:
         f"if test \"$standby_role_rc\" -eq 0 && grep -qi 'PHYSICAL STANDBY' /tmp/oracle-auto-{standby_unique}-role.out; then",
         f"  echo 'Standby database {standby_unique} already duplicated; skipping RMAN duplicate.'",
         "else",
+        "  echo 'Refreshing Data Guard tnsnames before RMAN duplicate.'",
+        f"  mkdir -p {DB_HOME}/network/admin {GRID_BASE}/network/admin",
+        f"  cat > {DB_HOME}/network/admin/tnsnames.ora <<'EOF'\n{tnsnames}\nEOF",
+        f"  cp {DB_HOME}/network/admin/tnsnames.ora {GRID_BASE}/network/admin/tnsnames.ora",
+        f"  chown -R oracle:oinstall {DB_HOME}/network",
+        f"  chown -R grid:oinstall {GRID_BASE}/network",
+        f"  cat {DB_HOME}/network/admin/tnsnames.ora",
         f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} TNS_ADMIN={DB_HOME}/network/admin {DB_HOME}/bin/tnsping {primary_unique}",
         f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} TNS_ADMIN={DB_HOME}/network/admin {DB_HOME}/bin/tnsping {standby_unique}",
         _oracle_rman(standby_sid, f"target sys/\"$DG_PASSWORD\"@{primary_unique} auxiliary sys/\"$DG_PASSWORD\"@{standby_unique}", "DUPLICATE TARGET DATABASE FOR STANDBY FROM ACTIVE DATABASE DORECOVER NOFILENAMECHECK;"),
