@@ -8,7 +8,7 @@ for a stable public surface, while implementation lives in
 from __future__ import annotations
 
 from oracle_auto.phase_builders.database import create_database_steps, install_db_software_steps
-from oracle_auto.phase_builders.dataguard import setup_active_dataguard_steps, setup_dataguard_broker_steps
+from oracle_auto.phase_builders.dataguard import configure_dataguard_steps
 from oracle_auto.phase_builders.diagnostics import cleanup_lab_steps, collect_diagnostics_steps
 from oracle_auto.phase_builders.grid import install_grid_steps
 from oracle_auto.phase_builders.installer import verify_installer_steps
@@ -51,8 +51,7 @@ __all__ = [
     "prepare_os_steps",
     "prepare_storage_rules_steps",
     "prepare_storage_steps",
-    "setup_active_dataguard_steps",
-    "setup_dataguard_broker_steps",
+    "configure_dataguard_steps",
     "switchover_steps",
     "validate_deployment_steps",
     "verify_installer_steps",

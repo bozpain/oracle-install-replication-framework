@@ -38,8 +38,7 @@ from oracle_auto.phases import (
     prepare_os_steps,
     prepare_storage_rules_steps,
     prepare_storage_steps,
-    setup_active_dataguard_steps,
-    setup_dataguard_broker_steps,
+    configure_dataguard_steps,
     switchover_steps,
     validate_deployment_steps,
     verify_installer_steps,
@@ -72,8 +71,7 @@ PHASE_BUILDERS: dict[str, PhaseBuilder] = {
     "patch-inventory": patch_inventory_steps,
     "apply-patch": apply_patch_steps,
     "create-database": create_database_steps,
-    "setup-active-dataguard": setup_active_dataguard_steps,
-    "setup-dataguard-broker": setup_dataguard_broker_steps,
+    "configure-dataguard": configure_dataguard_steps,
     "validate-deployment": validate_deployment_steps,
     "switchover": switchover_steps,
     "failover": failover_steps,
@@ -95,13 +93,13 @@ WORKFLOW_PHASE_ORDER = [
     "apply-ojvm-patch",
     "create-database",
     "patch-inventory",
-    "setup-active-dataguard",
-    "setup-dataguard-broker",
+    "configure-dataguard",
     "validate-deployment",
 ]
 
 
 ASM_STORAGE_MODE_CHOICES = sorted({*VALID_ASM_STORAGE_MODES, "asmlib", "raw_udev"})
+DATAGUARD_MODE_CHOICES = ["manual", "broker"]
 
 DEPLOYMENT_PHASE_ORDER = [
     "prepare-os",
@@ -113,8 +111,7 @@ DEPLOYMENT_PHASE_ORDER = [
     "apply-ojvm-patch",
     "create-database",
     "patch-inventory",
-    "setup-active-dataguard",
-    "setup-dataguard-broker",
+    "configure-dataguard",
     "validate-deployment",
 ]
 
@@ -153,6 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser("validate-config", help="Validate an automation config file.")
     validate.add_argument("--config", required=True, help="Path to JSON/YAML config.")
     _add_asm_storage_mode_arg(validate)
+    _add_dataguard_mode_arg(validate)
 
     precheck = subparsers.add_parser("precheck", help="Run Oracle installation prechecks.")
     _add_execution_args(precheck)
@@ -182,8 +180,7 @@ def build_parser() -> argparse.ArgumentParser:
         "patch-inventory": "Collect Oracle home version summary.",
         "apply-patch": "Apply OPatch and configured patches.",
         "create-database": "Create the primary database with DBCA silent.",
-        "setup-active-dataguard": "Configure and duplicate Active Data Guard standby.",
-        "setup-dataguard-broker": "Configure Data Guard Broker when selected.",
+        "configure-dataguard": "Configure Data Guard standby and Broker when selected.",
         "validate-deployment": "Validate GI, ASM, Database, and Data Guard state.",
         "switchover": "Switchover to standby.",
         "failover": "Failover to standby.",
@@ -222,10 +219,12 @@ def build_parser() -> argparse.ArgumentParser:
     report = subparsers.add_parser("generate-report", help="Generate HTML report from current state.")
     report.add_argument("--config", required=True, help="Path to JSON/YAML config.")
     _add_asm_storage_mode_arg(report)
+    _add_dataguard_mode_arg(report)
 
     plan = subparsers.add_parser("generate-plan", help="Generate an HTML execution plan without SSH.")
     plan.add_argument("--config", required=True, help="Path to JSON/YAML config.")
     _add_asm_storage_mode_arg(plan)
+    _add_dataguard_mode_arg(plan)
     plan.add_argument(
         "--phases",
         nargs="*",
@@ -237,6 +236,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--config", required=True, help="Path to JSON/YAML config.")
     doctor.add_argument("--json", action="store_true", help="Print machine-readable JSON result.")
     _add_asm_storage_mode_arg(doctor)
+    _add_dataguard_mode_arg(doctor)
 
     return parser
 
@@ -269,6 +269,7 @@ def _add_execution_args(parser: argparse.ArgumentParser) -> None:
         help="Directory for per-step stdout/stderr log artifacts.",
     )
     _add_asm_storage_mode_arg(parser)
+    _add_dataguard_mode_arg(parser)
 
 
 def _add_asm_storage_mode_arg(parser: argparse.ArgumentParser) -> None:
@@ -276,6 +277,14 @@ def _add_asm_storage_mode_arg(parser: argparse.ArgumentParser) -> None:
         "--asm-storage-mode",
         choices=ASM_STORAGE_MODE_CHOICES,
         help="Override asm.storage_mode for this run. Choices: raw, asmlibv3, afd.",
+    )
+
+
+def _add_dataguard_mode_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--dataguard-mode",
+        choices=DATAGUARD_MODE_CHOICES,
+        help="Select Data Guard mode for standby deployments. Choices: manual, broker.",
     )
 
 
@@ -313,6 +322,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     config = _with_asm_storage_mode_override(args, config)
+    config = _with_dataguard_mode_override(args, config)
+    try:
+        _ensure_dataguard_mode_selected(config)
+    except ConfigError as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        return 2
 
     if args.command == "validate-config":
         _print_config_summary(config)
@@ -517,6 +532,18 @@ def _with_asm_storage_mode_override(args, config: AutomationConfig) -> Automatio
     if mode == "raw_udev":
         mode = "raw"
     return replace(config, asm=replace(config.asm, storage_mode=mode))
+
+
+def _with_dataguard_mode_override(args, config: AutomationConfig) -> AutomationConfig:
+    mode = getattr(args, "dataguard_mode", None)
+    if not mode:
+        return config
+    return replace(config, dataguard=replace(config.dataguard, configuration_method=mode))
+
+
+def _ensure_dataguard_mode_selected(config: AutomationConfig) -> None:
+    if config.standby_site and config.dataguard.configuration_method is None:
+        raise ConfigError("Data Guard mode must be supplied with --dataguard-mode when standby_site is configured.")
 
 
 def _is_execution_command(command: str) -> bool:

@@ -211,7 +211,7 @@ Review blok berikut sebelum menjalankan command:
 | 🟩 `standby_site` | Optional standby site |
 | 💽 `asm` | Diskgroup dan disk source: `DM_UUID`, `ID_SERIAL`, `ID_WWN`, atau persistent path |
 | 📦 `installer` | ZIP installer, OPatch, patch list |
-| 🟢 `dataguard` | Manual atau Broker |
+| 🟢 Data Guard mode | Dipilih runtime via portal atau `--dataguard-mode` |
 | 🔒 `secrets` | Nama environment variable password |
 
 Validasi schema:
@@ -453,17 +453,13 @@ Base installer ZIP, ASMLIB RPM, dan patch ZIP dibaca dari `/u01/sources`. Base h
 
 ## 7. Data Guard
 
-Jika `standby_site` diisi, Active Data Guard otomatis aktif.
-
-```json
-"dataguard": {
-  "configuration_method": "broker"
-}
-```
+Jika `standby_site` diisi, Active Data Guard otomatis aktif. Method Data Guard
+tidak dibaca dari JSON; operator harus memilih mode runtime lewat portal atau
+CLI `--dataguard-mode`.
 
 | Method | Use Case |
 |---|---|
-| 🟡 `manual` | Physical standby tanpa Broker |
+| 🟡 `manual` | Physical standby / Active Data Guard tanpa Broker |
 | 🟢 `broker` | Recommended untuk manageability dan role operation |
 
 Protection mode is fixed by the framework baseline:
@@ -591,12 +587,11 @@ flowchart TB
     ojvm["apply-ojvm-patch"]
     inventory["📋 patch-inventory"]
     createDb["🗄️ create-database"]
-    dg["🟢 setup-active-dataguard"]
-    broker["🟢 setup-dataguard-broker"]
+    dg["🟢 configure-dataguard"]
     validateDeploy["✅ validate-deployment"]
     report["📊 generate-report"]
 
-    validate --> doctor --> plan --> precheck --> os --> installer --> storageRules --> grid --> asm --> dbsw --> ojvm --> createDb --> inventory --> dg --> broker --> validateDeploy --> report
+    validate --> doctor --> plan --> precheck --> os --> installer --> storageRules --> grid --> asm --> dbsw --> ojvm --> createDb --> inventory --> dg --> validateDeploy --> report
 
     classDef green fill:#DCFCE7,stroke:#16A34A,color:#14532D
     classDef blue fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
@@ -630,8 +625,7 @@ python main.py install-db-software --config configs/my-deployment.json --dry-run
 python main.py apply-ojvm-patch --config configs/my-deployment.json --dry-run
 python main.py create-database --config configs/my-deployment.json --dry-run
 python main.py patch-inventory --config configs/my-deployment.json --dry-run
-python main.py setup-active-dataguard --config configs/my-deployment.json --dry-run
-python main.py setup-dataguard-broker --config configs/my-deployment.json --dry-run
+python main.py configure-dataguard --config configs/my-deployment.json --dataguard-mode broker --dry-run
 python main.py validate-deployment --config configs/my-deployment.json --dry-run
 ```
 
@@ -776,20 +770,13 @@ Membuat primary database dengan DBCA silent.
 python main.py create-database --config configs/my-deployment.json
 ```
 
-### 🟢 `setup-active-dataguard`
+### 🟢 `configure-dataguard`
 
 Menyiapkan Data Guard parameter, password file baseline, RMAN duplicate, dan managed recovery.
+Jika `--dataguard-mode broker`, phase ini juga mengaktifkan Data Guard Broker.
 
 ```bash
-python main.py setup-active-dataguard --config configs/my-deployment.json
-```
-
-### 🟢 `setup-dataguard-broker`
-
-Berjalan jika `configuration_method=broker`.
-
-```bash
-python main.py setup-dataguard-broker --config configs/my-deployment.json
+python main.py configure-dataguard --config configs/my-deployment.json --dataguard-mode broker
 ```
 
 ### ✅ `validate-deployment`

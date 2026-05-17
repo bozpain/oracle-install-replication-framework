@@ -91,9 +91,6 @@
     "sources_path": "/u01/sources",
     "patch_manifest": "19.30"
   },
-  "dataguard": {
-    "configuration_method": "broker"
-  },
   "secrets": {
     "sys_password_env": "ORACLE_AUTO_SYS_PASSWORD",
     "system_password_env": "ORACLE_AUTO_SYSTEM_PASSWORD",

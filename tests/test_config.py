@@ -31,6 +31,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.installer.db_zip, "LINUX.X64_193000_db_home.zip")
         self.assertEqual(config.os.asmlib_rpms["x86_64"], "oracleasmlib-3.1.1-1.el8.x86_64.rpm")
         self.assertEqual(list(config.os.asmlib_rpms), ["x86_64"])
+        self.assertIsNone(config.dataguard.configuration_method)
         self.assertEqual(config.asm.ocr_disks, [])
         self.assertEqual(config.asm.data_disks[0].dm_uuid, "mpath-360060e8008a3cf000050a3cf00000102")
         self.assertEqual(

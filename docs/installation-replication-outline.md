@@ -187,8 +187,7 @@ Status baseline: semua command roadmap sudah tersedia sebagai struktur Python, m
 11. `apply-ojvm-patch`
 12. `create-database`
 13. `patch-inventory`
-14. `setup-active-dataguard`
-15. `setup-dataguard-broker`
+14. `configure-dataguard`
 16. `validate-deployment`
 17. `update-opatch` (manual/advanced untuk home existing; fresh install sudah update OPatch di `install-grid` dan `install-db-software`)
 18. `analyze-patch`

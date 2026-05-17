@@ -244,7 +244,7 @@ class InstallerConfig:
 
 @dataclass(frozen=True)
 class DataGuardConfig:
-    configuration_method: str = "broker"
+    configuration_method: str | None = None
     protection_mode: str = "max_performance"
 
 
@@ -642,9 +642,13 @@ def _parse_dataguard(data: Any) -> DataGuardConfig:
         return DataGuardConfig()
     if not isinstance(data, dict):
         raise ConfigError("dataguard must be an object/mapping.")
+    if "configuration_method" in data:
+        raise ConfigError("dataguard.configuration_method is no longer read from config; use --dataguard-mode.")
+    if "protection_mode" in data:
+        raise ConfigError("dataguard.protection_mode is fixed by the framework and must not be set in config.")
     return DataGuardConfig(
-        configuration_method=str(data.get("configuration_method", "broker")),
-        protection_mode=str(data.get("protection_mode", "max_performance")),
+        configuration_method=None,
+        protection_mode="max_performance",
     )
 
 
@@ -723,7 +727,7 @@ def _validate_config(config: AutomationConfig) -> None:
         raise ConfigError(f"install_type must be one of: {', '.join(sorted(VALID_INSTALL_TYPES))}")
     if not config.installer.sources_path.startswith("/"):
         raise ConfigError("installer.sources_path must be an absolute path on the target server.")
-    if config.dataguard.configuration_method not in VALID_DATAGUARD_METHODS:
+    if config.dataguard.configuration_method is not None and config.dataguard.configuration_method not in VALID_DATAGUARD_METHODS:
         raise ConfigError("dataguard.configuration_method must be manual or broker.")
     if config.dataguard.protection_mode != "max_performance":
         raise ConfigError("Only dataguard.protection_mode=max_performance is supported by default.")

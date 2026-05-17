@@ -1,4 +1,4 @@
-"""Active Data Guard phase manual.
+"""Data Guard phase manual.
 
 Owns primary Data Guard parameter setup, RMAN duplicate, managed recovery, and
 Broker configuration when selected.
@@ -11,12 +11,19 @@ from oracle_auto.config import AutomationConfig
 from oracle_auto.phase_builders.common import DB_HOME, make_step
 
 
-def setup_active_dataguard_steps(config: AutomationConfig) -> list[AutomationStep]:
+def configure_dataguard_steps(config: AutomationConfig) -> list[AutomationStep]:
+    return [
+        *_physical_standby_steps(config, "configure-dataguard"),
+        *_broker_steps(config, "configure-dataguard"),
+    ]
+
+
+def _physical_standby_steps(config: AutomationConfig, phase: str) -> list[AutomationStep]:
     if not config.standby_site:
         return []
     return [
         make_step(
-            "setup-active-dataguard",
+            phase,
             "configure_primary_dataguard",
             config.primary_site.nodes[0],
             "Configure primary database for Active Data Guard",
@@ -24,7 +31,7 @@ def setup_active_dataguard_steps(config: AutomationConfig) -> list[AutomationSte
             timeout=1800,
         ),
         make_step(
-            "setup-active-dataguard",
+            phase,
             "duplicate_standby_database",
             config.standby_site.nodes[0],
             "Duplicate standby database from active primary",
@@ -32,7 +39,7 @@ def setup_active_dataguard_steps(config: AutomationConfig) -> list[AutomationSte
             timeout=14400,
         ),
         make_step(
-            "setup-active-dataguard",
+            phase,
             "start_managed_recovery",
             config.standby_site.nodes[0],
             "Start Active Data Guard managed recovery",
@@ -42,12 +49,12 @@ def setup_active_dataguard_steps(config: AutomationConfig) -> list[AutomationSte
     ]
 
 
-def setup_dataguard_broker_steps(config: AutomationConfig) -> list[AutomationStep]:
+def _broker_steps(config: AutomationConfig, phase: str) -> list[AutomationStep]:
     if not config.standby_site or config.dataguard.configuration_method != "broker":
         return []
     return [
         make_step(
-            "setup-dataguard-broker",
+            phase,
             "configure_broker",
             config.primary_site.nodes[0],
             "Configure Data Guard Broker",

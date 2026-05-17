@@ -35,6 +35,8 @@ class CliTest(unittest.TestCase):
             "generate-plan",
             "--config",
             "configs/sample-rac-dg.json",
+            "--dataguard-mode",
+            "broker",
         ])
 
         self.assertEqual(code, 0)
@@ -61,6 +63,8 @@ class CliTest(unittest.TestCase):
                 "generate-report",
                 "--config",
                 "configs/sample-single.json",
+                "--dataguard-mode",
+                "broker",
             ])
 
         self.assertEqual(code, 0)
@@ -90,11 +94,22 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(code, 2)
 
+    def test_standby_config_requires_dataguard_mode_cli_arg(self):
+        code = main([
+            "validate-config",
+            "--config",
+            "configs/gcp-single-gi-lab.json",
+        ])
+
+        self.assertEqual(code, 2)
+
     def test_full_guardrail_blocks_real_execution_without_flags(self):
         code = main([
             "full",
             "--config",
             "configs/sample-single.json",
+            "--dataguard-mode",
+            "broker",
         ])
 
         self.assertEqual(code, 2)
@@ -109,6 +124,8 @@ class CliTest(unittest.TestCase):
             "full",
             "--config",
             "configs/sample-single.json",
+            "--dataguard-mode",
+            "broker",
             "--dry-run",
         ])
 
@@ -791,6 +808,8 @@ class CliTest(unittest.TestCase):
             "doctor",
             "--config",
             "configs/sample-single.json",
+            "--dataguard-mode",
+            "broker",
         ])
 
         self.assertIn(code, {0, 1})
