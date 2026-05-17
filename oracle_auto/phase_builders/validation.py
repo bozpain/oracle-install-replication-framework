@@ -6,9 +6,11 @@ Data Guard lag metrics.
 
 from __future__ import annotations
 
+import shlex
+
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig
-from oracle_auto.phase_builders.common import DB_HOME, GRID_BASE, make_step
+from oracle_auto.phase_builders.common import DB_HOME, GRID_BASE, ORACLE_BASE, make_step
 
 
 def validate_deployment_steps(config: AutomationConfig) -> list[AutomationStep]:
@@ -52,9 +54,23 @@ def _validate_database_script(config: AutomationConfig) -> str:
     primary_unique = config.primary_site.db_unique_name
     dg_sql = ""
     if config.standby_site:
-        dg_sql = "SELECT name, value, unit FROM v\\$dataguard_stats;"
+        dg_sql = "SELECT name, value, unit FROM v$dataguard_stats;"
+    validation_sql = f"""WHENEVER SQLERROR EXIT SQL.SQLCODE
+SELECT name, open_mode, database_role FROM v$database;
+{dg_sql}"""
     lines = [
         f"sudo -iu oracle {DB_HOME}/bin/srvctl status database -db {primary_unique} || true",
-        f"sudo -iu oracle bash -lc \"export ORACLE_SID={primary_unique}; sqlplus -s / as sysdba <<'SQL'\nSELECT name, open_mode, database_role FROM v\\$database;\n{dg_sql}\nSQL\"",
+        _oracle_sqlplus(primary_unique, validation_sql),
     ]
     return shell_script("Validate database", lines)
+
+
+def _oracle_sqlplus(sid: str, sql: str) -> str:
+    return (
+        f"export ORACLE_SID={shlex.quote(sid)}\n"
+        f"sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} ORACLE_SID=\"$ORACLE_SID\" "
+        f"PATH={DB_HOME}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib "
+        f"{DB_HOME}/bin/sqlplus -s / as sysdba <<'SQL'\n"
+        f"{sql}\n"
+        "SQL"
+    )

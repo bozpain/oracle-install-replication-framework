@@ -20,6 +20,7 @@ from oracle_auto.phase_builders.storage import configure_asm_storage_steps, prep
 from oracle_auto.phase_builders.grid import install_grid_steps
 from oracle_auto.phase_builders.database import create_database_steps, install_db_software_steps
 from oracle_auto.phase_builders.dataguard import configure_dataguard_steps
+from oracle_auto.phase_builders.validation import validate_deployment_steps
 from oracle_auto.phase_builders.patching import apply_ojvm_patch_steps, patch_inventory_steps
 from oracle_auto.response_files.grid import grid_response
 from oracle_auto.state import NoopStateStore
@@ -249,6 +250,18 @@ class CliTest(unittest.TestCase):
         self.assertIn("ORCL", steps[-1].command)
         self.assertIn("ORCLSTBY", steps[-1].command)
         self.assertIn("SHOW CONFIGURATION VERBOSE", steps[-1].command)
+
+    def test_validate_deployment_uses_safe_sqlplus_heredoc(self):
+        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+
+        command = next(step.command for step in validate_deployment_steps(config) if step.name == "validate_database")
+
+        self.assertIn("export ORACLE_SID=ORCL", command)
+        self.assertIn("/u01/app/oracle/product/19.0.0/dbhome_1/bin/sqlplus -s / as sysdba", command)
+        self.assertIn("SELECT name, open_mode, database_role FROM v$database;", command)
+        self.assertIn("SELECT name, value, unit FROM v$dataguard_stats;", command)
+        self.assertNotIn("sudo -iu oracle bash -lc \"export ORACLE_SID=ORCL", command)
+        self.assertNotIn("SQLSELECT", command)
 
     def test_dataguard_uses_configured_standby_redo_log_size(self):
         base = load_config(Path("configs/gcp-single-gi-lab.json"))
