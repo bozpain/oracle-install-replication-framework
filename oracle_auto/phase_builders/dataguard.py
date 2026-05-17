@@ -211,20 +211,67 @@ def _dataguard_network_validation_script(config: AutomationConfig) -> str:
 
 def _ensure_primary_archivelog_script(config: AutomationConfig) -> str:
     primary_unique = config.primary_site.db_unique_name
+    primary_db_name = config.primary_site.db_name or primary_unique
     primary_sid = _instance_name(config.primary_site, 0, config.install_type)
+    if config.install_type == "rac":
+        startup_lines = [
+            f"sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {primary_unique} || true",
+        ]
+        mount_lines = [
+            f"sudo -iu oracle {DB_HOME}/bin/srvctl stop database -db {primary_unique} -stopoption IMMEDIATE || true",
+            f"sudo -iu oracle {DB_HOME}/bin/srvctl start instance -db {primary_unique} -instance {primary_sid} -startoption MOUNT || sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {primary_unique} -startoption MOUNT",
+        ]
+        restart_lines = [
+            f"sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {primary_unique}",
+        ]
+    else:
+        startup_lines = [
+            f"PRIMARY_SRVCTL_DB={shlex.quote(primary_unique)}",
+            f"if sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {shlex.quote(primary_unique)} >/dev/null 2>&1; then",
+            f"  PRIMARY_SRVCTL_DB={shlex.quote(primary_unique)}",
+            f"elif sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {shlex.quote(primary_db_name)} >/dev/null 2>&1; then",
+            f"  PRIMARY_SRVCTL_DB={shlex.quote(primary_db_name)}",
+            "else",
+            f"  echo 'Primary database is not registered with srvctl as {primary_unique} or {primary_db_name}; falling back to SQLPlus startup handling.'",
+            "  PRIMARY_SRVCTL_DB=",
+            "fi",
+            "if test -n \"$PRIMARY_SRVCTL_DB\"; then",
+            f"  sudo -iu oracle {DB_HOME}/bin/srvctl start database -db \"$PRIMARY_SRVCTL_DB\" || true",
+            "else",
+            _oracle_sqlplus(primary_sid, "WHENEVER SQLERROR CONTINUE\nSTARTUP;"),
+            "fi",
+        ]
+        mount_lines = [
+            "if test -n \"$PRIMARY_SRVCTL_DB\"; then",
+            f"  sudo -iu oracle {DB_HOME}/bin/srvctl stop database -db \"$PRIMARY_SRVCTL_DB\" -stopoption IMMEDIATE || true",
+            f"  sudo -iu oracle {DB_HOME}/bin/srvctl start database -db \"$PRIMARY_SRVCTL_DB\" -startoption MOUNT",
+            "else",
+            _oracle_sqlplus(primary_sid, "WHENEVER SQLERROR CONTINUE\nSHUTDOWN IMMEDIATE;\nSTARTUP MOUNT;"),
+            "fi",
+        ]
+        restart_lines = [
+            "if test -n \"$PRIMARY_SRVCTL_DB\"; then",
+            f"  sudo -iu oracle {DB_HOME}/bin/srvctl start database -db \"$PRIMARY_SRVCTL_DB\"",
+            "else",
+            _oracle_sqlplus(primary_sid, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nSTARTUP;"),
+            "fi",
+        ]
     lines = [
-        f"sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {primary_unique} || true",
-        f"sudo -iu oracle bash -lc \"export ORACLE_SID={primary_sid}; sqlplus -s / as sysdba <<'SQL' >/tmp/oracle-auto-{primary_unique}-archivelog.out\nSET HEADING OFF FEEDBACK OFF PAGESIZE 0\nSELECT log_mode FROM v\\$database;\nSQL\"",
+        *startup_lines,
+        _oracle_sqlplus(
+            primary_sid,
+            "SET HEADING OFF FEEDBACK OFF PAGESIZE 0\nSELECT log_mode FROM v$database;",
+            stdout=f"/tmp/oracle-auto-{primary_unique}-archivelog.out",
+        ),
         f"if grep -Eqi '^[[:space:]]*ARCHIVELOG[[:space:]]*$' /tmp/oracle-auto-{primary_unique}-archivelog.out; then",
         f"  echo 'Primary database {primary_unique} already runs in ARCHIVELOG mode.'",
         "else",
         f"  echo 'Primary database {primary_unique} is not in ARCHIVELOG mode; enabling it now.'",
-        f"  sudo -iu oracle {DB_HOME}/bin/srvctl stop database -db {primary_unique} -stopoption IMMEDIATE || true",
-        f"  sudo -iu oracle {DB_HOME}/bin/srvctl start instance -db {primary_unique} -instance {primary_sid} -startoption MOUNT || sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {primary_unique} -startoption MOUNT",
-        f"  sudo -iu oracle bash -lc \"export ORACLE_SID={primary_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER DATABASE ARCHIVELOG;\nSHUTDOWN IMMEDIATE;\nSQL\"",
-        f"  sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {primary_unique}",
+        *mount_lines,
+        _oracle_sqlplus(primary_sid, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER DATABASE ARCHIVELOG;\nSHUTDOWN IMMEDIATE;"),
+        *restart_lines,
         "fi",
-        f"sudo -iu oracle bash -lc \"export ORACLE_SID={primary_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT name, log_mode, open_mode, database_role FROM v\\$database;\nSQL\"",
+        _oracle_sqlplus(primary_sid, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT name, log_mode, open_mode, database_role FROM v$database;"),
     ]
     return shell_script("Ensure primary ARCHIVELOG mode", lines)
 
@@ -271,7 +318,10 @@ def _prepare_standby_auxiliary_script(config: AutomationConfig) -> str:
         'if sudo -iu grid asmcmd ls "$spfile_alias" >/dev/null 2>&1; then',
         '  echo "Standby ASM spfile already exists; preserving it for resume."',
         "else",
-        f"  sudo -iu oracle bash -lc \"export ORACLE_SID={standby_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR CONTINUE\nSHUTDOWN ABORT;\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSTARTUP NOMOUNT PFILE='{DB_HOME}/dbs/init{standby_unique}.ora';\nCREATE SPFILE='{spfile_alias}' FROM PFILE='{DB_HOME}/dbs/init{standby_unique}.ora';\nSHUTDOWN IMMEDIATE;\nSQL\"",
+        _oracle_sqlplus(
+            standby_sid,
+            f"WHENEVER SQLERROR CONTINUE\nSHUTDOWN ABORT;\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSTARTUP NOMOUNT PFILE='{DB_HOME}/dbs/init{standby_unique}.ora';\nCREATE SPFILE='{spfile_alias}' FROM PFILE='{DB_HOME}/dbs/init{standby_unique}.ora';\nSHUTDOWN IMMEDIATE;",
+        ),
         "fi",
         f"printf \"SPFILE='{spfile_alias}'\\n\" > {DB_HOME}/dbs/init{standby_unique}.ora",
         f"chown oracle:oinstall {DB_HOME}/dbs/init{standby_unique}.ora",
@@ -284,7 +334,7 @@ def _prepare_standby_auxiliary_script(config: AutomationConfig) -> str:
         *instance_lines,
         f"sudo -iu oracle {DB_HOME}/bin/srvctl stop database -db {standby_unique} -stopoption ABORT || true",
         f"sudo -iu oracle {DB_HOME}/bin/srvctl start instance -db {standby_unique} -instance {standby_sid} -startoption NOMOUNT || sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {standby_unique} -startoption NOMOUNT",
-        f"sudo -iu oracle bash -lc \"export ORACLE_SID={standby_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT instance_name, status FROM v\\$instance;\nSQL\"",
+        _oracle_sqlplus(standby_sid, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT instance_name, status FROM v$instance;"),
     ]
     return shell_script("Prepare standby auxiliary instance", lines)
 
@@ -297,7 +347,10 @@ def _primary_dataguard_script(config: AutomationConfig) -> str:
     standby_unique = standby.db_unique_name
     lines = [
         _dg_secret_export(config),
-        f"sudo -iu oracle bash -lc \"export ORACLE_SID={primary_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER DATABASE FORCE LOGGING;\nALTER DATABASE ADD SUPPLEMENTAL LOG DATA;\nSET SERVEROUTPUT ON\nDECLARE\n  l_existing NUMBER;\nBEGIN\n  FOR thread_rec IN (SELECT thread# FROM v\\$thread WHERE enabled = 'PUBLIC' ORDER BY thread#) LOOP\n    SELECT COUNT(*) INTO l_existing FROM v\\$standby_log WHERE thread# = thread_rec.thread#;\n    FOR item IN (l_existing + 1)..4 LOOP\n      EXECUTE IMMEDIATE 'ALTER DATABASE ADD STANDBY LOGFILE THREAD ' || thread_rec.thread# || ' SIZE 2G';\n      DBMS_OUTPUT.PUT_LINE('Added standby redo log for thread ' || thread_rec.thread# || ', slot ' || item);\n    END LOOP;\n  END LOOP;\nEND;\n/\nALTER SYSTEM SET LOG_ARCHIVE_CONFIG='DG_CONFIG=({primary_unique},{standby_unique})' SCOPE=BOTH SID='*';\nALTER SYSTEM SET LOG_ARCHIVE_DEST_1='LOCATION=USE_DB_RECOVERY_FILE_DEST VALID_FOR=(ALL_LOGFILES,ALL_ROLES) DB_UNIQUE_NAME={primary_unique}' SCOPE=BOTH SID='*';\nALTER SYSTEM SET LOG_ARCHIVE_DEST_2='SERVICE={standby_unique} ASYNC VALID_FOR=(ONLINE_LOGFILES,PRIMARY_ROLE) DB_UNIQUE_NAME={standby_unique}' SCOPE=BOTH SID='*';\nALTER SYSTEM SET FAL_SERVER='{standby_unique}' SCOPE=BOTH SID='*';\nALTER SYSTEM SET STANDBY_FILE_MANAGEMENT='AUTO' SCOPE=BOTH SID='*';\nSELECT thread#, group#, bytes/1024/1024 size_mb FROM v\\$standby_log ORDER BY thread#, group#;\nSQL\"",
+        _oracle_sqlplus(
+            primary_sid,
+            f"WHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER DATABASE FORCE LOGGING;\nALTER DATABASE ADD SUPPLEMENTAL LOG DATA;\nSET SERVEROUTPUT ON\nDECLARE\n  l_existing NUMBER;\nBEGIN\n  FOR thread_rec IN (SELECT thread# FROM v$thread WHERE enabled = 'PUBLIC' ORDER BY thread#) LOOP\n    SELECT COUNT(*) INTO l_existing FROM v$standby_log WHERE thread# = thread_rec.thread#;\n    FOR item IN (l_existing + 1)..4 LOOP\n      EXECUTE IMMEDIATE 'ALTER DATABASE ADD STANDBY LOGFILE THREAD ' || thread_rec.thread# || ' SIZE 2G';\n      DBMS_OUTPUT.PUT_LINE('Added standby redo log for thread ' || thread_rec.thread# || ', slot ' || item);\n    END LOOP;\n  END LOOP;\nEND;\n/\nALTER SYSTEM SET LOG_ARCHIVE_CONFIG='DG_CONFIG=({primary_unique},{standby_unique})' SCOPE=BOTH SID='*';\nALTER SYSTEM SET LOG_ARCHIVE_DEST_1='LOCATION=USE_DB_RECOVERY_FILE_DEST VALID_FOR=(ALL_LOGFILES,ALL_ROLES) DB_UNIQUE_NAME={primary_unique}' SCOPE=BOTH SID='*';\nALTER SYSTEM SET LOG_ARCHIVE_DEST_2='SERVICE={standby_unique} ASYNC VALID_FOR=(ONLINE_LOGFILES,PRIMARY_ROLE) DB_UNIQUE_NAME={standby_unique}' SCOPE=BOTH SID='*';\nALTER SYSTEM SET FAL_SERVER='{standby_unique}' SCOPE=BOTH SID='*';\nALTER SYSTEM SET STANDBY_FILE_MANAGEMENT='AUTO' SCOPE=BOTH SID='*';\nSELECT thread#, group#, bytes/1024/1024 size_mb FROM v$standby_log ORDER BY thread#, group#;",
+        ),
         f"sudo -iu oracle {DB_HOME}/bin/orapwd file={DB_HOME}/dbs/orapw{primary_unique} force=y format=12 password=\"$DG_PASSWORD\"",
         f"mkdir -p {GRID_BASE}/dbs",
         f"cp {DB_HOME}/dbs/orapw{primary_unique} {GRID_BASE}/dbs/orapw{primary_unique}",
@@ -316,13 +369,22 @@ def _duplicate_standby_script(config: AutomationConfig) -> str:
     standby_sid = _instance_name(standby, 0, config.install_type)
     lines = [
         _dg_secret_export(config),
-        f"if sudo -iu oracle bash -lc \"export ORACLE_SID={standby_sid}; sqlplus -s / as sysdba <<'SQL' >/tmp/oracle-auto-{standby_unique}-role.out 2>/tmp/oracle-auto-{standby_unique}-role.err\nSET HEADING OFF FEEDBACK OFF PAGESIZE 0\nSELECT database_role FROM v\\$database;\nSQL\" && grep -qi 'PHYSICAL STANDBY' /tmp/oracle-auto-{standby_unique}-role.out; then",
+        "set +e",
+        _oracle_sqlplus(
+            standby_sid,
+            "SET HEADING OFF FEEDBACK OFF PAGESIZE 0\nSELECT database_role FROM v$database;",
+            stdout=f"/tmp/oracle-auto-{standby_unique}-role.out",
+            stderr=f"/tmp/oracle-auto-{standby_unique}-role.err",
+        ),
+        "standby_role_rc=$?",
+        "set -e",
+        f"if test \"$standby_role_rc\" -eq 0 && grep -qi 'PHYSICAL STANDBY' /tmp/oracle-auto-{standby_unique}-role.out; then",
         f"  echo 'Standby database {standby_unique} already duplicated; skipping RMAN duplicate.'",
         "else",
         f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} TNS_ADMIN={DB_HOME}/network/admin {DB_HOME}/bin/tnsping {primary_unique}",
         f"  sudo -iu oracle env ORACLE_HOME={DB_HOME} TNS_ADMIN={DB_HOME}/network/admin {DB_HOME}/bin/tnsping {standby_unique}",
-        f"  sudo -iu oracle bash -lc \"export ORACLE_SID={standby_sid}; export TNS_ADMIN={DB_HOME}/network/admin; {DB_HOME}/bin/rman target sys/\\\"$DG_PASSWORD\\\"@{primary_unique} auxiliary sys/\\\"$DG_PASSWORD\\\"@{standby_unique} <<'RMAN'\nDUPLICATE TARGET DATABASE FOR STANDBY FROM ACTIVE DATABASE DORECOVER NOFILENAMECHECK;\nRMAN\"",
-        f"  sudo -iu oracle bash -lc \"export ORACLE_SID={standby_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR CONTINUE\nSHUTDOWN IMMEDIATE;\nSQL\"",
+        _oracle_rman(standby_sid, f"target sys/\"$DG_PASSWORD\"@{primary_unique} auxiliary sys/\"$DG_PASSWORD\"@{standby_unique}", "DUPLICATE TARGET DATABASE FOR STANDBY FROM ACTIVE DATABASE DORECOVER NOFILENAMECHECK;"),
+        _oracle_sqlplus(standby_sid, "WHENEVER SQLERROR CONTINUE\nSHUTDOWN IMMEDIATE;"),
         "fi",
         f"sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {standby_unique} -startoption MOUNT || true",
     ]
@@ -336,7 +398,7 @@ def _start_recovery_script(config: AutomationConfig) -> str:
     standby_sid = _instance_name(standby, 0, config.install_type)
     lines = [
         f"sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {standby_unique} -startoption MOUNT || true",
-        f"sudo -iu oracle bash -lc \"export ORACLE_SID={standby_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR CONTINUE\nALTER DATABASE RECOVER MANAGED STANDBY DATABASE CANCEL;\nALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION;\nSELECT name, open_mode, database_role FROM v\\$database;\nSELECT process, status, thread#, sequence# FROM v\\$managed_standby ORDER BY process;\nSQL\"",
+        _oracle_sqlplus(standby_sid, "WHENEVER SQLERROR CONTINUE\nALTER DATABASE RECOVER MANAGED STANDBY DATABASE CANCEL;\nALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION;\nSELECT name, open_mode, database_role FROM v$database;\nSELECT process, status, thread#, sequence# FROM v$managed_standby ORDER BY process;"),
     ]
     return shell_script("Start Active Data Guard recovery", lines)
 
@@ -346,7 +408,7 @@ def _verify_primary_dataguard_script(config: AutomationConfig) -> str:
     assert standby is not None
     primary_sid = _instance_name(config.primary_site, 0, config.install_type)
     lines = [
-        f"sudo -iu oracle bash -lc \"export ORACLE_SID={primary_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER SYSTEM ARCHIVE LOG CURRENT;\nALTER SYSTEM SWITCH LOGFILE;\nSELECT name, open_mode, database_role, protection_mode FROM v\\$database;\nSELECT dest_id, status, target, destination, error FROM v\\$archive_dest_status WHERE target = 'STANDBY' OR dest_id <= 2 ORDER BY dest_id;\nSQL\"",
+        _oracle_sqlplus(primary_sid, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER SYSTEM ARCHIVE LOG CURRENT;\nALTER SYSTEM SWITCH LOGFILE;\nSELECT name, open_mode, database_role, protection_mode FROM v$database;\nSELECT dest_id, status, target, destination, error FROM v$archive_dest_status WHERE target = 'STANDBY' OR dest_id <= 2 ORDER BY dest_id;"),
     ]
     return shell_script("Verify primary Data Guard transport", lines)
 
@@ -357,7 +419,7 @@ def _verify_standby_dataguard_script(config: AutomationConfig) -> str:
     standby_unique = standby.db_unique_name
     standby_sid = _instance_name(standby, 0, config.install_type)
     lines = [
-        f"sudo -iu oracle bash -lc \"export ORACLE_SID={standby_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR CONTINUE\nALTER DATABASE RECOVER MANAGED STANDBY DATABASE CANCEL;\nALTER DATABASE OPEN READ ONLY;\nALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION;\nSELECT name, open_mode, database_role FROM v\\$database;\nSELECT name, value, unit FROM v\\$dataguard_stats;\nSELECT process, status, thread#, sequence# FROM v\\$managed_standby ORDER BY process;\nSQL\"",
+        _oracle_sqlplus(standby_sid, "WHENEVER SQLERROR CONTINUE\nALTER DATABASE RECOVER MANAGED STANDBY DATABASE CANCEL;\nALTER DATABASE OPEN READ ONLY;\nALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION;\nSELECT name, open_mode, database_role FROM v$database;\nSELECT name, value, unit FROM v$dataguard_stats;\nSELECT process, status, thread#, sequence# FROM v$managed_standby ORDER BY process;"),
         f"alert_log=$(sudo -iu oracle bash -lc \"ls -1t {ORACLE_BASE}/diag/rdbms/*/*/trace/alert_*.log 2>/dev/null | head -1\") || true",
         "if test -n \"${alert_log:-}\"; then sudo -iu oracle tail -n 80 \"$alert_log\"; fi",
     ]
@@ -377,8 +439,8 @@ def _broker_script(config: AutomationConfig) -> str:
         _dg_secret_export(config),
         f"sudo -iu oracle env ORACLE_HOME={DB_HOME} TNS_ADMIN={DB_HOME}/network/admin {DB_HOME}/bin/tnsping {primary_unique}",
         f"sudo -iu oracle env ORACLE_HOME={DB_HOME} TNS_ADMIN={DB_HOME}/network/admin {DB_HOME}/bin/tnsping {standby_unique}",
-        f"sudo -iu oracle bash -lc \"export ORACLE_SID={primary_sid}; sqlplus -s / as sysdba <<'SQL'\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT name, open_mode, database_role FROM v\\$database;\nALTER SYSTEM SET DG_BROKER_START=TRUE SCOPE=BOTH SID='*';\nSQL\"",
-        f"sudo -iu oracle bash -lc \"export TNS_ADMIN={DB_HOME}/network/admin; sqlplus -L -s sys/\\\"$DG_PASSWORD\\\"@{standby_unique} as sysdba <<'SQL'\nWHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT name, open_mode, database_role FROM v\\$database;\nALTER SYSTEM SET DG_BROKER_START=TRUE SCOPE=BOTH SID='*';\nSQL\"",
+        _oracle_sqlplus(primary_sid, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT name, open_mode, database_role FROM v$database;\nALTER SYSTEM SET DG_BROKER_START=TRUE SCOPE=BOTH SID='*';"),
+        _oracle_sqlplus_remote(standby_unique, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT name, open_mode, database_role FROM v$database;\nALTER SYSTEM SET DG_BROKER_START=TRUE SCOPE=BOTH SID='*';"),
         "set +e",
         f"broker_output=$(sudo -iu oracle env TNS_ADMIN={DB_HOME}/network/admin dgmgrl / <<'DGMGRL'\nSHOW CONFIGURATION;\nDGMGRL\n)",
         "broker_rc=$?",
@@ -398,6 +460,50 @@ def _dg_secret_export(config: AutomationConfig) -> str:
     return (
         f'DG_PASSWORD="${{{config.secrets.dg_password_env}:?Set {config.secrets.dg_password_env} on target before running Data Guard steps}}"\n'
         "export DG_PASSWORD"
+    )
+
+
+def _oracle_sqlplus(
+    sid: str,
+    sql: str,
+    *,
+    stdout: str | None = None,
+    stderr: str | None = None,
+    login: str = "/ as sysdba",
+) -> str:
+    redirect = ""
+    if stdout:
+        redirect += f" > {shlex.quote(stdout)}"
+    if stderr:
+        redirect += f" 2> {shlex.quote(stderr)}"
+    return (
+        f"export ORACLE_SID={shlex.quote(sid)}\n"
+        f"sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} ORACLE_SID=\"$ORACLE_SID\" "
+        f"PATH={DB_HOME}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib "
+        f"{DB_HOME}/bin/sqlplus -s {login} <<'SQL'{redirect}\n"
+        f"{sql}\n"
+        "SQL"
+    )
+
+
+def _oracle_sqlplus_remote(service: str, sql: str) -> str:
+    return (
+        f"sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} TNS_ADMIN={DB_HOME}/network/admin "
+        f"PATH={DB_HOME}/bin:/usr/local/bin:/usr/bin:/bin LD_LIBRARY_PATH={DB_HOME}/lib "
+        f"{DB_HOME}/bin/sqlplus -L -s sys/\"$DG_PASSWORD\"@{shlex.quote(service)} as sysdba <<'SQL'\n"
+        f"{sql}\n"
+        "SQL"
+    )
+
+
+def _oracle_rman(sid: str, connect_args: str, script: str) -> str:
+    return (
+        f"export ORACLE_SID={shlex.quote(sid)}\n"
+        f"sudo -iu oracle env ORACLE_HOME={DB_HOME} ORACLE_BASE={ORACLE_BASE} ORACLE_SID=\"$ORACLE_SID\" "
+        f"TNS_ADMIN={DB_HOME}/network/admin PATH={DB_HOME}/bin:/usr/local/bin:/usr/bin:/bin "
+        f"LD_LIBRARY_PATH={DB_HOME}/lib {DB_HOME}/bin/rman {connect_args} <<'RMAN'\n"
+        f"{script}\n"
+        "RMAN"
     )
 
 
