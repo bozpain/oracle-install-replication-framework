@@ -469,8 +469,10 @@ def _print_report_location(config: AutomationConfig, report: Path, prefix: str =
         print(f"WARN  report publish failed: {exc}", file=sys.stderr)
         return
     print(f"Report published: {target}")
+    print(f"REPORT_HTML={target}")
     if url:
         print(f"Report URL: {url}")
+        print(f"REPORT_URL={url}")
 
 
 def _report_publish_settings(config: AutomationConfig) -> tuple[str | None, str | None]:
