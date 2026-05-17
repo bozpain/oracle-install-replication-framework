@@ -90,6 +90,8 @@ def _physical_standby_steps(config: AutomationConfig, phase: str) -> list[Automa
             _primary_dataguard_script(config),
             timeout=1800,
         ),
+        *_dataguard_duplicate_network_refresh_steps(config, phase),
+        *_dataguard_duplicate_network_validation_steps(config, phase),
         make_step(
             phase,
             "prepare_standby_auxiliary",
@@ -132,6 +134,40 @@ def _physical_standby_steps(config: AutomationConfig, phase: str) -> list[Automa
             _verify_standby_dataguard_script(config),
             timeout=1800,
         ),
+    ]
+
+
+def _dataguard_duplicate_network_refresh_steps(config: AutomationConfig, phase: str) -> list[AutomationStep]:
+    if not config.standby_site:
+        return []
+    return [
+        make_step(
+            phase,
+            "refresh_dataguard_duplicate_network",
+            node,
+            "Refresh Data Guard network before RMAN duplicate",
+            _dataguard_network_script(config, node.host),
+            timeout=1800,
+            force_rerun=True,
+        )
+        for node in config.all_nodes
+    ]
+
+
+def _dataguard_duplicate_network_validation_steps(config: AutomationConfig, phase: str) -> list[AutomationStep]:
+    if not config.standby_site:
+        return []
+    return [
+        make_step(
+            phase,
+            "validate_dataguard_duplicate_network",
+            node,
+            "Validate Data Guard network before RMAN duplicate",
+            _dataguard_network_validation_script(config),
+            timeout=900,
+            force_rerun=True,
+        )
+        for node in config.all_nodes
     ]
 
 

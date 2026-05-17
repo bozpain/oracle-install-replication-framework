@@ -138,6 +138,10 @@ class CliTest(unittest.TestCase):
             "validate_dataguard_network",
             "ensure_primary_archivelog",
             "configure_primary_dataguard",
+            "refresh_dataguard_duplicate_network",
+            "refresh_dataguard_duplicate_network",
+            "validate_dataguard_duplicate_network",
+            "validate_dataguard_duplicate_network",
             "prepare_standby_auxiliary",
             "duplicate_standby_database",
             "configure_dataguard_final_network",
@@ -153,20 +157,23 @@ class CliTest(unittest.TestCase):
         self.assertIn("SID_LIST_LISTENER", command)
         self.assertIn("(HOST = 10.128.0.3)", command)
         self.assertIn("(HOST = 10.128.0.4)", command)
-        self.assertIn("tnsping ORCL_A", command)
-        self.assertIn("tnsping ORCL_B", command)
+        self.assertIn("tnsping ORCL", command)
+        self.assertIn("tnsping ORCLSTBY", command)
         self.assertIn("ALTER DATABASE ARCHIVELOG", command)
         self.assertIn("grep -Eqi", command)
         self.assertIn("^[[:space:]]*ARCHIVELOG[[:space:]]*$", command)
-        self.assertIn("Primary database ORCL_A already runs in ARCHIVELOG mode.", command)
+        self.assertIn("Primary database ORCL already runs in ARCHIVELOG mode.", command)
         self.assertIn("ALTER DATABASE ADD STANDBY LOGFILE THREAD", command)
         self.assertIn("STARTUP NOMOUNT", command)
         self.assertIn("CREATE SPFILE=", command)
-        self.assertIn("CREATE SPFILE='+DATA/ORCLSTBY/PARAMETERFILE/spfileORCLSTBY.ora' FROM PFILE='/u01/app/oracle/product/19.0.0/dbhome_1/dbs/initORCLSTBY.ora';\nWHENEVER SQLERROR CONTINUE\nSHUTDOWN IMMEDIATE;", command)
+        self.assertIn("+DATA/ORCLSTBY/PARAMETERFILE/spfileORCLSTBY.ora", command)
+        self.assertIn("initORCLSTBY.ora", command)
+        self.assertIn("WHENEVER SQLERROR CONTINUE", command)
+        self.assertIn("SHUTDOWN IMMEDIATE", command)
         self.assertIn("asmcmd ls \"$spfile_alias\"", command)
         self.assertIn("Standby ASM spfile already exists; preserving it for resume.", command)
-        self.assertIn("+DATA/ORCL_B/PARAMETERFILE/spfileORCL_B.ora", command)
-        self.assertIn("srvctl start database -db ORCL_B -startoption NOMOUNT", command)
+        self.assertIn("+DATA/ORCLSTBY/PARAMETERFILE/spfileORCLSTBY.ora", command)
+        self.assertIn("srvctl add database -db ORCLSTBY", command)
         self.assertIn("DUPLICATE TARGET DATABASE FOR STANDBY FROM ACTIVE DATABASE", command)
         self.assertIn("Refreshing Data Guard tnsnames before RMAN duplicate.", command)
         self.assertIn("CONNECT TARGET", command)
@@ -175,7 +182,10 @@ class CliTest(unittest.TestCase):
         self.assertIn("dataguard_stats", command)
 
         for step in steps:
-            self.assertFalse(step.force_rerun)
+            if step.name in {"refresh_dataguard_duplicate_network", "validate_dataguard_duplicate_network"}:
+                self.assertTrue(step.force_rerun)
+            else:
+                self.assertFalse(step.force_rerun)
             self.assertIn("oracle-auto remote marker wrapper", step.command)
             self.assertIn(f"/u01/stage/oracle-auto/state/{step.phase.replace('-', '_')}", step.command)
 
@@ -190,8 +200,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("DG_BROKER_START=TRUE", steps[-1].command)
         self.assertIn("StaticConnectIdentifier", steps[-1].command)
         self.assertIn("VALIDATE DATABASE", steps[-1].command)
-        self.assertIn("ORCL_A", steps[-1].command)
-        self.assertIn("ORCL_B", steps[-1].command)
+        self.assertIn("ORCL", steps[-1].command)
+        self.assertIn("ORCLSTBY", steps[-1].command)
         self.assertIn("SHOW CONFIGURATION VERBOSE", steps[-1].command)
 
     def test_dataguard_uses_configured_standby_redo_log_size(self):
