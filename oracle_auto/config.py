@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import ipaddress
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ from typing import Any
 VALID_INSTALL_TYPES = {"single-gi", "rac"}
 VALID_DATAGUARD_METHODS = {"manual", "broker"}
 VALID_ASM_STORAGE_MODES = {"asmlibv3", "raw", "afd"}
+DEFAULT_STANDBY_REDO_LOG_SIZE = "200M"
 DEFAULT_NTP_SERVERS = ["192.168.113.41", "192.168.115.41"]
 DEFAULT_ASMLIB_RPMS = {
     "x86_64": "oracleasmlib-3.1.1-1.el8.x86_64.rpm",
@@ -246,6 +248,7 @@ class InstallerConfig:
 class DataGuardConfig:
     configuration_method: str | None = None
     protection_mode: str = "max_performance"
+    standby_redo_log_size: str = DEFAULT_STANDBY_REDO_LOG_SIZE
 
 
 @dataclass(frozen=True)
@@ -649,6 +652,7 @@ def _parse_dataguard(data: Any) -> DataGuardConfig:
     return DataGuardConfig(
         configuration_method=None,
         protection_mode="max_performance",
+        standby_redo_log_size=str(data.get("standby_redo_log_size", DEFAULT_STANDBY_REDO_LOG_SIZE)).upper(),
     )
 
 
@@ -731,6 +735,8 @@ def _validate_config(config: AutomationConfig) -> None:
         raise ConfigError("dataguard.configuration_method must be manual or broker.")
     if config.dataguard.protection_mode != "max_performance":
         raise ConfigError("Only dataguard.protection_mode=max_performance is supported by default.")
+    if not re.fullmatch(r"[1-9][0-9]*[KMGTP]", config.dataguard.standby_redo_log_size):
+        raise ConfigError("dataguard.standby_redo_log_size must use an Oracle size such as 200M, 512M, or 1G.")
     if config.os.selinux_mode.lower() != "permissive":
         raise ConfigError("SELinux baseline must be permissive.")
     if config.os.package_manager not in {"dnf", "yum"}:

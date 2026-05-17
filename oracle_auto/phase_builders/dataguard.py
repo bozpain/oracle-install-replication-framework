@@ -12,8 +12,6 @@ from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig
 from oracle_auto.phase_builders.common import DB_HOME, GRID_BASE, ORACLE_BASE, make_step
 
-STANDBY_REDO_LOG_SIZE = "200M"
-
 
 def configure_dataguard_steps(config: AutomationConfig) -> list[AutomationStep]:
     return [
@@ -341,6 +339,7 @@ def _primary_dataguard_script(config: AutomationConfig) -> str:
     primary_unique = config.primary_site.db_unique_name
     primary_sid = _instance_name(config.primary_site, 0, config.install_type)
     standby_unique = standby.db_unique_name
+    standby_redo_log_size = config.dataguard.standby_redo_log_size
     primary_sql = f"""WHENEVER SQLERROR EXIT SQL.SQLCODE
 SET SERVEROUTPUT ON
 DECLARE
@@ -369,7 +368,7 @@ BEGIN
   FOR thread_rec IN (SELECT thread# FROM v$thread WHERE enabled = 'PUBLIC' ORDER BY thread#) LOOP
     SELECT COUNT(*) INTO l_existing FROM v$standby_log WHERE thread# = thread_rec.thread#;
     FOR item IN (l_existing + 1)..4 LOOP
-      EXECUTE IMMEDIATE 'ALTER DATABASE ADD STANDBY LOGFILE THREAD ' || thread_rec.thread# || ' SIZE {STANDBY_REDO_LOG_SIZE}';
+      EXECUTE IMMEDIATE 'ALTER DATABASE ADD STANDBY LOGFILE THREAD ' || thread_rec.thread# || ' SIZE {standby_redo_log_size}';
       DBMS_OUTPUT.PUT_LINE('Added standby redo log for thread ' || thread_rec.thread# || ', slot ' || item);
     END LOOP;
   END LOOP;

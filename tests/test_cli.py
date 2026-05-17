@@ -190,6 +190,18 @@ class CliTest(unittest.TestCase):
         self.assertIn("ORCL_B", steps[-1].command)
         self.assertIn("SHOW CONFIGURATION VERBOSE", steps[-1].command)
 
+    def test_dataguard_uses_configured_standby_redo_log_size(self):
+        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = replace(
+            base,
+            dataguard=replace(base.dataguard, configuration_method="manual", standby_redo_log_size="512M"),
+        )
+
+        command = next(step.command for step in configure_dataguard_steps(config) if step.name == "configure_primary_dataguard")
+
+        self.assertIn("SIZE 512M", command)
+        self.assertNotIn("SIZE 2G", command)
+
     def test_rac_dataguard_registers_instances_and_switches_final_tns_to_scan(self):
         base = load_config(Path("configs/sample-rac-dg.json"))
         config = replace(base, dataguard=replace(base.dataguard, configuration_method="broker"))

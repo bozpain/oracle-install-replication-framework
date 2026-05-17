@@ -32,6 +32,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.os.asmlib_rpms["x86_64"], "oracleasmlib-3.1.1-1.el8.x86_64.rpm")
         self.assertEqual(list(config.os.asmlib_rpms), ["x86_64"])
         self.assertIsNone(config.dataguard.configuration_method)
+        self.assertEqual(config.dataguard.standby_redo_log_size, "200M")
         self.assertEqual(config.asm.ocr_disks, [])
         self.assertEqual(config.asm.data_disks[0].dm_uuid, "mpath-360060e8008a3cf000050a3cf00000102")
         self.assertEqual(
@@ -142,6 +143,21 @@ class ConfigTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ConfigError, "id_serial must contain ID_SERIAL only"):
             load_config(self._write_config("bad-id-serial", data))
+
+    def test_dataguard_standby_redo_log_size_is_configurable(self):
+        data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))
+        data["dataguard"]["standby_redo_log_size"] = "512m"
+
+        config = load_config(self._write_config("dg-redo-size", data))
+
+        self.assertEqual(config.dataguard.standby_redo_log_size, "512M")
+
+    def test_dataguard_standby_redo_log_size_rejects_bad_value(self):
+        data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))
+        data["dataguard"]["standby_redo_log_size"] = "two gigs"
+
+        with self.assertRaisesRegex(ConfigError, "standby_redo_log_size"):
+            load_config(self._write_config("bad-dg-redo-size", data))
 
     def test_unknown_site_specific_asm_path_key_is_rejected(self):
         data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))

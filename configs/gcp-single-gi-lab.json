@@ -53,6 +53,9 @@
       }
     ]
   },
+  "dataguard": {
+    "standby_redo_log_size": "200M"
+  },
   "asm": {
     "storage_mode": "raw",
     "redundancy": "EXTERNAL",
