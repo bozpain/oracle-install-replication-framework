@@ -890,7 +890,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("v$asm_diskgroup", db_root_command)
 
     def test_persistent_by_id_paths_are_labeled_with_asmlib(self):
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = replace(base, asm=replace(base.asm, storage_mode="asmlibv3"))
         command = prepare_storage_rules_steps(config)[0].command
 
         self.assertIn("ORACLE_AUTO_MULTIPATH=false", command)
@@ -960,7 +961,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=AFD:*", response)
 
     def test_standby_storage_uses_site_specific_paths(self):
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = replace(base, asm=replace(base.asm, storage_mode="asmlibv3"))
         command = prepare_storage_rules_steps(config)[1].command
 
         self.assertIn("resolve_asm_source_device DATA1 /dev/disk/by-id/scsi-0Google_PersistentDisk_s-data-1-part1", command)
@@ -973,6 +975,7 @@ class CliTest(unittest.TestCase):
         import uuid
 
         data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))
+        data["asm"].pop("storage_mode", None)
         data["asm"]["data_disks"] = [{"id_serial": "scsi-3600ABCDEF001", "name": "DATA01"}]
         data["asm"]["reco_disks"] = [{"id_wwn": "0x600abcdef002", "name": "RECO01"}]
         path = Path(tempfile.mkdtemp(prefix=f"oracle-auto-byid-{uuid.uuid4().hex}-")) / "config.json"
@@ -1013,6 +1016,7 @@ class CliTest(unittest.TestCase):
         import uuid
 
         data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))
+        data["asm"].pop("storage_mode", None)
         data["asm"]["data_disks"][0]["site_paths"]["site-a"] = "/dev/mapper/ora_data01"
         data["asm"]["reco_disks"][0]["site_paths"]["site-a"] = "/dev/mapper/ora_reco01"
         path = Path(tempfile.mkdtemp(prefix=f"oracle-auto-mpath-{uuid.uuid4().hex}-")) / "config.json"
@@ -1098,9 +1102,9 @@ class CliTest(unittest.TestCase):
         self.assertIn("Checking for stale partial DBCA database state before createDatabase.", command)
         self.assertIn("srvctl config database -db ORCL", command)
         self.assertIn("ps -eo args=", command)
-        self.assertIn("ora_pmon_ORCL_A", command)
-        self.assertIn("Detected running ORCL_A instance without srvctl registration; validating before DBCA retry.", command)
-        self.assertIn("Database ORCL_A is already queryable; skipping destructive stale cleanup.", command)
+        self.assertIn("ora_pmon_ORCL", command)
+        self.assertIn("Detected running ORCL instance without srvctl registration; validating before DBCA retry.", command)
+        self.assertIn("Database ORCL is already queryable; skipping destructive stale cleanup.", command)
         self.assertIn("DB_ALREADY_CREATED=true", command)
         self.assertIn("shutdown abort;", command)
         self.assertIn("asmcmd rm -r +DATA/ORCL", command)
@@ -1111,7 +1115,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("ALTER DATABASE FORCE LOGGING;", command)
         self.assertIn("ARCHIVE LOG LIST;", command)
         self.assertIn("SELECT name, open_mode, database_role FROM v$database;", command)
-        self.assertNotIn("bash -lc \"export ORACLE_SID=ORCL_A; sqlplus -s / as sysdba <<'SQL'", command)
+        self.assertNotIn("bash -lc \"export ORACLE_SID=ORCL; sqlplus -s / as sysdba <<'SQL'", command)
         self.assertLess(command.index("Validating ASM diskgroups before DBCA."), command.index("dbca -silent -createDatabase"))
 
     def test_doctor_command_runs(self):
@@ -1179,8 +1183,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("# BEGIN ORACLE-AUTO ORACLE PROFILE", primary_command)
         self.assertIn("export ORACLE_HOME=/u01/app/oracle/product/19.0.0/dbhome_1", primary_command)
         self.assertIn("export PATH=$ORACLE_HOME/bin:$GRID_HOME/bin:$PATH", primary_command)
-        self.assertIn("export ORACLE_SID=ORCL_A", primary_command)
-        self.assertIn("export ORACLE_SID=ORCL_B", standby_command)
+        self.assertIn("export ORACLE_SID=ORCL", primary_command)
+        self.assertIn("export ORACLE_SID=ORCLSTBY", standby_command)
         self.assertIn("useradd -g oinstall -G asmadmin,asmdba,asmoper,dba,racdba grid", primary_command)
         self.assertIn("usermod -aG asmadmin,asmdba,asmoper,dba,racdba grid", primary_command)
 

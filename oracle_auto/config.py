@@ -349,9 +349,9 @@ def _parse_config(data: dict[str, Any], path: Path) -> AutomationConfig:
         install_type = str(data["install_type"])
         primary_site = _parse_site("primary_site", data["primary_site"])
         asm = _parse_asm(data["asm"])
-        dns = _parse_dns(data["dns"])
-        version = _parse_version(data.get("version", {}))
-        installer = _parse_installer(data["installer"], version, path)
+        dns = _parse_dns(data.get("dns", {}))
+        version = _parse_version(data.get("version", {}), data)
+        installer = _parse_installer(data.get("installer", {}), version, path)
     except KeyError as exc:
         raise ConfigError(f"Missing required config key: {exc.args[0]}") from exc
 
@@ -447,10 +447,12 @@ def _normalize_asm_storage_mode(value: Any) -> str:
 
 
 def _parse_dns(data: Any) -> DNSConfig:
+    if data is None:
+        data = {}
     if not isinstance(data, dict):
         raise ConfigError("dns must be an object/mapping.")
     return DNSConfig(
-        resolvers=_required_str_list(data.get("resolvers"), "dns.resolvers"),
+        resolvers=[str(item) for item in data.get("resolvers", DEFAULT_NTP_SERVERS)],
         search_domains=[str(item) for item in data.get("search_domains", [])],
     )
 
@@ -689,17 +691,18 @@ def _parse_report_publish(data: Any) -> ReportPublishConfig:
     )
 
 
-def _parse_version(data: Any) -> VersionConfig:
+def _parse_version(data: Any, root: dict[str, Any] | None = None) -> VersionConfig:
     if data is None:
-        return VersionConfig()
+        data = {}
     if not isinstance(data, dict):
         raise ConfigError("version must be an object/mapping.")
+    root = root or {}
     return VersionConfig(
         os_distribution=str(data.get("os_distribution", "oracle_linux")),
         os_version=str(data.get("os_version", "8.10")),
         oracle_version=str(data.get("oracle_version", "19c")),
         oracle_home_version=str(data.get("oracle_home_version", "19.0.0")),
-        patch_set=str(data.get("patch_set", "19.30")),
+        patch_set=str(data.get("patch_set", root.get("patch_set", "19.30"))),
     )
 
 

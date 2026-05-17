@@ -1,28 +1,7 @@
 {
   "run_id": "rac-adg-demo",
   "install_type": "rac",
-  "version": {
-    "os_distribution": "oracle_linux",
-    "os_version": "8.10",
-    "oracle_version": "19c",
-    "oracle_home_version": "19.0.0",
-    "patch_set": "19.30"
-  },
-  "os": {
-    "package_manager": "dnf",
-    "preinstall_package": "oracle-database-preinstall-19c",
-    "selinux_mode": "permissive",
-    "ntp_servers": [
-      "192.168.113.41",
-      "192.168.115.41"
-    ]
-  },
-  "ssh": {
-    "user": "root",
-    "port": 22,
-    "connect_timeout": 10,
-    "strict_host_key_checking": "accept-new"
-  },
+  "patch_set": "19.30",
   "dns": {
     "resolvers": [
       "192.168.113.10",
@@ -30,6 +9,12 @@
     ],
     "search_domains": [
       "example.com"
+    ]
+  },
+  "os": {
+    "ntp_servers": [
+      "192.168.113.41",
+      "192.168.115.41"
     ]
   },
   "primary_site": {
@@ -72,7 +57,6 @@
     ]
   },
   "asm": {
-    "redundancy": "EXTERNAL",
     "ocr_disks": [
       "360060e8008a3cf000050a3cf00000101",
       "360060e8008a3cf000050a3cf00000102",
@@ -86,15 +70,5 @@
       "360060e8008a3cf000050a3cf00000106",
       "360060e8008a3cf000050a3cf00000107"
     ]
-  },
-  "installer": {
-    "sources_path": "/u01/sources",
-    "patch_manifest": "19.30"
-  },
-  "secrets": {
-    "sys_password_env": "ORACLE_AUTO_SYS_PASSWORD",
-    "system_password_env": "ORACLE_AUTO_SYSTEM_PASSWORD",
-    "asmsnmp_password_env": "ORACLE_AUTO_ASMSNMP_PASSWORD",
-    "dg_password_env": "ORACLE_AUTO_DG_PASSWORD"
   }
 }

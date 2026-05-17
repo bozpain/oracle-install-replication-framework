@@ -1,26 +1,9 @@
 {
   "run_id": "gcp-single-gi-lab",
   "install_type": "single-gi",
-  "version": {
-    "os_distribution": "oracle_linux",
-    "os_version": "8.10",
-    "oracle_version": "19c",
-    "oracle_home_version": "19.0.0",
-    "patch_set": "19.30"
-  },
-  "os": {
-    "package_manager": "dnf",
-    "preinstall_package": "oracle-database-preinstall-19c",
-    "selinux_mode": "permissive",
-    "ntp_servers": [
-      "169.254.169.254"
-    ]
-  },
+  "patch_set": "19.30",
   "ssh": {
-    "user": "rori_learning",
-    "port": 22,
-    "connect_timeout": 10,
-    "strict_host_key_checking": "accept-new"
+    "user": "rori_learning"
   },
   "dns": {
     "resolvers": [
@@ -30,6 +13,11 @@
       "us-central1-a.c.project-938a6e28-56f9-4f95-bac.internal",
       "c.project-938a6e28-56f9-4f95-bac.internal",
       "google.internal"
+    ]
+  },
+  "os": {
+    "ntp_servers": [
+      "169.254.169.254"
     ]
   },
   "primary_site": {
@@ -53,39 +41,25 @@
       }
     ]
   },
-  "dataguard": {
-    "standby_redo_log_size": "200M"
-  },
   "asm": {
     "storage_mode": "raw",
-    "redundancy": "EXTERNAL",
     "data_disks": [
       {
+        "name": "DATA1",
         "site_paths": {
           "site-a": "/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1",
           "site-b": "/dev/disk/by-id/scsi-0Google_PersistentDisk_s-data-1-part1"
-        },
-        "name": "DATA1"
+        }
       }
     ],
     "reco_disks": [
       {
+        "name": "RECO1",
         "site_paths": {
           "site-a": "/dev/disk/by-id/scsi-0Google_PersistentDisk_p-reco-1-part1",
           "site-b": "/dev/disk/by-id/scsi-0Google_PersistentDisk_s-reco-1-part1"
-        },
-        "name": "RECO1"
+        }
       }
     ]
-  },
-  "installer": {
-    "sources_path": "/u01/sources",
-    "patch_manifest": "19.30"
-  },
-  "secrets": {
-    "sys_password_env": "ORACLE_AUTO_SYS_PASSWORD",
-    "system_password_env": "ORACLE_AUTO_SYSTEM_PASSWORD",
-    "asmsnmp_password_env": "ORACLE_AUTO_ASMSNMP_PASSWORD",
-    "dg_password_env": "ORACLE_AUTO_DG_PASSWORD"
   }
 }

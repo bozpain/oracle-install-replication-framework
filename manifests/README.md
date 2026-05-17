@@ -1,6 +1,8 @@
 # Patch Manifests
 
-`version.patch_set` and `installer.patch_manifest` select `manifests/<patch_set>.yaml`.
+`patch_set` selects `manifests/<patch_set>.yaml`. The older
+`version.patch_set` and `installer.patch_manifest` forms are still accepted,
+but new operator configs should prefer the top-level `patch_set` key.
 
 To add a new RU, copy `19.30.yaml` to the new patch set, for example `19.31.yaml`, then update:
 

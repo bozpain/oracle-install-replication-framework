@@ -146,7 +146,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_dataguard_standby_redo_log_size_is_configurable(self):
         data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))
-        data["dataguard"]["standby_redo_log_size"] = "512m"
+        data["dataguard"] = {"standby_redo_log_size": "512m"}
 
         config = load_config(self._write_config("dg-redo-size", data))
 
@@ -154,7 +154,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_dataguard_standby_redo_log_size_rejects_bad_value(self):
         data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))
-        data["dataguard"]["standby_redo_log_size"] = "two gigs"
+        data["dataguard"] = {"standby_redo_log_size": "two gigs"}
 
         with self.assertRaisesRegex(ConfigError, "standby_redo_log_size"):
             load_config(self._write_config("bad-dg-redo-size", data))
