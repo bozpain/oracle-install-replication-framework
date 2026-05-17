@@ -461,7 +461,7 @@ def _run_workflow(args, config: AutomationConfig) -> int:
 def _print_report_location(config: AutomationConfig, report: Path, prefix: str = "") -> None:
     print(f"{prefix}Report written: {report}")
     publish_path, url_base = _report_publish_settings(config)
-    if not publish_path or not url_base:
+    if not publish_path:
         return
     try:
         target, url = publish_html_report(report, Path(publish_path), url_base)
@@ -469,7 +469,8 @@ def _print_report_location(config: AutomationConfig, report: Path, prefix: str =
         print(f"WARN  report publish failed: {exc}", file=sys.stderr)
         return
     print(f"Report published: {target}")
-    print(f"Report URL: {url}")
+    if url:
+        print(f"Report URL: {url}")
 
 
 def _report_publish_settings(config: AutomationConfig) -> tuple[str | None, str | None]:

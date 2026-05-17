@@ -757,8 +757,6 @@ def _validate_config(config: AutomationConfig) -> None:
         raise ConfigError("Only dataguard.protection_mode=max_performance is supported by default.")
     if not re.fullmatch(r"[1-9][0-9]*[KMGTP]", config.dataguard.standby_redo_log_size):
         raise ConfigError("dataguard.standby_redo_log_size must use an Oracle size such as 200M, 512M, or 1G.")
-    if config.report_publish.path and not config.report_publish.url_base:
-        raise ConfigError("report_publish.url_base is required when report_publish.path is set.")
     if config.report_publish.url_base and not config.report_publish.path:
         raise ConfigError("report_publish.path is required when report_publish.url_base is set.")
     if config.os.selinux_mode.lower() != "permissive":

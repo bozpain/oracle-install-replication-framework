@@ -31,11 +31,11 @@ def write_html_report(
     return path
 
 
-def publish_html_report(report_path: Path, publish_path: Path, url_base: str) -> tuple[Path, str]:
+def publish_html_report(report_path: Path, publish_path: Path, url_base: str | None = None) -> tuple[Path, str | None]:
     publish_path.mkdir(parents=True, exist_ok=True)
     target = publish_path / report_path.name
     shutil.copy2(report_path, target)
-    url = f"{url_base.rstrip('/')}/{target.name}"
+    url = f"{url_base.rstrip('/')}/{target.name}" if url_base else None
     return target, url
 
 
