@@ -9,6 +9,7 @@ SSH access; it only consumes config plus state/result data.
 from __future__ import annotations
 
 import html
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,14 @@ def write_html_report(
     path = output_dir / f"{_safe_run_id(config.run_id)}.html"
     path.write_text(render_html_report(config, results, title=title), encoding="utf-8")
     return path
+
+
+def publish_html_report(report_path: Path, publish_path: Path, url_base: str) -> tuple[Path, str]:
+    publish_path.mkdir(parents=True, exist_ok=True)
+    target = publish_path / report_path.name
+    shutil.copy2(report_path, target)
+    url = f"{url_base.rstrip('/')}/{target.name}"
+    return target, url
 
 
 def render_html_report(

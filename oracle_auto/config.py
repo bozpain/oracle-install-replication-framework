@@ -260,6 +260,12 @@ class SecretsConfig:
 
 
 @dataclass(frozen=True)
+class ReportPublishConfig:
+    path: str | None = None
+    url_base: str | None = None
+
+
+@dataclass(frozen=True)
 class AutomationConfig:
     install_type: str
     primary_site: SiteConfig
@@ -272,6 +278,7 @@ class AutomationConfig:
     version: VersionConfig = field(default_factory=VersionConfig)
     os: OSConfig = field(default_factory=OSConfig)
     ssh: SSHConfig = field(default_factory=SSHConfig)
+    report_publish: ReportPublishConfig = field(default_factory=ReportPublishConfig)
     run_id: str = "default"
 
     @property
@@ -356,6 +363,7 @@ def _parse_config(data: dict[str, Any], path: Path) -> AutomationConfig:
     ssh = _parse_ssh(data.get("ssh", {}))
     dataguard = _parse_dataguard(data.get("dataguard", {}))
     secrets = _parse_secrets(data.get("secrets", {}))
+    report_publish = _parse_report_publish(data.get("report_publish", {}))
     run_id = str(data.get("run_id") or path.stem)
 
     return AutomationConfig(
@@ -370,6 +378,7 @@ def _parse_config(data: dict[str, Any], path: Path) -> AutomationConfig:
         version=version,
         os=os_config,
         ssh=ssh,
+        report_publish=report_publish,
         run_id=run_id,
     )
 
@@ -669,6 +678,17 @@ def _parse_secrets(data: Any) -> SecretsConfig:
     )
 
 
+def _parse_report_publish(data: Any) -> ReportPublishConfig:
+    if data is None:
+        return ReportPublishConfig()
+    if not isinstance(data, dict):
+        raise ConfigError("report_publish must be an object/mapping.")
+    return ReportPublishConfig(
+        path=_optional_str(data.get("path")),
+        url_base=_optional_str(data.get("url_base")),
+    )
+
+
 def _parse_version(data: Any) -> VersionConfig:
     if data is None:
         return VersionConfig()
@@ -737,6 +757,10 @@ def _validate_config(config: AutomationConfig) -> None:
         raise ConfigError("Only dataguard.protection_mode=max_performance is supported by default.")
     if not re.fullmatch(r"[1-9][0-9]*[KMGTP]", config.dataguard.standby_redo_log_size):
         raise ConfigError("dataguard.standby_redo_log_size must use an Oracle size such as 200M, 512M, or 1G.")
+    if config.report_publish.path and not config.report_publish.url_base:
+        raise ConfigError("report_publish.url_base is required when report_publish.path is set.")
+    if config.report_publish.url_base and not config.report_publish.path:
+        raise ConfigError("report_publish.path is required when report_publish.url_base is set.")
     if config.os.selinux_mode.lower() != "permissive":
         raise ConfigError("SELinux baseline must be permissive.")
     if config.os.package_manager not in {"dnf", "yum"}:

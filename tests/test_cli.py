@@ -1,3 +1,4 @@
+import os
 import unittest
 import tempfile
 import threading
@@ -52,26 +53,44 @@ class CliTest(unittest.TestCase):
 
     def test_generate_report_prints_start_logger(self):
         tmp = self._test_dir("report")
+        publish = self._test_dir("published-report")
 
         import io
         from contextlib import redirect_stdout
 
         buffer = io.StringIO()
-        with redirect_stdout(buffer):
-            code = main([
-                "--report-dir",
-                str(tmp),
-                "--state-dir",
-                str(tmp),
-                "generate-report",
-                "--config",
-                "configs/sample-single.json",
-                "--dataguard-mode",
-                "broker",
-            ])
+        previous_path = os.environ.get("ORACLE_AUTO_REPORT_PUBLISH_PATH")
+        previous_url = os.environ.get("ORACLE_AUTO_REPORT_URL_BASE")
+        os.environ["ORACLE_AUTO_REPORT_PUBLISH_PATH"] = str(publish)
+        os.environ["ORACLE_AUTO_REPORT_URL_BASE"] = "https://dbaportal/reports"
+        try:
+            with redirect_stdout(buffer):
+                code = main([
+                    "--report-dir",
+                    str(tmp),
+                    "--state-dir",
+                    str(tmp),
+                    "generate-report",
+                    "--config",
+                    "configs/sample-single.json",
+                    "--dataguard-mode",
+                    "broker",
+                ])
+        finally:
+            if previous_path is None:
+                os.environ.pop("ORACLE_AUTO_REPORT_PUBLISH_PATH", None)
+            else:
+                os.environ["ORACLE_AUTO_REPORT_PUBLISH_PATH"] = previous_path
+            if previous_url is None:
+                os.environ.pop("ORACLE_AUTO_REPORT_URL_BASE", None)
+            else:
+                os.environ["ORACLE_AUTO_REPORT_URL_BASE"] = previous_url
 
         self.assertEqual(code, 0)
         self.assertIn("RUN   generate-report:local:generate_report", buffer.getvalue())
+        self.assertIn("Report published:", buffer.getvalue())
+        self.assertIn("Report URL: https://dbaportal/reports/single-gi-demo.html", buffer.getvalue())
+        self.assertTrue((publish / "single-gi-demo.html").exists())
 
     def test_progress_line_reports_current_running_step(self):
         tmp = self._test_dir("progress")

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -47,7 +48,7 @@ from oracle_auto.phases import (
 from oracle_auto.plan import write_plan
 from oracle_auto.precheck import PrecheckRunner
 from oracle_auto.progress import start_progress, stop_progress
-from oracle_auto.report import results_from_state, write_html_report
+from oracle_auto.report import publish_html_report, results_from_state, write_html_report
 from oracle_auto.state import NoopStateStore, StateStore
 
 
@@ -354,7 +355,7 @@ def main(argv: list[str] | None = None) -> int:
         print("RUN   generate-report:local:generate_report  Generate HTML report from current state", flush=True)
         results = results_from_state(state.data)
         path = write_html_report(config, results, Path(args.report_dir))
-        print(f"Report written: {path}")
+        _print_report_location(config, path)
         return 0
 
     if args.command == "generate-plan":
@@ -399,7 +400,7 @@ def _run_precheck(args, config: AutomationConfig) -> int:
         _stop_progress_if_needed(args, config, progress)
     _print_or_json(args, step_results)
     report = write_html_report(config, step_results, Path(args.report_dir), title=f"Oracle Precheck - {config.run_id}")
-    print(f"\nReport written: {report}")
+    _print_report_location(config, report, prefix="\n")
     return 1 if any(item.status == "FAIL" for item in step_results) else 0
 
 
@@ -415,7 +416,7 @@ def _run_phase(args, config: AutomationConfig, steps: list[AutomationStep]) -> i
         _stop_progress_if_needed(args, config, progress)
     _print_or_json(args, results)
     report = write_html_report(config, results, Path(args.report_dir), title=f"{args.command} - {config.run_id}")
-    print(f"\nReport written: {report}")
+    _print_report_location(config, report, prefix="\n")
     return 1 if any(item.status == "FAIL" for item in results) else 0
 
 
@@ -453,8 +454,28 @@ def _run_workflow(args, config: AutomationConfig) -> int:
         _stop_progress_if_needed(args, config, progress)
 
     report = write_html_report(config, all_results, Path(args.report_dir), title=f"{args.command} - {config.run_id}")
-    print(f"\nReport written: {report}")
+    _print_report_location(config, report, prefix="\n")
     return 1 if any(item.status == "FAIL" for item in all_results) else 0
+
+
+def _print_report_location(config: AutomationConfig, report: Path, prefix: str = "") -> None:
+    print(f"{prefix}Report written: {report}")
+    publish_path, url_base = _report_publish_settings(config)
+    if not publish_path or not url_base:
+        return
+    try:
+        target, url = publish_html_report(report, Path(publish_path), url_base)
+    except OSError as exc:
+        print(f"WARN  report publish failed: {exc}", file=sys.stderr)
+        return
+    print(f"Report published: {target}")
+    print(f"Report URL: {url}")
+
+
+def _report_publish_settings(config: AutomationConfig) -> tuple[str | None, str | None]:
+    path = config.report_publish.path or os.environ.get("ORACLE_AUTO_REPORT_PUBLISH_PATH")
+    url_base = config.report_publish.url_base or os.environ.get("ORACLE_AUTO_REPORT_URL_BASE")
+    return path, url_base
 
 
 def _execute_precheck(args, config: AutomationConfig) -> list[StepResult]:
