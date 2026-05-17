@@ -214,19 +214,18 @@ def _ensure_primary_archivelog_script(config: AutomationConfig) -> str:
     primary_db_name = config.primary_site.db_name or primary_unique
     primary_sid = _instance_name(config.primary_site, 0, config.install_type)
     if config.install_type == "rac":
-        startup_lines = [
+        setup_lines = [
             f"sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {primary_unique} || true",
         ]
         mount_lines = [
             f"sudo -iu oracle {DB_HOME}/bin/srvctl stop database -db {primary_unique} -stopoption IMMEDIATE || true",
             f"sudo -iu oracle {DB_HOME}/bin/srvctl start instance -db {primary_unique} -instance {primary_sid} -startoption MOUNT || sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {primary_unique} -startoption MOUNT",
         ]
-        restart_lines = [
+        post_open_lines = [
             f"sudo -iu oracle {DB_HOME}/bin/srvctl start database -db {primary_unique}",
         ]
     else:
-        fallback_pfile = _single_gi_primary_fallback_pfile(primary_db_name, primary_unique)
-        startup_lines = [
+        setup_lines = [
             f"PRIMARY_SRVCTL_DB={shlex.quote(primary_unique)}",
             f"if sudo -iu oracle {DB_HOME}/bin/srvctl config database -db {shlex.quote(primary_unique)} >/dev/null 2>&1; then",
             f"  PRIMARY_SRVCTL_DB={shlex.quote(primary_unique)}",
@@ -236,7 +235,6 @@ def _ensure_primary_archivelog_script(config: AutomationConfig) -> str:
             f"  echo 'Primary database is not registered with srvctl as {primary_unique} or {primary_db_name}; falling back to SQLPlus startup handling.'",
             "  PRIMARY_SRVCTL_DB=",
             "fi",
-            *_single_gi_initfile_repair_lines(primary_sid, primary_unique, primary_db_name, fallback_pfile),
             "if test -n \"$PRIMARY_SRVCTL_DB\"; then",
             f"  sudo -iu oracle {DB_HOME}/bin/srvctl start database -db \"$PRIMARY_SRVCTL_DB\" || true",
             "else",
@@ -251,9 +249,9 @@ def _ensure_primary_archivelog_script(config: AutomationConfig) -> str:
             _oracle_sqlplus(primary_sid, "WHENEVER SQLERROR CONTINUE\nSHUTDOWN IMMEDIATE;\nSTARTUP MOUNT;"),
             "fi",
         ]
-        restart_lines = []
+        post_open_lines = []
     lines = [
-        *startup_lines,
+        *setup_lines,
         _oracle_sqlplus(
             primary_sid,
             "SET HEADING OFF FEEDBACK OFF PAGESIZE 0\nSELECT log_mode FROM v$database;",
@@ -265,7 +263,7 @@ def _ensure_primary_archivelog_script(config: AutomationConfig) -> str:
         f"  echo 'Primary database {primary_unique} is not in ARCHIVELOG mode; enabling it now.'",
         *mount_lines,
         _oracle_sqlplus(primary_sid, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER DATABASE ARCHIVELOG;\nALTER DATABASE OPEN;"),
-        *restart_lines,
+        *post_open_lines,
         "fi",
         _oracle_sqlplus(primary_sid, "WHENEVER SQLERROR EXIT SQL.SQLCODE\nSELECT name, log_mode, open_mode, database_role FROM v$database;"),
     ]
@@ -457,73 +455,6 @@ def _dg_secret_export(config: AutomationConfig) -> str:
         f'DG_PASSWORD="${{{config.secrets.dg_password_env}:?Set {config.secrets.dg_password_env} on target before running Data Guard steps}}"\n'
         "export DG_PASSWORD"
     )
-
-
-def _single_gi_initfile_repair_lines(
-    primary_sid: str,
-    primary_unique: str,
-    primary_db_name: str,
-    fallback_pfile: str,
-) -> list[str]:
-    init_file = f"{DB_HOME}/dbs/init{primary_sid}.ora"
-    return [
-        f"PRIMARY_INIT_FILE={shlex.quote(init_file)}",
-        "PRIMARY_INIT_VALID=false",
-        'if test -s "$PRIMARY_INIT_FILE" && grep -Eq "^[[:space:]]*SPFILE=" "$PRIMARY_INIT_FILE"; then',
-        "  PRIMARY_EXISTING_SPFILE=$(grep -Ei '^[[:space:]]*SPFILE=' \"$PRIMARY_INIT_FILE\" | head -1 | cut -d= -f2- | tr -d \"'\" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')",
-        '  if test -n "$PRIMARY_EXISTING_SPFILE" && sudo -iu grid {grid_base}/bin/asmcmd ls "$PRIMARY_EXISTING_SPFILE" >/dev/null 2>&1; then'.format(grid_base=GRID_BASE),
-        "    PRIMARY_INIT_VALID=true",
-        "  else",
-        '    echo "Primary init file points to missing spfile ${PRIMARY_EXISTING_SPFILE:-unknown}; rebuilding it."',
-        "  fi",
-        "fi",
-        'if test "$PRIMARY_INIT_VALID" != true; then',
-        f"  echo 'Primary init file {init_file} is missing or stale; looking for a valid spfile before restart.'",
-        "  PRIMARY_SPFILE=",
-        '  if test -z "$PRIMARY_SPFILE"; then',
-        f"    PRIMARY_SPFILE=$(sudo -iu grid {GRID_BASE}/bin/asmcmd find +DATA {shlex.quote(f'spfile{primary_sid}.ora')} 2>/dev/null | head -1 || true)",
-        "  fi",
-        '  if test -z "$PRIMARY_SPFILE"; then',
-        f"    PRIMARY_SPFILE=$(sudo -iu grid {GRID_BASE}/bin/asmcmd find +DATA/{shlex.quote(primary_db_name)} spfile*.ora 2>/dev/null | head -1 || true)",
-        "  fi",
-        '  if test -z "$PRIMARY_SPFILE"; then',
-        f"    PRIMARY_SPFILE=$(sudo -iu grid {GRID_BASE}/bin/asmcmd find +DATA/{shlex.quote(primary_unique)} spfile*.ora 2>/dev/null | head -1 || true)",
-        "  fi",
-        '  if test -n "$PRIMARY_SPFILE" && sudo -iu grid {grid_base}/bin/asmcmd ls "$PRIMARY_SPFILE" >/dev/null 2>&1; then'.format(grid_base=GRID_BASE),
-        "    printf \"SPFILE='%s'\\n\" \"$PRIMARY_SPFILE\" > \"$PRIMARY_INIT_FILE\"",
-        "    chown oracle:oinstall \"$PRIMARY_INIT_FILE\"",
-        "    chmod 600 \"$PRIMARY_INIT_FILE\"",
-        '    echo "Created $PRIMARY_INIT_FILE pointing to $PRIMARY_SPFILE."',
-        "  else",
-        f"    echo 'No valid ASM spfile found for {primary_sid}; writing a bootstrap pfile for ARCHIVELOG conversion.'",
-        f"    PRIMARY_DATA_CONTROL=$(sudo -iu grid {GRID_BASE}/bin/asmcmd find +DATA/{shlex.quote(primary_db_name)} CONTROLFILE/current* 2>/dev/null | head -1 || true)",
-        f"    PRIMARY_RECO_CONTROL=$(sudo -iu grid {GRID_BASE}/bin/asmcmd find +RECO/{shlex.quote(primary_db_name)} CONTROLFILE/current* 2>/dev/null | head -1 || true)",
-        '    if test -z "$PRIMARY_DATA_CONTROL"; then',
-        f"      PRIMARY_DATA_CONTROL=$(sudo -iu grid {GRID_BASE}/bin/asmcmd find +DATA/{shlex.quote(primary_unique)} CONTROLFILE/current* 2>/dev/null | head -1 || true)",
-        "    fi",
-        '    if test -z "$PRIMARY_RECO_CONTROL"; then',
-        f"      PRIMARY_RECO_CONTROL=$(sudo -iu grid {GRID_BASE}/bin/asmcmd find +RECO/{shlex.quote(primary_unique)} CONTROLFILE/current* 2>/dev/null | head -1 || true)",
-        "    fi",
-        '    test -n "$PRIMARY_DATA_CONTROL"',
-        f"    cat > \"$PRIMARY_INIT_FILE\" <<EOF\n{fallback_pfile}\nEOF",
-        "    chown oracle:oinstall \"$PRIMARY_INIT_FILE\"",
-        "    chmod 600 \"$PRIMARY_INIT_FILE\"",
-        "  fi",
-        "fi",
-    ]
-
-
-def _single_gi_primary_fallback_pfile(primary_db_name: str, primary_unique: str) -> str:
-    return f"""*.db_name='{primary_db_name}'
-*.db_unique_name='{primary_unique}'
-*.control_files='$PRIMARY_DATA_CONTROL','$PRIMARY_RECO_CONTROL'
-*.db_create_file_dest='+DATA'
-*.db_recovery_file_dest='+RECO'
-*.db_recovery_file_dest_size=20G
-*.audit_file_dest='{ORACLE_BASE}/admin/{primary_unique}/adump'
-*.diagnostic_dest='{ORACLE_BASE}'
-*.memory_target=4096M
-*.compatible='19.0.0'"""
 
 
 def _oracle_sqlplus(
