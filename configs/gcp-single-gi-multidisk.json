@@ -26,8 +26,8 @@
     "db_unique_name": "ORCL",
     "nodes": [
       {
-        "host": "ora-primary-01",
-        "public_ip": "10.184.0.7"
+        "host": "storage-tes",
+        "public_ip": "10.128.0.6"
       }
     ]
   },
