@@ -728,6 +728,19 @@ class CliTest(unittest.TestCase):
         self.assertIn("local RPM in configured sources_path", checks["asmlib_packages"].command)
         self.assertTrue(checks["asmlib_packages"].warn_only)
 
+    def test_raw_storage_skips_asmlib_os_and_precheck_requirements(self):
+        from oracle_auto.precheck import PrecheckRunner
+
+        base = load_config(Path("configs/gcp-single-gi-multidisk.json"))
+        config = replace(base, asm=replace(base.asm, storage_mode="raw"))
+        prepare_command = prepare_os_steps(config)[0].command
+        checks = {check.name: check for check in PrecheckRunner(config, executor=None, state=NoopStateStore())._checks_for(config.primary_site.nodes[0])}
+
+        self.assertNotIn("oracleasm-support", prepare_command)
+        self.assertNotIn("oracleasmlib", prepare_command)
+        self.assertNotIn("asmlib_kernel_interface", checks)
+        self.assertNotIn("asmlib_packages", checks)
+
     def test_precheck_warnings_are_retried_on_resume(self):
         from oracle_auto.precheck import PrecheckRunner
 

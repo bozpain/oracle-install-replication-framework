@@ -134,11 +134,6 @@ class PrecheckRunner:
                 fail_message="Cannot read kernel version.",
             ),
             Check(
-                name="asmlib_kernel_interface",
-                command=asmlib_kernel_check_command(),
-                fail_message="ASMLIB v3 requires UEK R7+ (5.15+) or an oracleasm kernel driver.",
-            ),
-            Check(
                 name="package_manager",
                 command=f"command -v {package_manager}",
                 fail_message=f"Package manager is not available: {package_manager}",
@@ -153,13 +148,6 @@ class PrecheckRunner:
                 name="preinstall_package",
                 command=f"rpm -q {preinstall_package} || {package_manager} list {preinstall_package}",
                 fail_message=f"Cannot find package from enabled repo: {preinstall_package}",
-                timeout=None,
-            ),
-            Check(
-                name="asmlib_packages",
-                command=f"{package_manager} list oracleasm-support && ({package_manager} list oracleasmlib || echo 'oracleasmlib will be installed from local RPM in configured sources_path')",
-                fail_message="Cannot find Oracle ASMLIB v3 packages from enabled repositories; prepare-os can enable ol8_addons and install oracleasmlib from local RPM in configured sources_path.",
-                warn_only=True,
                 timeout=None,
             ),
             Check(
@@ -263,6 +251,24 @@ class PrecheckRunner:
                 warn_only=True,
             ),
         ]
+        if self.config.asm.storage_mode == "asmlibv3":
+            checks[3:3] = [
+                Check(
+                    name="asmlib_kernel_interface",
+                    command=asmlib_kernel_check_command(),
+                    fail_message="ASMLIB v3 requires UEK R7+ (5.15+) or an oracleasm kernel driver.",
+                ),
+            ]
+            package_index = next(index for index, check in enumerate(checks) if check.name == "dns_resolver_config")
+            checks[package_index:package_index] = [
+                Check(
+                    name="asmlib_packages",
+                    command=f"{package_manager} list oracleasm-support && ({package_manager} list oracleasmlib || echo 'oracleasmlib will be installed from local RPM in configured sources_path')",
+                    fail_message="Cannot find Oracle ASMLIB v3 packages from enabled repositories; prepare-os can enable ol8_addons and install oracleasmlib from local RPM in configured sources_path.",
+                    warn_only=True,
+                    timeout=None,
+                ),
+            ]
 
         if self.config.install_type == "rac":
             checks.extend(
