@@ -32,7 +32,6 @@
     ]
   },
   "asm": {
-    "storage_mode": "raw",
     "data_disks": [
       {
         "name": "DATA1",
