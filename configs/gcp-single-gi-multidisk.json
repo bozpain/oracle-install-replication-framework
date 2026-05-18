@@ -27,8 +27,7 @@
     "nodes": [
       {
         "host": "ora-primary-01",
-        "public_ip": "10.184.0.7",
-        "ssh_host": "34.101.185.178"
+        "public_ip": "10.184.0.7"
       }
     ]
   },
