@@ -39,7 +39,7 @@ class SSHExecutor:
 
     def run(self, node: NodeConfig, command: str, timeout: int | None = 60) -> CommandResult:
         user = node.ssh_user or self.config.user
-        target = f"{user}@{node.host}"
+        target = f"{user}@{node.ssh_host or node.host}"
 
         if self.dry_run:
             return CommandResult(

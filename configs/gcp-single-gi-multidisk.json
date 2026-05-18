@@ -10,7 +10,7 @@
       "169.254.169.254"
     ],
     "search_domains": [
-      "us-central1-a.c.project-938a6e28-56f9-4f95-bac.internal",
+      "asia-southeast2-a.c.project-938a6e28-56f9-4f95-bac.internal",
       "c.project-938a6e28-56f9-4f95-bac.internal",
       "google.internal"
     ]
@@ -27,7 +27,8 @@
     "nodes": [
       {
         "host": "ora-primary-01",
-        "public_ip": "10.128.0.3"
+        "public_ip": "10.184.0.7",
+        "ssh_host": "34.101.185.178"
       }
     ]
   },

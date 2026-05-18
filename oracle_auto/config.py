@@ -79,6 +79,7 @@ class DNSConfig:
 class NodeConfig:
     host: str
     public_ip: str
+    ssh_host: str | None = None
     private_ip: str | None = None
     vip_ip: str | None = None
     user: str | None = None
@@ -417,6 +418,7 @@ def _parse_node(data: Any, location: str) -> NodeConfig:
     return NodeConfig(
         host=str(data["host"]),
         public_ip=public_ip,
+        ssh_host=_optional_str(data.get("ssh_host")),
         private_ip=_optional_str(data.get("private_ip")),
         vip_ip=_optional_str(data.get("vip_ip")),
         user=_optional_str(data.get("user")),

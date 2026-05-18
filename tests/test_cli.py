@@ -16,7 +16,7 @@ from oracle_auto.cli import (
     main,
 )
 from oracle_auto.config import NodeConfig, load_config
-from oracle_auto.executor import CommandResult
+from oracle_auto.executor import CommandResult, SSHExecutor
 from oracle_auto.precheck import _secret_env_check
 from oracle_auto.progress import render_progress_line
 from oracle_auto.report import render_html_report
@@ -497,6 +497,16 @@ class CliTest(unittest.TestCase):
         )
 
         self.assertEqual(result.status, "DRYRUN")
+
+    def test_ssh_executor_uses_node_ssh_host_when_configured(self):
+        node = NodeConfig(host="ora-primary-01", public_ip="10.184.0.7", ssh_host="34.101.185.178")
+        executor = SSHExecutor(load_config(Path("configs/gcp-single-gi-multidisk.json")).ssh, dry_run=True)
+
+        result = executor.run(node, "printf ok")
+
+        self.assertIn("rori_learning@34.101.185.178", result.command)
+        self.assertNotIn("rori_learning@ora-primary-01", result.command)
+        self.assertEqual(result.host, "ora-primary-01")
 
     def test_runner_prints_step_start_before_execution(self):
         step = AutomationStep(
