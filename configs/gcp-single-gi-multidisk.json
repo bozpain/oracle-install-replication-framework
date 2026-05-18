@@ -1,0 +1,61 @@
+{
+  "run_id": "gcp-single-gi-multidisk",
+  "install_type": "single-gi",
+  "patch_set": "19.30",
+  "ssh": {
+    "user": "rori_learning"
+  },
+  "dns": {
+    "resolvers": [
+      "169.254.169.254"
+    ],
+    "search_domains": [
+      "us-central1-a.c.project-938a6e28-56f9-4f95-bac.internal",
+      "c.project-938a6e28-56f9-4f95-bac.internal",
+      "google.internal"
+    ]
+  },
+  "os": {
+    "ntp_servers": [
+      "169.254.169.254"
+    ]
+  },
+  "primary_site": {
+    "name": "site-a",
+    "db_name": "ORCL",
+    "db_unique_name": "ORCL",
+    "nodes": [
+      {
+        "host": "ora-primary-01",
+        "public_ip": "10.128.0.3"
+      }
+    ]
+  },
+  "asm": {
+    "storage_mode": "raw",
+    "data_disks": [
+      {
+        "name": "DATA1",
+        "path": "/dev/disk/by-id/scsi-0Google_PersistentDisk_data1-part1"
+      },
+      {
+        "name": "DATA2",
+        "path": "/dev/disk/by-id/scsi-0Google_PersistentDisk_data2-part1"
+      },
+      {
+        "name": "DATA3",
+        "path": "/dev/disk/by-id/scsi-0Google_PersistentDisk_data3-part1"
+      }
+    ],
+    "reco_disks": [
+      {
+        "name": "RECO1",
+        "path": "/dev/disk/by-id/scsi-0Google_PersistentDisk_reco1-part1"
+      },
+      {
+        "name": "RECO2",
+        "path": "/dev/disk/by-id/scsi-0Google_PersistentDisk_reco2-part1"
+      }
+    ]
+  }
+}

@@ -422,7 +422,7 @@ def _run_phase(args, config: AutomationConfig, steps: list[AutomationStep]) -> i
 
 def _run_workflow(args, config: AutomationConfig) -> int:
     try:
-        phases = _selected_workflow_phases(args.from_phase, args.to_phase)
+        phases = _selected_workflow_phases_for_config(config, args.from_phase, args.to_phase)
     except ConfigError as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         return 2
@@ -546,6 +546,17 @@ def _selected_workflow_phases(from_phase: str | None, to_phase: str | None) -> l
     return WORKFLOW_PHASE_ORDER[start : end + 1]
 
 
+def _selected_workflow_phases_for_config(
+    config: AutomationConfig,
+    from_phase: str | None,
+    to_phase: str | None,
+) -> list[str]:
+    phases = _selected_workflow_phases(from_phase, to_phase)
+    if config.standby_site:
+        return phases
+    return [phase for phase in phases if phase != "configure-dataguard"]
+
+
 def _with_asm_storage_mode_override(args, config: AutomationConfig) -> AutomationConfig:
     mode = getattr(args, "asm_storage_mode", None)
     if not mode:
@@ -577,7 +588,7 @@ def _command_requires_dataguard_mode(args) -> bool:
     if args.command in {"configure-dataguard", "switchover", "failover"}:
         return True
     if args.command in {"full", "resume"}:
-        phases = _selected_workflow_phases(args.from_phase, args.to_phase)
+        phases = _selected_workflow_phases_for_config(config, args.from_phase, args.to_phase)
         return "configure-dataguard" in phases
     return False
 

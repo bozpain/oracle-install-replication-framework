@@ -1,4 +1,5 @@
 import os
+import json
 import unittest
 import tempfile
 import threading
@@ -7,7 +8,13 @@ from dataclasses import replace
 from pathlib import Path
 
 from oracle_auto.automation import AutomationRunner, AutomationStep, shell_script
-from oracle_auto.cli import DEPLOYMENT_PHASE_ORDER, WORKFLOW_PHASE_ORDER, _with_remote_resume_override, main
+from oracle_auto.cli import (
+    DEPLOYMENT_PHASE_ORDER,
+    WORKFLOW_PHASE_ORDER,
+    _selected_workflow_phases_for_config,
+    _with_remote_resume_override,
+    main,
+)
 from oracle_auto.config import NodeConfig, load_config
 from oracle_auto.executor import CommandResult
 from oracle_auto.precheck import _secret_env_check
@@ -30,6 +37,14 @@ from oracle_auto.state import NoopStateStore
 class CliTest(unittest.TestCase):
     def _test_dir(self, name: str) -> Path:
         return Path(tempfile.mkdtemp(prefix=f"oracle-auto-{name}-{uuid.uuid4().hex}-"))
+
+    def _single_site_config(self, tmp: Path) -> Path:
+        data = json.loads(Path("configs/sample-single.json").read_text(encoding="utf-8"))
+        data.pop("standby_site", None)
+        data["run_id"] = "single-site-demo"
+        path = tmp / "single-site.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
 
     def test_generate_plan_writes_html_and_json(self):
         tmp = self._test_dir("plan")
@@ -447,6 +462,14 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertTrue((tmp / "single-gi-demo.html").exists())
+
+    def test_single_site_config_skips_dataguard_workflow_phase(self):
+        tmp = self._test_dir("single-site")
+        config = load_config(self._single_site_config(tmp))
+
+        self.assertFalse(config.active_dataguard_enabled)
+        self.assertEqual(configure_dataguard_steps(config), [])
+        self.assertNotIn("configure-dataguard", _selected_workflow_phases_for_config(config, None, None))
 
     def test_full_workflow_updates_opatch_inside_install_phases(self):
         self.assertNotIn("update-opatch", WORKFLOW_PHASE_ORDER)
