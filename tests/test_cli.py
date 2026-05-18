@@ -662,7 +662,8 @@ class CliTest(unittest.TestCase):
 
         self.assertIn("verify_zip_integrity LINUX.X64_193000_grid_home.zip", command)
         self.assertIn("verify_zip_integrity p_ojvm_19.30_linux_x86-64.zip", command)
-        self.assertIn("Integrity check: $file", command)
+        self.assertIn("Integrity check: $file (skipped; set ORACLE_AUTO_FULL_ZIP_VERIFY=true for unzip -t)", command)
+        self.assertIn('test "${ORACLE_AUTO_FULL_ZIP_VERIFY:-false}" != true', command)
         self.assertIn("Content check: gridSetup.sh", command)
         self.assertNotIn("grep -q 'gridSetup.sh'", command)
 
@@ -734,10 +735,13 @@ class CliTest(unittest.TestCase):
         base = load_config(Path("configs/gcp-single-gi-multidisk.json"))
         config = replace(base, asm=replace(base.asm, storage_mode="raw"))
         prepare_command = prepare_os_steps(config)[0].command
+        verify_command = verify_installer_steps(config)[0].command
         checks = {check.name: check for check in PrecheckRunner(config, executor=None, state=NoopStateStore())._checks_for(config.primary_site.nodes[0])}
 
         self.assertNotIn("oracleasm-support", prepare_command)
         self.assertNotIn("oracleasmlib", prepare_command)
+        self.assertNotIn("ASMLIB RPM check", verify_command)
+        self.assertNotIn("oracleasmlib", verify_command)
         self.assertNotIn("asmlib_kernel_interface", checks)
         self.assertNotIn("asmlib_packages", checks)
 

@@ -34,16 +34,19 @@ def _verify_installer_script(config: AutomationConfig) -> str:
         files.append(config.installer.opatch_zip)
     files.extend(patch.file for patch in config.installer.patches)
     checks = [f"test -s {sources}/{shlex.quote(file)}" for file in files]
-    asmlib_case_lines = [
-        "arch=$(uname -m)",
-        "case \"$arch\" in",
-        *[
-            f"  {shlex.quote(arch)}) test -s {sources}/{shlex.quote(rpm)} ;;"
-            for arch, rpm in sorted(config.os.asmlib_rpms.items())
-        ],
-        "  *) echo \"Unsupported ASMLIB architecture: $arch\" >&2; exit 1 ;;",
-        "esac",
-    ]
+    asmlib_case_lines = []
+    if config.asm.storage_mode == "asmlibv3":
+        asmlib_case_lines = [
+            "echo 'ASMLIB RPM check'",
+            "arch=$(uname -m)",
+            "case \"$arch\" in",
+            *[
+                f"  {shlex.quote(arch)}) test -s {sources}/{shlex.quote(rpm)} ;;"
+                for arch, rpm in sorted(config.os.asmlib_rpms.items())
+            ],
+            "  *) echo \"Unsupported ASMLIB architecture: $arch\" >&2; exit 1 ;;",
+            "esac",
+        ]
     verify_cache = f"{STAGE}/installer-checks/zip-integrity"
     integrity_helpers = [
         f"VERIFY_CACHE_DIR={verify_cache}",
@@ -55,6 +58,10 @@ def _verify_installer_script(config: AutomationConfig) -> str:
         "  signature=$(stat -c '%s:%Y' \"$path\")",
         "  if test -r \"$marker\" && grep -qx \"$signature\" \"$marker\"; then",
         "    echo \"Integrity check: $file (cached)\"",
+        "    return 0",
+        "  fi",
+        "  if test \"${ORACLE_AUTO_FULL_ZIP_VERIFY:-false}\" != true; then",
+        "    echo \"Integrity check: $file (skipped; set ORACLE_AUTO_FULL_ZIP_VERIFY=true for unzip -t)\"",
         "    return 0",
         "  fi",
         "  echo \"Integrity check: $file\"",
@@ -77,7 +84,6 @@ def _verify_installer_script(config: AutomationConfig) -> str:
         f"sudo -iu grid test -r {sources}/{shlex.quote(config.installer.grid_zip)}",
         "echo 'Readability check: database installer ZIP'",
         f"sudo -iu oracle test -r {sources}/{shlex.quote(config.installer.db_zip)}",
-        "echo 'ASMLIB RPM check'",
         *asmlib_case_lines,
         f"mkdir -p {STAGE}/installer-checks",
         f"ls -lh {sources} > {STAGE}/installer-checks/files.txt",
