@@ -623,6 +623,24 @@ class CliTest(unittest.TestCase):
         self.assertEqual({host for host, _command in calls}, {"ora-primary-01", "ora-standby-01"})
         self.assertTrue(all(item.status == "PASS" for item in results))
 
+    def test_precheck_stops_host_after_ssh_connectivity_failure(self):
+        from oracle_auto.precheck import PrecheckRunner
+
+        calls: list[str] = []
+
+        class FakeExecutor:
+            def run(self, node, command, timeout=60):
+                calls.append(command)
+                return CommandResult(node.host, command, 255, "", "ssh: connect to host timed out")
+
+        config = load_config(Path("configs/gcp-single-gi-multidisk.json"))
+        runner = PrecheckRunner(config, FakeExecutor(), state=NoopStateStore())
+        results = runner.run()
+
+        self.assertEqual(calls, ["printf ok"])
+        self.assertEqual([item.name for item in results], ["ssh_connectivity"])
+        self.assertEqual(results[0].status, "FAIL")
+
     def test_verify_installer_has_no_framework_timeout(self):
         config = load_config(Path("configs/sample-single.json"))
 

@@ -48,6 +48,7 @@ class Check:
     fail_message: str
     warn_only: bool = False
     timeout: int | None = 60
+    stop_host_on_fail: bool = False
 
 
 class PrecheckRunner:
@@ -99,6 +100,10 @@ class PrecheckRunner:
             else:
                 self.state.mark_done(step, item.to_dict())
 
+            if item.status == "FAIL" and check.stop_host_on_fail:
+                print(f"STOP  precheck:{node.host}:{check.name} failed; skipping remaining checks for this host.", flush=True)
+                break
+
         return results
 
     def _checks_for(self, node: NodeConfig) -> list[Check]:
@@ -111,6 +116,7 @@ class PrecheckRunner:
                 command="printf ok",
                 fail_message="Unable to execute command over SSH.",
                 timeout=15,
+                stop_host_on_fail=True,
             ),
             Check(
                 name="os_release",
