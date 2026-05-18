@@ -10,9 +10,9 @@ Framework ini dibuat untuk mempercepat deployment Oracle yang biasanya panjang, 
 2. Precheck target host.
 3. Persiapan OS fresh install.
 4. Verifikasi installer dan patch yang sudah disalin manual.
-5. Persiapan ASM storage: multipath aktif memakai udev `/dev/asm/<LABEL>` dari `DM_UUID`; non-multipath memakai `ID_SERIAL`/`ID_WWN`/by-id untuk ASMLib.
+5. Persiapan ASM storage: semua source disk (`path`, by-id/by-uuid, `ID_SERIAL`, `ID_WWN`, atau `DM_UUID`) dibuatkan alias stabil `/dev/oracleasm/<LABEL>` lebih dulu.
 6. Instalasi Grid Infrastructure.
-7. Konfigurasi ASMLib v3 dan diskgroup.
+7. Konfigurasi storage sesuai mode: `raw` memakai alias langsung, ASMLib v3 melabeli dari alias, AFD melabeli dari alias, lalu diskgroup dibuat.
 8. Instalasi Oracle Database software.
 9. Patching.
 10. Pembuatan database primary.
@@ -96,7 +96,7 @@ Automation mengelola:
 
 ## 6. Storage Model
 
-Storage selalu ASM. `prepare-storage-rules` mendeteksi `multipath -ll` pada target host. Kalau multipath aktif, server dianggap physical/multipath dan config disk memakai `uuid`/`DM_UUID`; framework membuat udev symlink `/dev/asm/<LABEL>` dari `/etc/udev/rules.d/99-oracle-asm.rules`. Kalau multipath tidak aktif, config disk memakai `ID_SERIAL`, `ID_WWN`, atau persistent `path` dan framework langsung menjalankan `oracleasm createdisk`.
+Storage selalu ASM. `prepare-storage-rules` membaca source disk dari config (`path`, by-id/by-uuid, `ID_SERIAL`, `ID_WWN`, atau `DM_UUID`) lalu menulis `/etc/udev/rules.d/99-oracle-asm.rules` untuk membuat symlink stabil `/dev/oracleasm/<LABEL>`. Setelah alias valid, mode `raw` memakai `/dev/oracleasm/<LABEL>` langsung di ASM diskstring dan create diskgroup, mode `asmlibv3` menjalankan `oracleasm createdisk <LABEL> /dev/oracleasm/<LABEL>`, dan mode `afd` menjalankan `asmcmd afd_label <LABEL> /dev/oracleasm/<LABEL>`.
 
 - `ocr_disks` untuk diskgroup `OCR`.
 - `data_disks` untuk diskgroup `DATA`.
@@ -106,14 +106,14 @@ Storage selalu ASM. `prepare-storage-rules` mendeteksi `multipath -ll` pada targ
 Automation melakukan:
 
 - Normalisasi input UUID menjadi `DM_UUID=mpath-<uuid>` jika prefix `mpath-` belum ada.
-- Validasi duplicate IP public/private/VIP, duplicate generated hostname, duplicate SCAN, duplicate disk UUID, duplicate ASMLib label, dan minimum disk count sesuai redundancy.
-- Mode multipath: tulis udev rule `KERNEL=="dm-*", ENV{DM_UUID}=="mpath-...", SYMLINK+="asm/<LABEL>", OWNER:="grid", GROUP:="asmadmin", MODE="0660"`, lalu `udevadm control --reload-rules` dan `udevadm trigger`.
-- Mode non-multipath: resolve `ID_SERIAL`, `ID_WWN`, atau `path` ke block device.
-- Label disk dengan ASMLib v3 memakai `oracleasm createdisk <LABEL> <resolved-device>`.
-- Set ASM diskstring tetap `ORCL:*`.
+- Validasi duplicate IP public/private/VIP, duplicate generated hostname, duplicate SCAN, duplicate disk UUID, duplicate ASM label, dan minimum disk count sesuai redundancy.
+- Alias disk: tulis udev rule yang menghasilkan `SYMLINK+="oracleasm/<LABEL>"`, owner `grid`, group `asmdba`, mode `0660`, lalu `udevadm control --reload-rules` dan `udevadm trigger`.
+- Source disk: resolve `DM_UUID`, `ID_SERIAL`, `ID_WWN`, atau `path` ke block device, lalu validasi alias `/dev/oracleasm/<LABEL>` menunjuk ke device tersebut.
+- Label disk dengan ASMLib v3 memakai `oracleasm createdisk <LABEL> /dev/oracleasm/<LABEL>`.
+- ASM diskstring: `raw` memakai `/dev/oracleasm/<LABEL>`, `asmlibv3` memakai `ORCL:*`, dan `afd` memakai `AFD:*`.
 - Create diskgroup `OCR`, `DATA`, dan `RECO`.
 - Validasi diskgroup terlihat pada target.
-- Report mapping source disk, ASMLib label `ORCL:<LABEL>`, dan diskgroup.
+- Report mapping source disk, ASM label, alias path, dan diskgroup.
 - Generate plan/runbook juga menampilkan storage mapping sebelum eksekusi supaya DBA bisa review disk yang akan disentuh.
 
 ## 7. Installer and Patch Model
@@ -224,7 +224,7 @@ Report berisi:
 - Topology.
 - Generated hostname.
 - DNS resolver dan SCAN validation.
-- ASM source disk, ASMLib label, and diskgroup mapping.
+- ASM source disk, `/dev/oracleasm/<LABEL>` alias, storage label, and diskgroup mapping.
 - Installer and patch list.
 - Execution result.
 - Error and warning summary.

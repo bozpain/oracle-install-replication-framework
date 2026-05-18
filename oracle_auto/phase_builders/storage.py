@@ -1,8 +1,9 @@
 """ASM storage phase manual.
 
 Prepares ASM storage in one of three modes:
-`asmlibv3` labels disks and uses `ORCL:*`, `raw` keeps stable by-id paths
-with udev ownership, and `afd` labels disks with ASM Filter Driver.
+all modes first map configured source disks to stable `/dev/oracleasm/<LABEL>`
+udev aliases. `raw` uses those aliases directly, `asmlibv3` labels from those
+aliases and uses `ORCL:*`, and `afd` labels from those aliases and uses `AFD:*`.
 The old `prepare-storage` command remains as a compatibility wrapper for
 dry-run review.
 """
@@ -20,6 +21,7 @@ ASMEntry = tuple[str, str, str, ASMDiskConfig]
 ASM_DEVICE_GROUP = "asmdba"
 ASM_UDEV_GROUP = ASM_DEVICE_GROUP
 ASM_UDEV_RULES = "/etc/udev/rules.d/99-oracle-asm.rules"
+ASM_ALIAS_DIR = "/dev/oracleasm"
 
 
 def prepare_storage_steps(config: AutomationConfig) -> list[AutomationStep]:
@@ -32,7 +34,7 @@ def prepare_storage_rules_steps(config: AutomationConfig) -> list[AutomationStep
             "prepare-storage-rules",
             "prepare_persistent_storage",
             node,
-            "Prepare persistent ASM device paths for ASMLIB",
+            "Prepare persistent ASM device aliases",
             _prepare_storage_rules_script(config, node),
             timeout=300,
         )
@@ -46,7 +48,7 @@ def configure_asm_storage_steps(config: AutomationConfig) -> list[AutomationStep
                 "configure-asm-storage",
                 "configure_asm_storage",
                 node,
-                "Configure ASMLIB labels and ASM disk groups",
+                "Configure ASM labels and ASM disk groups",
                 _configure_asm_storage_script(config, node),
                 timeout=1200,
             )
@@ -69,8 +71,12 @@ def asm_entries(
     ):
         for index, disk in enumerate(disks, start=1):
             label = disk.symlink_name(group, index).upper()
-            entries.append((label, disk.final_path(group, index, site_name=site_name, node_host=node_host), group, disk))
+            entries.append((label, asm_alias_path(label), group, disk))
     return entries
+
+
+def asm_alias_path(label: str) -> str:
+    return f"{ASM_ALIAS_DIR}/{label}"
 
 
 def storage_mapping_text(
@@ -208,25 +214,16 @@ def asmlib_kernel_check_command() -> str:
 
 def asmlib_label_command(label: str, disk: ASMDiskConfig, path: str) -> str:
     quoted_label = shlex.quote(label)
-    configured_path = path if disk.path or disk.site_paths or disk.node_paths or disk.uuid else ""
-    args = " ".join(
-        shlex.quote(value)
-        for value in (
-            label,
-            configured_path,
-            disk.dm_uuid if disk.uuid else "",
-            disk.id_serial or "",
-            disk.id_wwn or "",
-        )
-    )
+    quoted_path = shlex.quote(path)
     return (
         f"echo 'Preparing ASMLIB disk {label}'; "
-        f"resolved=$(resolve_asm_source_device {args}); test -b \"$resolved\"; "
+        f"test -b {quoted_path}; "
+        f"resolved=$(readlink -f {quoted_path}); test -b \"$resolved\"; "
         f"if oracleasm querydisk {quoted_label} >/dev/null 2>&1; then "
         f"validate_asmlib_label {quoted_label} \"$resolved\"; "
         "else "
-        f"echo 'Creating ASMLIB disk {label} from' \"$resolved\"; "
-        f"oracleasm createdisk {quoted_label} \"$resolved\"; "
+        f"echo 'Creating ASMLIB disk {label} from {path} ->' \"$resolved\"; "
+        f"oracleasm createdisk {quoted_label} {quoted_path}; "
         "fi; "
         "oracleasm scandisks; "
         f"validate_asmlib_label {quoted_label} \"$resolved\""
@@ -253,16 +250,15 @@ def _asm_device_resolver_function() -> str:
   id_serial="$4"
   id_wwn="$5"
 
-  if test "${ORACLE_AUTO_MULTIPATH:-false}" = true; then
-    test -b "/dev/asm/$label"
-    readlink -f "/dev/asm/$label"
-    return
-  fi
-
   if test -n "$configured_path"; then
-    test -e "$configured_path"
-    readlink -f "$configured_path"
-    return
+    if test -e "$configured_path"; then
+      readlink -f "$configured_path"
+      return
+    fi
+    if test -z "$dm_uuid" && test -z "$id_serial" && test -z "$id_wwn"; then
+      echo "ERROR: Configured ASM disk path for $label does not exist: $configured_path" >&2
+      exit 1
+    fi
   fi
 
   for candidate in /dev/disk/by-id/*; do
@@ -285,6 +281,47 @@ def _asm_device_resolver_function() -> str:
   echo "ERROR: Unable to resolve ASM disk $label from path, DM_UUID, ID_SERIAL, or ID_WWN." >&2
   exit 1
 }"""
+
+
+def _oracleasm_alias_rule_writer_function() -> str:
+    return rf"""write_oracleasm_alias_rule() {{
+  label="$1"
+  configured_path="$2"
+  resolved="$3"
+  dm_uuid_hint="$4"
+  id_serial_hint="$5"
+  id_wwn_hint="$6"
+
+  test -b "$resolved"
+  props=$(udevadm info --query=property --name "$resolved" 2>/dev/null || true)
+  id_serial=$(printf '%s\n' "$props" | awk -F= '$1=="ID_SERIAL" {{print $2; exit}}')
+  id_wwn=$(printf '%s\n' "$props" | awk -F= '$1=="ID_WWN" {{print $2; exit}}')
+  dm_uuid=$(printf '%s\n' "$props" | awk -F= '$1=="DM_UUID" {{print $2; exit}}')
+
+  case "$configured_path" in
+    /dev/disk/by-id/*|/dev/disk/by-uuid/*)
+      printf 'SUBSYSTEM=="block", ENV{{DEVLINKS}}=="*%s*", SYMLINK+="oracleasm/%s", OWNER:="grid", GROUP:="{ASM_DEVICE_GROUP}", MODE:="0660"\n' "$configured_path" "$label" >> {ASM_UDEV_RULES}
+      return
+      ;;
+  esac
+
+  if test -n "$dm_uuid_hint"; then
+    printf 'SUBSYSTEM=="block", ENV{{DM_UUID}}=="%s", SYMLINK+="oracleasm/%s", OWNER:="grid", GROUP:="{ASM_DEVICE_GROUP}", MODE:="0660"\n' "$dm_uuid_hint" "$label" >> {ASM_UDEV_RULES}
+  elif test -n "$dm_uuid"; then
+    printf 'SUBSYSTEM=="block", ENV{{DM_UUID}}=="%s", SYMLINK+="oracleasm/%s", OWNER:="grid", GROUP:="{ASM_DEVICE_GROUP}", MODE:="0660"\n' "$dm_uuid" "$label" >> {ASM_UDEV_RULES}
+  elif test -n "$id_serial_hint"; then
+    printf 'SUBSYSTEM=="block", ENV{{ID_SERIAL}}=="%s", SYMLINK+="oracleasm/%s", OWNER:="grid", GROUP:="{ASM_DEVICE_GROUP}", MODE:="0660"\n' "$id_serial_hint" "$label" >> {ASM_UDEV_RULES}
+  elif test -n "$id_serial"; then
+    printf 'SUBSYSTEM=="block", ENV{{ID_SERIAL}}=="%s", SYMLINK+="oracleasm/%s", OWNER:="grid", GROUP:="{ASM_DEVICE_GROUP}", MODE:="0660"\n' "$id_serial" "$label" >> {ASM_UDEV_RULES}
+  elif test -n "$id_wwn_hint"; then
+    printf 'SUBSYSTEM=="block", ENV{{ID_WWN}}=="%s", SYMLINK+="oracleasm/%s", OWNER:="grid", GROUP:="{ASM_DEVICE_GROUP}", MODE:="0660"\n' "$id_wwn_hint" "$label" >> {ASM_UDEV_RULES}
+  elif test -n "$id_wwn"; then
+    printf 'SUBSYSTEM=="block", ENV{{ID_WWN}}=="%s", SYMLINK+="oracleasm/%s", OWNER:="grid", GROUP:="{ASM_DEVICE_GROUP}", MODE:="0660"\n' "$id_wwn" "$label" >> {ASM_UDEV_RULES}
+  else
+    kernel_name=$(basename "$resolved")
+    printf 'SUBSYSTEM=="block", KERNEL=="%s", SYMLINK+="oracleasm/%s", OWNER:="grid", GROUP:="{ASM_DEVICE_GROUP}", MODE:="0660"\n' "$kernel_name" "$label" >> {ASM_UDEV_RULES}
+  fi
+}}"""
 
 
 def _asmlib_label_validator_function() -> str:
@@ -313,67 +350,42 @@ def _asmlib_label_validator_function() -> str:
 }"""
 
 
-def _multipath_udev_lines(entries: list[ASMEntry]) -> list[str]:
-    rules = "\n".join(
-        f'KERNEL=="dm-*", ENV{{DM_UUID}}=="{disk.dm_uuid}", SYMLINK+="asm/{label}", OWNER:="grid", GROUP:="{ASM_UDEV_GROUP}", MODE="0660"'
-        for label, _path, _group, disk in entries
-        if disk.uuid
-    )
-    missing_uuid_labels = " ".join(shlex.quote(label) for label, _path, _group, disk in entries if not disk.uuid)
+def _oracleasm_alias_udev_lines(entries: list[ASMEntry]) -> list[str]:
     labels = " ".join(shlex.quote(label) for label, _path, _group, _disk in entries)
+    rule_commands = []
+    for label, _path, _group, disk in entries:
+        source_var = f"$ASM_{label}_SOURCE"
+        resolved_var = f"$ASM_{label}_RESOLVED"
+        rule_commands.append(
+            "write_oracleasm_alias_rule "
+            f"{shlex.quote(label)} "
+            f"\"{source_var}\" "
+            f"\"{resolved_var}\" "
+            f"{shlex.quote(disk.dm_uuid if disk.uuid else '')} "
+            f"{shlex.quote(disk.id_serial or '')} "
+            f"{shlex.quote(disk.id_wwn or '')}"
+        )
     return [
-        "if test \"$ORACLE_AUTO_MULTIPATH\" = true; then",
-        "  echo 'Multipath detected; writing /dev/asm udev rules from configured DM_UUID values.'",
-        f"  missing_uuid_labels={shlex.quote(missing_uuid_labels)}",
-        "  if test -n \"$missing_uuid_labels\"; then echo \"ERROR: Multipath mode requires uuid for ASM label(s): $missing_uuid_labels\" >&2; exit 1; fi",
-        f"  cat > {ASM_UDEV_RULES} <<'EOF'\n{rules}\nEOF",
-        f"  chmod 0644 {ASM_UDEV_RULES}",
-        "  udevadm control --reload-rules",
-        "  udevadm trigger",
-        "  udevadm settle || true",
-        f"  for label in {labels}; do",
-        "    test -b \"/dev/asm/$label\"",
-        f"    chown -h grid:{ASM_UDEV_GROUP} \"/dev/asm/$label\"",
-        "    resolved=$(readlink -f \"/dev/asm/$label\"); test -b \"$resolved\"",
-        f"    chown grid:{ASM_UDEV_GROUP} \"$resolved\"; chmod 0660 \"$resolved\"",
-        "    sudo -iu grid test -r \"/dev/asm/$label\"",
-        "  done",
-        "else",
-        "  echo 'No multipath devices detected; ASMLIB will label the configured by-id/ID_SERIAL/ID_WWN devices directly.'",
-        "fi",
-    ]
-
-
-def _raw_storage_rules_lines(entries: list[ASMEntry]) -> list[str]:
-    labels = " ".join(shlex.quote(label) for label, _path, _group, _disk in entries)
-    return [
-        "echo 'Writing raw ASM ownership rules for configured devices.'",
+        "echo 'Writing stable Oracle ASM aliases under /dev/oracleasm.'",
+        f"install -d -m 0755 {ASM_ALIAS_DIR}",
         f": > {ASM_UDEV_RULES}",
         f"chmod 0644 {ASM_UDEV_RULES}",
-        f"for label in {labels}; do",
-        "  resolved_var=\"ASM_${label}_RESOLVED\"",
-        "  resolved=${!resolved_var}",
-        "  test -b \"$resolved\"",
-        "  props=$(udevadm info --query=property --name \"$resolved\" 2>/dev/null || true)",
-        "  id_serial=$(printf '%s\\n' \"$props\" | awk -F= '$1==\"ID_SERIAL\" {print $2; exit}')",
-        "  id_wwn=$(printf '%s\\n' \"$props\" | awk -F= '$1==\"ID_WWN\" {print $2; exit}')",
-        "  dm_uuid=$(printf '%s\\n' \"$props\" | awk -F= '$1==\"DM_UUID\" {print $2; exit}')",
-        "  if test -n \"$dm_uuid\"; then",
-        f"    printf 'ENV{{DM_UUID}}==\"%s\", OWNER:=\"grid\", GROUP:=\"{ASM_DEVICE_GROUP}\", MODE:=\"0660\"\\n' \"$dm_uuid\" >> {ASM_UDEV_RULES}",
-        "  elif test -n \"$id_serial\"; then",
-        f"    printf 'ENV{{ID_SERIAL}}==\"%s\", OWNER:=\"grid\", GROUP:=\"{ASM_DEVICE_GROUP}\", MODE:=\"0660\"\\n' \"$id_serial\" >> {ASM_UDEV_RULES}",
-        "  elif test -n \"$id_wwn\"; then",
-        f"    printf 'ENV{{ID_WWN}}==\"%s\", OWNER:=\"grid\", GROUP:=\"{ASM_DEVICE_GROUP}\", MODE:=\"0660\"\\n' \"$id_wwn\" >> {ASM_UDEV_RULES}",
-        "  else",
-        "    kernel_name=$(basename \"$resolved\")",
-        f"    printf 'KERNEL==\"%s\", OWNER:=\"grid\", GROUP:=\"{ASM_DEVICE_GROUP}\", MODE:=\"0660\"\\n' \"$kernel_name\" >> {ASM_UDEV_RULES}",
-        "  fi",
-        f"  chown grid:{ASM_DEVICE_GROUP} \"$resolved\"",
-        "  chmod 0660 \"$resolved\"",
-        "done",
+        *rule_commands,
         "udevadm control --reload-rules",
         "udevadm trigger",
         "udevadm settle || true",
+        f"for label in {labels}; do",
+        "  resolved_var=\"ASM_${label}_RESOLVED\"",
+        "  expected=${!resolved_var}",
+        "  test -b \"$expected\"",
+        f"  test -b \"{ASM_ALIAS_DIR}/$label\"",
+        f"  actual=$(readlink -f \"{ASM_ALIAS_DIR}/$label\"); test -b \"$actual\"",
+        "  if test \"$actual\" != \"$expected\"; then echo \"ERROR: /dev/oracleasm/$label points to $actual, expected $expected\" >&2; exit 1; fi",
+        f"  chown -h grid:{ASM_DEVICE_GROUP} \"{ASM_ALIAS_DIR}/$label\"",
+        f"  chown grid:{ASM_DEVICE_GROUP} \"$actual\"",
+        "  chmod 0660 \"$actual\"",
+        f"  sudo -iu grid test -r \"{ASM_ALIAS_DIR}/$label\"",
+        "done",
         f"cat {ASM_UDEV_RULES}",
     ]
 
@@ -390,28 +402,29 @@ def _prepare_storage_rules_script(config: AutomationConfig, node: NodeConfig) ->
         "command -v udevadm",
         *_multipath_detection_lines(),
         _asm_device_resolver_function(),
+        _oracleasm_alias_rule_writer_function(),
         _asmlib_label_validator_function(),
         "echo 'Planned ASM disk mapping:'",
         "cat <<'MAP'\n" + storage_mapping_text(config, site, node) + "\nMAP",
         *uuid_checks,
         *[
-            f"ASM_{label}_RESOLVED=$(resolve_asm_source_device {shlex.quote(label)} {shlex.quote(path if disk.path or disk.site_paths or disk.node_paths or disk.uuid else '')} {shlex.quote(disk.dm_uuid if disk.uuid else '')} {shlex.quote(disk.id_serial or '')} {shlex.quote(disk.id_wwn or '')})"
+            f"ASM_{label}_SOURCE={shlex.quote(disk.path_for(site_name=site.name, node_host=node.host))}\n"
+            f"ASM_{label}_RESOLVED=$(resolve_asm_source_device {shlex.quote(label)} \"$ASM_{label}_SOURCE\" {shlex.quote(disk.dm_uuid if disk.uuid else '')} {shlex.quote(disk.id_serial or '')} {shlex.quote(disk.id_wwn or '')})"
             for label, path, _group, disk in entries
         ],
+        *_oracleasm_alias_udev_lines(entries),
     ]
 
     if config.asm.storage_mode == "raw":
         lines = [
             *common_lines,
-            *_raw_storage_rules_lines(entries),
-            "echo 'Raw ASM storage prepared; ASMLIB labels are not used.'",
+            "echo 'Raw ASM storage prepared with /dev/oracleasm aliases; ASMLIB/AFD labels are not used.'",
         ]
     elif config.asm.storage_mode == "afd":
         lines = [
             *common_lines,
-            *_raw_storage_rules_lines(entries),
             f"test -x {GRID_BASE}/bin/asmcmd || true",
-            "echo 'AFD ASM storage prepared for labeling during configure-asm-storage.'",
+            "echo 'AFD ASM storage prepared with /dev/oracleasm aliases for labeling during configure-asm-storage.'",
         ]
     else:
         lines = [
@@ -419,13 +432,7 @@ def _prepare_storage_rules_script(config: AutomationConfig, node: NodeConfig) ->
             *install_asmlib_lines(config.os.package_manager, config.installer.sources_path, config.os.asmlib_rpms),
             "command -v oracleasm",
             asmlib_kernel_check_command(),
-            *_multipath_detection_lines(),
-            _asm_device_resolver_function(),
-            _asmlib_label_validator_function(),
-            "echo 'Planned ASM disk mapping:'",
-            "cat <<'MAP'\n" + storage_mapping_text(config, site, node) + "\nMAP",
-            *uuid_checks,
-            *_multipath_udev_lines(entries),
+            *common_lines,
             "ORACLE_AUTO_ASMLIB_IOFILTER=y",
             "if test \"$ORACLE_AUTO_MULTIPATH\" != true; then",
             "  ORACLE_AUTO_ASMLIB_IOFILTER=n",
@@ -472,7 +479,7 @@ def _configure_asm_storage_script(config: AutomationConfig, node: NodeConfig) ->
         ]
     else:
         mode_prelude = [
-            "echo 'Using raw ASM storage; ASMLIB/AFD labels are not used.'",
+            "echo 'Using raw ASM storage via /dev/oracleasm aliases; ASMLIB/AFD labels are not used.'",
         ]
 
     lines = [
@@ -482,6 +489,7 @@ def _configure_asm_storage_script(config: AutomationConfig, node: NodeConfig) ->
         *asm_sid_detection_lines(),
         grid_env_command(f"{GRID_BASE}/bin/srvctl status asm") + " || true",
         asm_diskstring_sql(config, site, node),
+        grid_env_command(f"{GRID_BASE}/bin/asmcmd dsget || true"),
         *diskgroup_commands,
         grid_env_command(f"{GRID_BASE}/bin/asmcmd lsdg"),
     ]

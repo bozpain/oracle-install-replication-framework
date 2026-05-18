@@ -12,6 +12,7 @@ import shlex
 from oracle_auto.automation import AutomationStep, shell_script
 from oracle_auto.config import AutomationConfig, NodeConfig
 from oracle_auto.phase_builders.common import GRID_BASE, STAGE, make_step
+from oracle_auto.phase_builders.storage import asm_entries
 
 
 def collect_diagnostics_steps(config: AutomationConfig) -> list[AutomationStep]:
@@ -49,13 +50,14 @@ def _collect_diagnostics_script(config: AutomationConfig, node: NodeConfig) -> s
         shlex.quote(disk.path_for(site_name=site.name, node_host=node.host))
         for disk in config.asm.all_disks
     )
+    alias_args = " ".join(shlex.quote(path) for _label, path, _group, _disk in asm_entries(config, site, node))
     lines = [
         f"mkdir -p {STAGE}/diagnostics",
         f"(date; hostname -f; uname -a; cat /etc/os-release) > {STAGE}/diagnostics/system.txt",
         f"(ip addr; ip route; cat /etc/resolv.conf; cat /etc/hosts) > {STAGE}/diagnostics/network.txt",
-        f"(multipath -ll || true; udevadm info --export-db | grep -E 'DM_UUID=|ID_SERIAL=|ID_WWN=' || true; oracleasm status || true; oracleasm listdisks || true; for path in {disk_args}; do printf '%s -> ' \"$path\"; readlink -f \"$path\"; wipefs -n \"$path\" || true; done) > {STAGE}/diagnostics/storage.txt",
+        f"(multipath -ll || true; udevadm info --export-db | grep -E 'DM_UUID=|ID_SERIAL=|ID_WWN=' || true; oracleasm status || true; oracleasm listdisks || true; for path in {disk_args} {alias_args}; do printf '%s -> ' \"$path\"; readlink -f \"$path\"; wipefs -n \"$path\" || true; done) > {STAGE}/diagnostics/storage.txt",
         f"(systemctl status chronyd --no-pager || true; chronyc sources || true; getenforce || true) > {STAGE}/diagnostics/os-services.txt",
-        f"(sudo -iu grid {GRID_BASE}/bin/crsctl check crs || true; sudo -iu grid asmcmd lsdg || true) > {STAGE}/diagnostics/grid-asm.txt",
+        f"(sudo -iu grid {GRID_BASE}/bin/crsctl check crs || true; sudo -iu grid asmcmd dsget || true; sudo -iu grid asmcmd lsdg || true) > {STAGE}/diagnostics/grid-asm.txt",
         f"tar -czf {STAGE}/diagnostics/oracle-auto-diagnostics-$(hostname -s).tgz -C {STAGE} diagnostics",
         f"ls -lh {STAGE}/diagnostics",
     ]

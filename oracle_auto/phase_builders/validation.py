@@ -62,6 +62,7 @@ def _validate_grid_asm_script(config: AutomationConfig) -> str:
     lines = [
         f"sudo -iu grid {GRID_BASE}/bin/crsctl check {crs_check}",
         f"sudo -iu grid {GRID_BASE}/bin/crsctl stat res -t",
+        "sudo -iu grid asmcmd dsget",
         "sudo -iu grid asmcmd lsdg",
     ]
     return shell_script("Validate Grid and ASM", lines)

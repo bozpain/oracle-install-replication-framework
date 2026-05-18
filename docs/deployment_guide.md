@@ -53,7 +53,7 @@ flowchart TB
 
     subgraph targets["🎯 Target Servers"]
         os["🖥️ Oracle Linux<br/>users, DNS, hosts, chrony"]
-        storage["💽 Storage<br/>by-id path → ASMLib v3 → ORCL:*"]
+        storage["💽 Storage<br/>source disk → /dev/oracleasm alias → raw / ORCL / AFD"]
         gi["🧱 Grid Infrastructure"]
         db["🗄️ Oracle Database"]
         patch["📦 OPatch / RU / datapatch"]
@@ -104,7 +104,7 @@ flowchart TB
 | [2. Deployment Type](#2-deployment-type) | `single-gi`, `rac`, and standby rules |
 | [3. Config Preparation](#3-config-preparation) | Required config blocks and examples |
 | [4. Network Model](#4-network-model) | SCAN DNS, `/etc/hosts`, VIP, private hostname |
-| [5. ASM Storage](#5-asm-storage) | persistent by-id path atau multipath alias, ASMLib v3 label, `ORCL:*`, diskgroup mapping |
+| [5. ASM Storage](#5-asm-storage) | persistent source disk, `/dev/oracleasm/<LABEL>` alias, storage mode label, diskgroup mapping |
 | [6. Installer and Patch](#6-installer-and-patch) | ZIP placement, OPatch, RU/OJVM/one-off model |
 | [7. Data Guard](#7-data-guard) | Manual vs Broker, protection mode |
 | [8. Secrets](#8-secrets) | Environment variable mapping |
@@ -263,21 +263,21 @@ DNS resolver example:
 
 ## 5. ASM Storage
 
-Storage selalu ASM. Saat `prepare-storage-rules`, framework mendeteksi `multipath -ll` di target host. Kalau multipath aktif, host dianggap physical/multipath dan disk harus dikonfigurasi dengan `uuid`/`DM_UUID`; framework menulis `/etc/udev/rules.d/99-oracle-asm.rules`, membuat symlink `/dev/asm/<LABEL>`, reload udev, lalu memberi label ASMLib dari symlink tersebut. Kalau multipath tidak aktif, framework memakai input non-multipath (`ID_SERIAL`, `ID_WWN`, atau persistent `path`) dan langsung menjalankan `oracleasm createdisk <LABEL> <resolved-device>`.
+Storage selalu ASM. Saat `prepare-storage-rules`, framework membaca source disk dari config (`path`, by-id/by-uuid, `ID_SERIAL`, `ID_WWN`, atau `DM_UUID`) dan menulis `/etc/udev/rules.d/99-oracle-asm.rules` untuk membuat alias stabil `/dev/oracleasm/<LABEL>`. Semua storage mode memakai alias ini sebagai pintu masuk: `raw` memakai alias langsung, `asmlibv3` menjalankan `oracleasm createdisk` dari alias, dan `afd` menjalankan `asmcmd afd_label` dari alias.
 
-ASM discovery tetap `ORCL:*`, dan diskgroup tetap memakai disk list `ORCL:<LABEL>` seperti `ORCL:DATA01`, `ORCL:DATA02`, `ORCL:RECO01`.
+ASM discovery mengikuti mode: `raw` memakai `/dev/oracleasm/<LABEL>`, `asmlibv3` memakai `ORCL:*`, dan `afd` memakai `AFD:*`. Diskgroup memakai disk list sesuai mode: `/dev/oracleasm/DATA01`, `ORCL:DATA01`, atau `AFD:DATA01`.
 
 ```mermaid
 flowchart LR
     detect["Detect multipath"]
     uuid["DM_UUID<br/>physical multipath"]
     byid["ID_SERIAL / ID_WWN / path<br/>non-multipath"]
-    udev["udev /dev/asm/LABEL"]
-    label["ASMLib label<br/>ORCL:DATA01"]
+    udev["udev /dev/oracleasm/LABEL"]
+    label["Mode label<br/>raw / ORCL / AFD"]
     dg["ASM Diskgroup<br/>OCR / DATA / RECO"]
 
     detect --> uuid --> udev --> label --> dg
-    detect --> byid --> label
+    detect --> byid --> udev
 
     classDef amber fill:#FEF3C7,stroke:#D97706,color:#78350F
     classDef blue fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
@@ -347,10 +347,10 @@ Non-multipath example:
 | Multipath input | Gunakan `uuid`/`DM_UUID`; input boleh dengan atau tanpa prefix `mpath-` |
 | Multipath rules | Framework menulis `99-oracle-asm.rules`, `udevadm control --reload-rules`, dan `udevadm trigger` |
 | Non-multipath input | Gunakan `id_serial`, `ID_SERIAL`, `id_wwn`, `ID_WWN`, atau persistent `path` |
-| ASMLib label | `oracleasm createdisk <LABEL> <resolved-device>` |
+| ASMLib label | `oracleasm createdisk <LABEL> /dev/oracleasm/<LABEL>` |
 | Optional custom name | Disk object boleh memakai `name` |
 | RAC consistency | Shared disk harus konsisten di semua node |
-| ASM discovery | Selalu `ORCL:*`; diskgroup memakai `ORCL:<LABEL>` |
+| ASM discovery | Mode-aware: `raw` memakai `/dev/oracleasm/<LABEL>`, `asmlibv3` memakai `ORCL:*`, `afd` memakai `AFD:*` |
 
 Custom disk name:
 
@@ -723,7 +723,7 @@ Menyiapkan ASM storage setelah GI tooling tersedia:
 | Action | Detail |
 |---|---|
 | Validate ASMLib | `oracleasm scandisks` dan `oracleasm listdisks` |
-| Disk discovery | `alter system set asm_diskstring='ORCL:*' scope=both;` dan disk list `ORCL:<LABEL>` |
+| Disk discovery | `raw` set `asm_diskstring` ke `/dev/oracleasm/<LABEL>`; `asmlibv3` ke `ORCL:*`; `afd` ke `AFD:*` |
 | Create diskgroup | `OCR`, `DATA`, `RECO` |
 | Validate diskgroup | Diskgroup terlihat pada target |
 
@@ -913,7 +913,7 @@ Output:
 .oracle-auto/reports/<run_id>-phase-runbooks/<phase>.sh
 ```
 
-Plan dan runbook menampilkan mapping storage `DM_UUID/path -> persistent by-id path -> ASMLib label`.
+Plan dan runbook menampilkan mapping storage `DM_UUID/path/by-id -> /dev/oracleasm/<LABEL> -> raw/ASMLib/AFD label`.
 
 ### 🧾 Step Logs
 
@@ -939,7 +939,7 @@ Report berisi:
 |---|---|
 | Identity | `run_id`, version baseline, topology |
 | Network | Generated private/VIP hostnames, DNS resolver, SCAN status |
-| Storage | ASM `DM_UUID`, persistent device path, ASMLib label, diskgroup mapping |
+| Storage | ASM `DM_UUID`, persistent device path, `/dev/oracleasm/<LABEL>` alias, storage label, diskgroup mapping |
 | Installer | Installer and patch list |
 | Execution | Result, failure, warning, log path |
 | Data Guard | Standby and Broker status where applicable |
@@ -997,7 +997,7 @@ Untuk install sungguhan, lebih aman berhenti di failure pertama, perbaiki, lalu 
 
 | Check | Detail |
 |---|---|
-| Multipath UUID | `DM_UUID` benar dan udev `/dev/asm/<LABEL>` terbentuk |
+| Multipath UUID | `DM_UUID` benar dan udev `/dev/oracleasm/<LABEL>` terbentuk |
 | Non-multipath source | `ID_SERIAL`, `ID_WWN`, atau persistent path resolve ke block device |
 | ASMLib | `oracleasm listdisks` menampilkan label yang diharapkan |
 | Multipath | Multipath sehat dan konsisten |

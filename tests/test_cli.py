@@ -690,7 +690,7 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("unzip -t", checks["installer_zip_files"].command)
         self.assertNotIn("unzip -t", checks["installer_zip_contents"].command)
 
-    def test_storage_prepares_multipath_udev_rules_without_oracleasm_symlinks(self):
+    def test_storage_prepares_oracleasm_aliases_for_multipath_sources(self):
         config = load_config(Path("configs/sample-rac-dg.json"))
         command = prepare_storage_rules_steps(config)[0].command
 
@@ -698,16 +698,13 @@ class CliTest(unittest.TestCase):
         self.assertIn("/dev/disk/by-id/dm-uuid-mpath-360060e8008a3cf000050a3cf00000101", command)
         self.assertIn("multipath -ll", command)
         self.assertIn("/etc/udev/rules.d/99-oracle-asm.rules", command)
-        self.assertIn(
-            'KERNEL=="dm-*", ENV{DM_UUID}=="mpath-360060e8008a3cf000050a3cf00000101", SYMLINK+="asm/OCR01", OWNER:="grid", GROUP:="asmdba", MODE="0660"',
-            command,
-        )
+        self.assertIn('SYMLINK+="oracleasm/%s"', command)
+        self.assertIn('/dev/oracleasm/$label', command)
         self.assertIn("udevadm control --reload-rules", command)
         self.assertIn("udevadm trigger", command)
         self.assertIn("resolve_asm_source_device OCR01", command)
         self.assertIn("oracleasm createdisk OCR01", command)
-        self.assertNotIn('SYMLINK+="oracleasm/', command)
-        self.assertNotIn("/dev/oracleasm/", command)
+        self.assertIn("/dev/oracleasm/OCR01", command)
 
     def test_precheck_storage_inspection_uses_sudo(self):
         from oracle_auto.precheck import _disk_signature_check, _disk_size_check
@@ -907,7 +904,6 @@ class CliTest(unittest.TestCase):
         self.assertIn("ORCL:*", config_tools_command)
         self.assertIn("-diskList ORCL:DATA01", config_tools_command)
         self.assertIn("ASMCA failed using configured ASM discovery. Not retrying with another storage mode.", config_tools_command)
-        self.assertNotIn("/dev/oracleasm/", config_tools_command)
         self.assertIn("Grid ASM configuration complete; skipping OUI executeConfigTools replay.", config_tools_command)
         self.assertIn("Single-GI ASM DATA diskgroup already exists; treating ASM config tools as complete", config_tools_command)
         self.assertIn("-newer \"$config_tools_stamp\"", config_tools_command)
@@ -964,9 +960,9 @@ class CliTest(unittest.TestCase):
 
         self.assertIn("ORACLE_AUTO_MULTIPATH=false", command)
         self.assertIn("multipath -ll", command)
-        self.assertIn("No multipath devices detected; ASMLIB will label", command)
-        self.assertIn("resolve_asm_source_device DATA1 /dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1", command)
-        self.assertIn("resolve_asm_source_device RECO1 /dev/disk/by-id/scsi-0Google_PersistentDisk_p-reco-1", command)
+        self.assertIn("Writing stable Oracle ASM aliases under /dev/oracleasm", command)
+        self.assertIn("ASM_DATA1_SOURCE=/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", command)
+        self.assertIn("ASM_RECO1_SOURCE=/dev/disk/by-id/scsi-0Google_PersistentDisk_p-reco-1-part1", command)
         self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_data-part2", command)
         self.assertIn("ORACLE_AUTO_ASMLIB_IOFILTER=n", command)
         self.assertIn("Direct ASMLIB mode detected; disabling ASMLIB I/O filter", command)
@@ -993,26 +989,29 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("download.oracle.com/otn_software/asmlib", command)
         self.assertIn("oracleasm createdisk DATA1", command)
         self.assertIn("oracleasm listdisks", command)
-        self.assertNotIn("/dev/oracleasm/", command)
+        self.assertIn("/dev/oracleasm/DATA1", command)
         self.assertNotIn("ln -sfn", command)
 
-    def test_raw_storage_uses_by_id_paths_without_asmlib_labels(self):
+    def test_raw_storage_uses_oracleasm_aliases_without_asmlib_labels(self):
         base = load_config(Path("configs/gcp-single-gi-lab.json"))
         config = replace(base, asm=replace(base.asm, storage_mode="raw"))
         rules_command = prepare_storage_rules_steps(config)[0].command
         asm_command = configure_asm_storage_steps(config)[0].command
+        db_command = create_database_steps(config)[0].command
         response = grid_response(config, config.primary_site)
 
-        self.assertIn("Writing raw ASM ownership rules", rules_command)
-        self.assertIn("ENV{ID_SERIAL}", rules_command)
+        self.assertIn("Writing stable Oracle ASM aliases under /dev/oracleasm", rules_command)
+        self.assertIn("SYMLINK+=\"oracleasm/%s\"", rules_command)
         self.assertIn("Raw ASM storage prepared", rules_command)
         self.assertNotIn("oracleasm createdisk", rules_command)
         self.assertNotIn("oracleasm configure", rules_command)
-        self.assertIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", asm_command)
+        self.assertIn("/dev/oracleasm/DATA1", asm_command)
+        self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", asm_command)
         self.assertIn("Using raw ASM storage", asm_command)
         self.assertNotIn("ORCL:DATA1", asm_command)
-        self.assertIn("oracle.install.asm.diskGroup.disks=/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", response)
-        self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", response)
+        self.assertIn("ASM_DISCOVERY_STRING=/dev/oracleasm/DATA1,/dev/oracleasm/RECO1", db_command)
+        self.assertIn("oracle.install.asm.diskGroup.disks=/dev/oracleasm/DATA1", response)
+        self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=/dev/oracleasm/DATA1", response)
 
     def test_afd_storage_uses_afd_labels(self):
         base = load_config(Path("configs/gcp-single-gi-lab.json"))
@@ -1022,7 +1021,7 @@ class CliTest(unittest.TestCase):
         response = grid_response(config, config.primary_site)
 
         self.assertIn("AFD ASM storage prepared", rules_command)
-        self.assertIn("asmcmd afd_label DATA1", asm_command)
+        self.assertIn("asmcmd afd_label DATA1 /dev/oracleasm/DATA1", asm_command)
         self.assertIn("asmcmd afd_scan", asm_command)
         self.assertIn("AFD:DATA1", asm_command)
         self.assertIn("oracle.install.asm.diskGroup.disks=AFD:DATA1", response)
@@ -1033,7 +1032,7 @@ class CliTest(unittest.TestCase):
         config = replace(base, asm=replace(base.asm, storage_mode="asmlibv3"))
         command = prepare_storage_rules_steps(config)[1].command
 
-        self.assertIn("resolve_asm_source_device DATA1 /dev/disk/by-id/scsi-0Google_PersistentDisk_s-data-1-part1", command)
+        self.assertIn("ASM_DATA1_SOURCE=/dev/disk/by-id/scsi-0Google_PersistentDisk_s-data-1-part1", command)
         self.assertIn("oracleasm createdisk DATA1", command)
         self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", command)
 
@@ -1054,10 +1053,10 @@ class CliTest(unittest.TestCase):
 
         self.assertIn("ID_SERIAL=$id_serial", command)
         self.assertIn("ID_WWN=$id_wwn", command)
-        self.assertIn("resolved=$(resolve_asm_source_device DATA01", command)
-        self.assertIn("resolved=$(resolve_asm_source_device RECO01", command)
-        self.assertNotIn("resolved=$(resolve_asm_source_device DATA01 /dev/disk/by-id", command)
-        self.assertNotIn("resolved=$(resolve_asm_source_device RECO01 /dev/disk/by-id", command)
+        self.assertIn("ASM_DATA01_RESOLVED=$(resolve_asm_source_device DATA01", command)
+        self.assertIn("ASM_RECO01_RESOLVED=$(resolve_asm_source_device RECO01", command)
+        self.assertIn("/dev/oracleasm/DATA01", command)
+        self.assertIn("/dev/oracleasm/RECO01", command)
         self.assertIn("oracleasm createdisk DATA01", command)
         self.assertIn("oracleasm createdisk RECO01", command)
 
@@ -1093,8 +1092,8 @@ class CliTest(unittest.TestCase):
         config = load_config(path)
         command = prepare_storage_rules_steps(config)[0].command
 
-        self.assertIn("resolve_asm_source_device DATA1 /dev/mapper/ora_data01", command)
-        self.assertIn("resolved=$(resolve_asm_source_device DATA1 /dev/mapper/ora_data01", command)
+        self.assertIn("ASM_DATA1_SOURCE=/dev/mapper/ora_data01", command)
+        self.assertIn('ASM_DATA1_RESOLVED=$(resolve_asm_source_device DATA1 "$ASM_DATA1_SOURCE"', command)
         self.assertIn("oracleasm createdisk DATA1", command)
         self.assertIn("oracleasm querydisk DATA1", command)
 

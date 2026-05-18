@@ -391,7 +391,7 @@ def asm_table(config: AutomationConfig) -> str:
         site_tables.append(
             '<article class="site-table">'
             f"<h3>{html.escape(site.name)} <span>{html.escape(site.db_unique_name)}</span></h3>"
-            "<table><thead><tr><th>Diskgroup</th><th>ASMLIB Label</th><th>Source</th><th>Device Path</th><th>Redundancy</th></tr></thead>"
+            "<table><thead><tr><th>Diskgroup</th><th>ASM Label</th><th>Source</th><th>Alias Path</th><th>Redundancy</th></tr></thead>"
             f"<tbody>{''.join(rows)}</tbody></table>"
             "</article>"
         )
