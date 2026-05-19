@@ -340,7 +340,8 @@ def _installer_check(config: AutomationConfig) -> str:
     checks = [
         f"test -s {shlex.quote(config.installer.sources_path + '/' + file)}" for file in files
     ]
-    checks.append(_asmlib_rpm_check(config))
+    if config.asm.storage_mode == "asmlibv3":
+        checks.append(_asmlib_rpm_check(config))
     return " && ".join(checks)
 
 
