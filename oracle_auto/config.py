@@ -116,6 +116,7 @@ class SiteConfig:
     db_name: str | None = None
     scan_name: str | None = None
     scan_ips: list[str] = field(default_factory=list)
+    network_interface_list: str | None = None
 
 
 @dataclass(frozen=True)
@@ -407,6 +408,7 @@ def _parse_site(name: str, data: Any) -> SiteConfig:
         db_unique_name=db_unique_name,
         scan_name=_optional_str(data.get("scan_name")),
         scan_ips=_parse_scan_ips(data),
+        network_interface_list=_optional_str(data.get("network_interface_list")),
     )
 
 
@@ -837,6 +839,7 @@ def _validate_config(config: AutomationConfig) -> None:
     _validate_unique_addresses(config)
     _validate_unique_generated_names(config)
     _validate_scan_names(config)
+    _validate_network_interface_lists(config)
     _validate_asm_disk_counts(config)
     _validate_asm_disk_path_overrides(config)
 
@@ -916,6 +919,27 @@ def _validate_scan_names(config: AutomationConfig) -> None:
     conflicts = sorted(scan for scan in scans if scan in generated_names)
     if conflicts:
         raise ConfigError(f"SCAN name must not match public/private/VIP hostname(s): {', '.join(conflicts)}")
+
+
+def _validate_network_interface_lists(config: AutomationConfig) -> None:
+    for site in config.sites:
+        if not site.network_interface_list:
+            continue
+        entries = site.network_interface_list.split(",")
+        for entry in entries:
+            parts = entry.split(":")
+            if len(parts) != 3:
+                raise ConfigError(
+                    f"{site.name}.network_interface_list entries must use interface:subnet:type format: {entry}"
+                )
+            interface_name, subnet, interface_type = parts
+            if not interface_name:
+                raise ConfigError(f"{site.name}.network_interface_list contains an empty interface name.")
+            _validate_ip(subnet, f"{site.name}.network_interface_list subnet")
+            if interface_type not in {"1", "2", "3", "4", "5"}:
+                raise ConfigError(
+                    f"{site.name}.network_interface_list interface type must be one of 1, 2, 3, 4, or 5: {entry}"
+                )
 
 
 def _validate_asm_disk_counts(config: AutomationConfig) -> None:

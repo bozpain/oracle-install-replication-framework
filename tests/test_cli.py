@@ -1127,6 +1127,15 @@ class CliTest(unittest.TestCase):
         self.assertIn("oracle.install.crs.config.clusterNodes=db1-site-a.example.com:db1-site-a-vip.example.com", response)
         self.assertNotIn("oracle.install.crs.config.clusterNodeVIPs", response)
 
+    def test_rac_grid_response_uses_configured_network_interface_list(self):
+        config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))
+        response = grid_response(config, config.primary_site)
+
+        self.assertIn(
+            "oracle.install.crs.config.networkInterfaceList=eth0:10.148.0.0:1,eth1:192.168.10.0:5",
+            response,
+        )
+
     def test_ojvm_patch_runs_before_database_creation_phase(self):
         config = load_config(Path("configs/sample-single.json"))
         steps = apply_ojvm_patch_steps(config)

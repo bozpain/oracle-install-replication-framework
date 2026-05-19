@@ -59,6 +59,20 @@ class ConfigTest(unittest.TestCase):
         assert config.installer.patch_manifest is not None
         self.assertEqual(config.installer.patch_manifest.patch_id, "19.30")
 
+    def test_site_network_interface_list_is_parsed(self):
+        config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))
+
+        self.assertEqual(config.primary_site.network_interface_list, "eth0:10.148.0.0:1,eth1:192.168.10.0:5")
+        assert config.standby_site is not None
+        self.assertEqual(config.standby_site.network_interface_list, "eth0:10.148.0.0:1,eth1:192.168.10.0:5")
+
+    def test_bad_network_interface_list_is_rejected(self):
+        data = json.loads(Path("configs/gcp-rac-dg-multidisk.json").read_text(encoding="utf-8"))
+        data["primary_site"]["network_interface_list"] = "eth0:10.148.0.0"
+
+        with self.assertRaisesRegex(ConfigError, "interface:subnet:type"):
+            load_config(self._write_config("bad-network-interface-list", data))
+
     def test_duplicate_public_ip_rejected(self):
         with self.assertRaises(ConfigError):
             load_config(Path("tests/fixtures/bad-replication-without-standby.json"))

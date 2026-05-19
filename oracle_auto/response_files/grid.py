@@ -58,7 +58,7 @@ def _cluster_lines(site: SiteConfig) -> list[str]:
         "oracle.install.crs.config.gpnp.gnsVIPAddress=",
         "oracle.install.crs.config.sites=",
         f"oracle.install.crs.config.clusterNodes={node_names}",
-        "oracle.install.crs.config.networkInterfaceList=",
+        f"oracle.install.crs.config.networkInterfaceList={site.network_interface_list or ''}",
         "oracle.install.crs.configureGIMR=false",
         "oracle.install.asm.configureGIMRDataDG=false",
         "oracle.install.crs.config.storageOption=FLEX_ASM_STORAGE",

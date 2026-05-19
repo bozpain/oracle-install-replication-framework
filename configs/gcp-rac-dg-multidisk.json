@@ -27,6 +27,7 @@
     "db_unique_name": "ORCL_A",
     "scan_name": "rac-scan",
     "scan_ip": "10.148.0.30",
+    "network_interface_list": "eth0:10.148.0.0:1,eth1:192.168.10.0:5",
     "nodes": [
       {
         "host": "ora-primary-1",
@@ -47,6 +48,7 @@
     "db_unique_name": "ORCL_B",
     "scan_name": "standby-rac-scan",
     "scan_ip": "10.148.0.31",
+    "network_interface_list": "eth0:10.148.0.0:1,eth1:192.168.10.0:5",
     "nodes": [
       {
         "host": "ora-standby-1",
