@@ -10,6 +10,7 @@ from pathlib import Path
 from oracle_auto.automation import AutomationRunner, AutomationStep, shell_script
 from oracle_auto.cli import (
     DEPLOYMENT_PHASE_ORDER,
+    PARALLEL_HOST_PHASES,
     WORKFLOW_PHASE_ORDER,
     _selected_workflow_phases_for_config,
     _with_remote_resume_override,
@@ -620,6 +621,10 @@ class CliTest(unittest.TestCase):
         self.assertLess(calls.index(("site-a", "first")), calls.index(("site-a", "second")))
         self.assertLess(calls.index(("site-b", "first")), calls.index(("site-b", "second")))
 
+    def test_oracle_installer_phases_run_serially_for_root_script_ordering(self):
+        self.assertNotIn("install-grid", PARALLEL_HOST_PHASES)
+        self.assertNotIn("install-db-software", PARALLEL_HOST_PHASES)
+
     def test_precheck_parallelizes_host_chains(self):
         from oracle_auto.precheck import PrecheckRunner
 
@@ -877,6 +882,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("Validating Grid RU with oraversion before root scripts/config tools.", grid_command)
         self.assertIn("Grid RU validation passed by oraversion.", grid_command)
         self.assertIn("oraversion -compositeVersion", grid_command)
+        self.assertIn("Seeding grid SSH known_hosts for Oracle CVU strict host checks", grid_command)
+        self.assertIn("ssh-keyscan -T 10 -t rsa,ecdsa,ed25519", grid_command)
         self.assertNotIn("opatch lspatches", grid_command)
         self.assertNotIn("opatch lsinventory", grid_command)
         self.assertNotIn("Grid software setup completed; root scripts and config tools will run in following steps.", grid_command)

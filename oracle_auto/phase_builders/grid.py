@@ -74,6 +74,7 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         _hosts_guard(config),
         *_pre_grid_vip_cleanup_lines(site, site.nodes[0]),
         *_temporary_network_anchor_lines(site, site.nodes[0]),
+        *_grid_known_hosts_lines(site),
         *ensure_swap_lines(),
         *inventory_pointer_lines(),
         *_fresh_grid_home_lines(config),
