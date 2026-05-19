@@ -1139,6 +1139,22 @@ class CliTest(unittest.TestCase):
         self.assertIn("ip addr add 10.148.15.241/20 brd + dev eth0 label eth0:0 noprefixroute", command)
         self.assertIn("ip addr add 192.168.10.241/24 brd + dev eth1 label eth1:0 noprefixroute", command)
 
+    def test_rac_grid_cleans_prebound_local_vip_routes_before_install(self):
+        config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))
+        steps = install_grid_steps(config)
+
+        install_command = steps[0].command
+        primary_second_root_command = steps[2].command
+
+        self.assertIn("if ! test -f /etc/oracle/olr.loc; then", install_command)
+        self.assertIn("systemctl stop google-guest-agent-manager google-guest-compat-manager", install_command)
+        self.assertIn("[G]uestAgentCorePlugin", install_command)
+        self.assertIn("ip route del local 10.148.0.21 dev eth0 table local proto 66", install_command)
+        self.assertIn(
+            "ip route del local 10.148.0.22 dev eth0 table local proto 66",
+            primary_second_root_command,
+        )
+
     def test_ojvm_patch_runs_before_database_creation_phase(self):
         config = load_config(Path("configs/sample-single.json"))
         steps = apply_ojvm_patch_steps(config)

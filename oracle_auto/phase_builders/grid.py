@@ -9,7 +9,7 @@ from __future__ import annotations
 import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
-from oracle_auto.config import AutomationConfig, SiteConfig
+from oracle_auto.config import AutomationConfig, NodeConfig, SiteConfig
 from oracle_auto.phase_builders.common import (
     GRID_BASE,
     GRID_BASE_DIR,
@@ -72,6 +72,7 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         "umask 077",
         _scan_dns_guard(site),
         _hosts_guard(config),
+        *_pre_grid_vip_cleanup_lines(site, site.nodes[0]),
         *_temporary_network_anchor_lines(site, site.nodes[0]),
         *ensure_swap_lines(),
         *inventory_pointer_lines(),
@@ -216,6 +217,7 @@ def _asm_password_export(config: AutomationConfig) -> str:
 def _grid_root_script(config: AutomationConfig, site: SiteConfig, node) -> str:
     crs_check = _crs_check_command(config)
     lines = [
+        *_pre_grid_vip_cleanup_lines(site, node),
         *_temporary_network_anchor_lines(site, node),
         "test -x /u01/app/oraInventory/orainstRoot.sh && /u01/app/oraInventory/orainstRoot.sh || true",
         f"test -x {GRID_BASE}/root.sh",
@@ -352,6 +354,40 @@ def _grid_known_hosts_lines(site: SiteConfig) -> list[str]:
         "  chown grid:oinstall /home/grid/.ssh/known_hosts",
         "  chmod 600 /home/grid/.ssh/known_hosts",
     ]
+
+
+def _pre_grid_vip_cleanup_lines(site: SiteConfig, node: NodeConfig) -> list[str]:
+    if not node.vip_ip:
+        return []
+
+    quoted_vip = shlex.quote(node.vip_ip)
+    public_interface = _public_interface_name(site)
+    interface_part = f" dev {shlex.quote(public_interface)}" if public_interface else ""
+    return [
+        "if ! test -f /etc/oracle/olr.loc; then",
+        f"  if ip route show table local | grep -Fq 'local {node.vip_ip} '; then",
+        f"    echo 'Removing pre-bound local VIP route {node.vip_ip} before Grid install.'",
+        f"    if ip route show table local | grep -F 'local {node.vip_ip} ' | grep -Fq ' proto 66 '; then",
+        "      echo 'Stopping Google guest agent network management while CRS takes ownership of VIPs.'",
+        "      systemctl stop google-guest-agent-manager google-guest-compat-manager 2>/dev/null || true",
+        "      pkill -f '[G]uestAgentCorePlugin' 2>/dev/null || true",
+        "    fi",
+        f"    ip route del local {quoted_vip}{interface_part} table local proto 66 2>/dev/null || "
+        f"ip route del local {quoted_vip}{interface_part} table local 2>/dev/null || "
+        f"ip route del local {quoted_vip} table local 2>/dev/null || true",
+        "  fi",
+        "fi",
+    ]
+
+
+def _public_interface_name(site: SiteConfig) -> str | None:
+    if not site.network_interface_list:
+        return None
+    for entry in site.network_interface_list.split(","):
+        interface_name, _subnet, interface_type = entry.split(":")
+        if interface_type == "1":
+            return interface_name
+    return None
 
 
 def _temporary_network_anchor_lines(site: SiteConfig, node) -> list[str]:
