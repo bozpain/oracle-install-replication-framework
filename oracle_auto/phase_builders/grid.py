@@ -364,7 +364,10 @@ def _temporary_network_anchor_lines(site: SiteConfig, node) -> list[str]:
         if "/" not in subnet:
             continue
         prefix_length = subnet.split("/", 1)[1]
-        address = node.public_ip if interface_type == "1" else node.private_ip
+        if interface_type == "1":
+            address = node.public_subnet_anchor_ip or node.public_ip
+        else:
+            address = node.private_subnet_anchor_ip or node.private_ip
         if address:
             anchors.append((interface_name, f"{address}/{prefix_length}"))
 
@@ -385,10 +388,11 @@ def _temporary_network_anchor_lines(site: SiteConfig, node) -> list[str]:
         quoted_interface = shlex.quote(interface_name)
         quoted_cidr = shlex.quote(cidr)
         quoted_anchor = shlex.quote(f"{interface_name} {cidr}")
+        quoted_label = shlex.quote(f"{interface_name}:0")
         lines.extend(
             [
                 f"if ! ip -o -4 addr show dev {quoted_interface} | awk '{{print $4}}' | grep -Fxq {quoted_cidr}; then",
-                f"  ip addr add {quoted_cidr} dev {quoted_interface} noprefixroute 2>/dev/null && ORACLE_AUTO_NET_ANCHORS+=({quoted_anchor}) || true",
+                f"  ip addr add {quoted_cidr} brd + dev {quoted_interface} label {quoted_label} noprefixroute 2>/dev/null && ORACLE_AUTO_NET_ANCHORS+=({quoted_anchor}) || true",
                 "fi",
             ]
         )

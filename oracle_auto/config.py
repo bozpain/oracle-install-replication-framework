@@ -83,6 +83,8 @@ class NodeConfig:
     ssh_host: str | None = None
     private_ip: str | None = None
     vip_ip: str | None = None
+    public_subnet_anchor_ip: str | None = None
+    private_subnet_anchor_ip: str | None = None
     user: str | None = None
     role: str | None = None
 
@@ -441,6 +443,8 @@ def _parse_node(data: Any, location: str) -> NodeConfig:
         ssh_host=_optional_str(data.get("ssh_host")),
         private_ip=_optional_str(data.get("private_ip")),
         vip_ip=_optional_str(data.get("vip_ip")),
+        public_subnet_anchor_ip=_optional_str(data.get("public_subnet_anchor_ip")),
+        private_subnet_anchor_ip=_optional_str(data.get("private_subnet_anchor_ip")),
         user=_optional_str(data.get("user")),
         role=_optional_str(data.get("role")),
     )
@@ -1078,6 +1082,10 @@ def _validate_ip_values(config: AutomationConfig) -> None:
             _validate_ip(node.private_ip, f"{node.host}.private_ip")
         if node.vip_ip:
             _validate_ip(node.vip_ip, f"{node.host}.vip_ip")
+        if node.public_subnet_anchor_ip:
+            _validate_ip(node.public_subnet_anchor_ip, f"{node.host}.public_subnet_anchor_ip")
+        if node.private_subnet_anchor_ip:
+            _validate_ip(node.private_subnet_anchor_ip, f"{node.host}.private_subnet_anchor_ip")
     for site in config.sites:
         for scan_ip in site.scan_ips:
             _validate_ip(scan_ip, f"{site.name}.scan_ips")

@@ -1136,8 +1136,8 @@ class CliTest(unittest.TestCase):
             response,
         )
         command = install_grid_steps(config)[0].command
-        self.assertIn("ip addr add 10.148.0.9/20 dev eth0 noprefixroute", command)
-        self.assertIn("ip addr add 192.168.10.6/24 dev eth1 noprefixroute", command)
+        self.assertIn("ip addr add 10.148.15.241/20 brd + dev eth0 label eth0:0 noprefixroute", command)
+        self.assertIn("ip addr add 192.168.10.241/24 brd + dev eth1 label eth1:0 noprefixroute", command)
 
     def test_ojvm_patch_runs_before_database_creation_phase(self):
         config = load_config(Path("configs/sample-single.json"))
