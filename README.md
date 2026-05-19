@@ -136,9 +136,9 @@ Mulai dari guide teknis:
 
 ```bash
 python main.py validate-config --config configs/sample-rac-dg.json
-python main.py generate-plan --config configs/sample-rac-dg.json
+python main.py generate-plan --config configs/sample-rac-dg.json --dataguard-mode broker
 python main.py precheck --config configs/sample-rac-dg.json --dry-run
-python main.py full --config configs/sample-rac-dg.json --dry-run
+python main.py full --config configs/sample-rac-dg.json --dataguard-mode broker --dry-run
 ```
 
 Untuk eksekusi end-to-end, gunakan `full`. Jika run terputus atau salah satu step gagal, jalankan `resume`

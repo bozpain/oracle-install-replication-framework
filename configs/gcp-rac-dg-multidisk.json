@@ -1,0 +1,98 @@
+{
+  "run_id": "gcp-rac-dg-multidisk",
+  "install_type": "rac",
+  "patch_set": "19.30",
+  "ssh": {
+    "user": "rori_learning"
+  },
+  "dns": {
+    "resolvers": [
+      "169.254.169.254"
+    ],
+    "search_domains": [
+      "asia-southeast1-c.c.project-938a6e28-56f9-4f95-bac.internal",
+      "c.project-938a6e28-56f9-4f95-bac.internal",
+      "google.internal"
+    ]
+  },
+  "os": {
+    "ntp_servers": [
+      "169.254.169.254"
+    ]
+  },
+  "primary_site": {
+    "name": "site-a",
+    "db_name": "ORCL",
+    "db_unique_name": "ORCL_A",
+    "scan_name": "rac-scan",
+    "nodes": [
+      {
+        "host": "ora-primary-1",
+        "public_ip": "10.148.0.9",
+        "private_ip": "192.168.10.6",
+        "vip_ip": "10.148.0.21"
+      },
+      {
+        "host": "ora-primary-2",
+        "public_ip": "10.148.0.10",
+        "private_ip": "192.168.10.7",
+        "vip_ip": "10.148.0.22"
+      }
+    ]
+  },
+  "standby_site": {
+    "name": "site-b",
+    "db_unique_name": "ORCL_B",
+    "scan_name": "standby-rac-scan",
+    "nodes": [
+      {
+        "host": "ora-standby-1",
+        "public_ip": "10.148.0.7",
+        "private_ip": "192.168.10.4",
+        "vip_ip": "10.148.0.23"
+      },
+      {
+        "host": "ora-standby-2",
+        "public_ip": "10.148.0.8",
+        "private_ip": "192.168.10.5",
+        "vip_ip": "10.148.0.24"
+      }
+    ]
+  },
+  "asm": {
+    "ocr_disks": [
+      {
+        "name": "OCR1",
+        "site_paths": {
+          "site-a": "/dev/disk/by-id/scsi-0Google_PersistentDisk_persistent-disk-4-part1",
+          "site-b": "/dev/disk/by-id/scsi-0Google_PersistentDisk_persistent-disk-4-part1"
+        }
+      }
+    ],
+    "data_disks": [
+      {
+        "name": "DATA1",
+        "site_paths": {
+          "site-a": "/dev/disk/by-id/scsi-0Google_PersistentDisk_persistent-disk-1-part1",
+          "site-b": "/dev/disk/by-id/scsi-0Google_PersistentDisk_persistent-disk-1-part1"
+        }
+      },
+      {
+        "name": "DATA2",
+        "site_paths": {
+          "site-a": "/dev/disk/by-id/scsi-0Google_PersistentDisk_persistent-disk-2-part1",
+          "site-b": "/dev/disk/by-id/scsi-0Google_PersistentDisk_persistent-disk-2-part1"
+        }
+      }
+    ],
+    "reco_disks": [
+      {
+        "name": "RECO1",
+        "site_paths": {
+          "site-a": "/dev/disk/by-id/scsi-0Google_PersistentDisk_persistent-disk-3-part1",
+          "site-b": "/dev/disk/by-id/scsi-0Google_PersistentDisk_persistent-disk-3-part1"
+        }
+      }
+    ]
+  }
+}

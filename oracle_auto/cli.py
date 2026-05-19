@@ -579,12 +579,12 @@ def _ensure_dataguard_mode_selected(args, config: AutomationConfig) -> None:
     if (
         config.standby_site
         and config.dataguard.configuration_method is None
-        and _command_requires_dataguard_mode(args)
+        and _command_requires_dataguard_mode(args, config)
     ):
         raise ConfigError("Data Guard mode must be supplied with --dataguard-mode for Data Guard actions.")
 
 
-def _command_requires_dataguard_mode(args) -> bool:
+def _command_requires_dataguard_mode(args, config: AutomationConfig) -> bool:
     if args.command in {"configure-dataguard", "switchover", "failover"}:
         return True
     if args.command in {"full", "resume"}:

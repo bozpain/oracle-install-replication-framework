@@ -609,8 +609,10 @@ flowchart TB
 
 ```bash
 python main.py generate-plan --config configs/my-deployment.json
-python main.py full --config configs/my-deployment.json --dry-run
+python main.py full --config configs/my-deployment.json --dataguard-mode broker --dry-run
 ```
+
+Untuk config tanpa `standby_site`, omit `--dataguard-mode`.
 
 Gunakan dry-run per phase jika ingin inspect bagian tertentu:
 
@@ -634,19 +636,19 @@ Jika dry-run sudah sesuai, jalankan command yang sama tanpa `--dry-run` dan tamb
 Untuk menjalankan workflow end-to-end:
 
 ```bash
-python main.py full --config configs/my-deployment.json --allow-storage-changes --allow-patch-apply
+python main.py full --config configs/my-deployment.json --dataguard-mode broker --allow-storage-changes --allow-patch-apply
 ```
 
 Jika run berhenti di tengah, perbaiki penyebab failure lalu lanjutkan dari state yang sama:
 
 ```bash
-python main.py resume --config configs/my-deployment.json --allow-storage-changes --allow-patch-apply
+python main.py resume --config configs/my-deployment.json --dataguard-mode broker --allow-storage-changes --allow-patch-apply
 ```
 
 Untuk mulai dari phase tertentu tanpa mengubah state:
 
 ```bash
-python main.py resume --config configs/my-deployment.json --from-phase install-db-software --allow-patch-apply
+python main.py resume --config configs/my-deployment.json --dataguard-mode broker --from-phase install-db-software --allow-patch-apply
 ```
 
 ### 🛡️ Destructive Guardrails
@@ -894,7 +896,7 @@ Example:
 
 ```bash
 python main.py verify-installer --config configs/my-deployment.json --no-resume
-python main.py resume --config configs/my-deployment.json --allow-storage-changes --allow-patch-apply
+python main.py resume --config configs/my-deployment.json --dataguard-mode broker --allow-storage-changes --allow-patch-apply
 python main.py resume --config configs/my-deployment.json --from-phase install-grid --to-phase create-database --allow-storage-changes --allow-patch-apply
 ```
 

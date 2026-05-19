@@ -188,6 +188,16 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(code, 2)
 
+    def test_full_workflow_with_standby_requires_dataguard_mode_cli_arg(self):
+        code = main([
+            "full",
+            "--config",
+            "configs/sample-rac-dg.json",
+            "--dry-run",
+        ])
+
+        self.assertEqual(code, 2)
+
     def test_report_renders_standby_config_without_dataguard_mode(self):
         config = load_config(Path("configs/gcp-single-gi-lab.json"))
 
