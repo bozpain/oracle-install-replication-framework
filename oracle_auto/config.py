@@ -935,7 +935,7 @@ def _validate_network_interface_lists(config: AutomationConfig) -> None:
             interface_name, subnet, interface_type = parts
             if not interface_name:
                 raise ConfigError(f"{site.name}.network_interface_list contains an empty interface name.")
-            _validate_ip(subnet, f"{site.name}.network_interface_list subnet")
+            _validate_network_interface_subnet(subnet, f"{site.name}.network_interface_list subnet")
             if interface_type not in {"1", "2", "3", "4", "5"}:
                 raise ConfigError(
                     f"{site.name}.network_interface_list interface type must be one of 1, 2, 3, 4, or 5: {entry}"
@@ -1092,6 +1092,16 @@ def _validate_ip(value: str, label: str) -> None:
         ipaddress.ip_address(value)
     except ValueError as exc:
         raise ConfigError(f"{label} must be a valid IP address: {value}") from exc
+
+
+def _validate_network_interface_subnet(value: str, label: str) -> None:
+    try:
+        if "/" in value:
+            ipaddress.ip_network(value, strict=False)
+        else:
+            ipaddress.ip_address(value)
+    except ValueError as exc:
+        raise ConfigError(f"{label} must be a valid IP address or CIDR: {value}") from exc
 
 
 def _asm_label_names(config: AutomationConfig) -> list[str]:

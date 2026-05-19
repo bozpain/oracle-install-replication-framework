@@ -58,7 +58,7 @@ def _cluster_lines(site: SiteConfig) -> list[str]:
         "oracle.install.crs.config.gpnp.gnsVIPAddress=",
         "oracle.install.crs.config.sites=",
         f"oracle.install.crs.config.clusterNodes={node_names}",
-        f"oracle.install.crs.config.networkInterfaceList={site.network_interface_list or ''}",
+        f"oracle.install.crs.config.networkInterfaceList={_oracle_network_interface_list(site)}",
         "oracle.install.crs.configureGIMR=false",
         "oracle.install.asm.configureGIMRDataDG=false",
         "oracle.install.crs.config.storageOption=FLEX_ASM_STORAGE",
@@ -68,3 +68,13 @@ def _cluster_lines(site: SiteConfig) -> list[str]:
         "oracle.install.crs.config.ipmi.bmcUsername=",
         "oracle.install.crs.config.ipmi.bmcPassword=",
     ]
+
+
+def _oracle_network_interface_list(site: SiteConfig) -> str:
+    if not site.network_interface_list:
+        return ""
+    entries = []
+    for entry in site.network_interface_list.split(","):
+        interface_name, subnet, interface_type = entry.split(":")
+        entries.append(f"{interface_name}:{subnet.split('/', 1)[0]}:{interface_type}")
+    return ",".join(entries)

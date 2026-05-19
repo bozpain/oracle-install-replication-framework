@@ -62,9 +62,9 @@ class ConfigTest(unittest.TestCase):
     def test_site_network_interface_list_is_parsed(self):
         config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))
 
-        self.assertEqual(config.primary_site.network_interface_list, "eth0:10.148.0.0:1,eth1:192.168.10.0:5")
+        self.assertEqual(config.primary_site.network_interface_list, "eth0:10.148.0.0/20:1,eth1:192.168.10.0/24:5")
         assert config.standby_site is not None
-        self.assertEqual(config.standby_site.network_interface_list, "eth0:10.148.0.0:1,eth1:192.168.10.0:5")
+        self.assertEqual(config.standby_site.network_interface_list, "eth0:10.148.0.0/20:1,eth1:192.168.10.0/24:5")
 
     def test_bad_network_interface_list_is_rejected(self):
         data = json.loads(Path("configs/gcp-rac-dg-multidisk.json").read_text(encoding="utf-8"))

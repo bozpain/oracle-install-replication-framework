@@ -47,7 +47,7 @@ def install_grid_steps(config: AutomationConfig) -> list[AutomationStep]:
                     f"root_scripts_{site.name}_{node.short_name}",
                     node,
                     f"Run Grid root scripts for {node.host}",
-                    _grid_root_script(config),
+                    _grid_root_script(config, site, node),
                     timeout=1800,
                 )
             )
@@ -72,6 +72,7 @@ def _install_grid_script(config: AutomationConfig, site: SiteConfig) -> str:
         "umask 077",
         _scan_dns_guard(site),
         _hosts_guard(config),
+        *_temporary_network_anchor_lines(site, site.nodes[0]),
         *ensure_swap_lines(),
         *inventory_pointer_lines(),
         *_fresh_grid_home_lines(config),
@@ -212,9 +213,10 @@ def _asm_password_export(config: AutomationConfig) -> str:
     )
 
 
-def _grid_root_script(config: AutomationConfig) -> str:
+def _grid_root_script(config: AutomationConfig, site: SiteConfig, node) -> str:
     crs_check = _crs_check_command(config)
     lines = [
+        *_temporary_network_anchor_lines(site, node),
         "test -x /u01/app/oraInventory/orainstRoot.sh && /u01/app/oraInventory/orainstRoot.sh || true",
         f"test -x {GRID_BASE}/root.sh",
         f"if sudo -iu grid {crs_check} >/dev/null 2>&1; then echo 'Grid appears active; skipping root.sh rerun.'; else {GRID_BASE}/root.sh; fi",
@@ -231,6 +233,7 @@ def _grid_config_tools_script(config: AutomationConfig, site: SiteConfig) -> str
     lines = [
         _asm_password_export(config),
         *_grid_ru_validation_lines(config),
+        *_temporary_network_anchor_lines(site, site.nodes[0]),
         f"mkdir -p {STAGE}/responses",
         f"cat > {response_file} <<EOF\n{response}\nEOF",
         f"chown grid:oinstall {response_file}",
@@ -349,6 +352,47 @@ def _grid_known_hosts_lines(site: SiteConfig) -> list[str]:
         "  chown grid:oinstall /home/grid/.ssh/known_hosts",
         "  chmod 600 /home/grid/.ssh/known_hosts",
     ]
+
+
+def _temporary_network_anchor_lines(site: SiteConfig, node) -> list[str]:
+    if not site.network_interface_list:
+        return []
+
+    anchors: list[tuple[str, str]] = []
+    for entry in site.network_interface_list.split(","):
+        interface_name, subnet, interface_type = entry.split(":")
+        if "/" not in subnet:
+            continue
+        prefix_length = subnet.split("/", 1)[1]
+        address = node.public_ip if interface_type == "1" else node.private_ip
+        if address:
+            anchors.append((interface_name, f"{address}/{prefix_length}"))
+
+    if not anchors:
+        return []
+
+    lines = [
+        "ORACLE_AUTO_NET_ANCHORS=()",
+        "cleanup_oracle_auto_net_anchors() {",
+        '  for item in "${ORACLE_AUTO_NET_ANCHORS[@]}"; do',
+        '    read -r iface cidr <<< "$item"',
+        '    ip addr del "$cidr" dev "$iface" 2>/dev/null || true',
+        "  done",
+        "}",
+        "trap cleanup_oracle_auto_net_anchors EXIT",
+    ]
+    for interface_name, cidr in anchors:
+        quoted_interface = shlex.quote(interface_name)
+        quoted_cidr = shlex.quote(cidr)
+        quoted_anchor = shlex.quote(f"{interface_name} {cidr}")
+        lines.extend(
+            [
+                f"if ! ip -o -4 addr show dev {quoted_interface} | awk '{{print $4}}' | grep -Fxq {quoted_cidr}; then",
+                f"  ip addr add {quoted_cidr} dev {quoted_interface} noprefixroute 2>/dev/null && ORACLE_AUTO_NET_ANCHORS+=({quoted_anchor}) || true",
+                "fi",
+            ]
+        )
+    return lines
 
 
 def _scan_dns_guard(site: SiteConfig) -> str:

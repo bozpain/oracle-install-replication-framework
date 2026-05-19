@@ -1135,6 +1135,9 @@ class CliTest(unittest.TestCase):
             "oracle.install.crs.config.networkInterfaceList=eth0:10.148.0.0:1,eth1:192.168.10.0:5",
             response,
         )
+        command = install_grid_steps(config)[0].command
+        self.assertIn("ip addr add 10.148.0.9/20 dev eth0 noprefixroute", command)
+        self.assertIn("ip addr add 192.168.10.6/24 dev eth1 noprefixroute", command)
 
     def test_ojvm_patch_runs_before_database_creation_phase(self):
         config = load_config(Path("configs/sample-single.json"))
