@@ -3,7 +3,8 @@
   "install_type": "rac",
   "patch_set": "19.30",
   "ssh": {
-    "user": "rori_learning"
+    "user": "rori_learning",
+    "key_file": "/dbaportal/home/semaphore/.ssh/id_rsa"
   },
   "dns": {
     "resolvers": [
