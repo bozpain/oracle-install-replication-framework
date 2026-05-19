@@ -147,6 +147,9 @@ def _asm_sid(config: AutomationConfig, node: NodeConfig) -> str:
 
 def _hosts_block(config: AutomationConfig) -> str:
     entries: list[str] = []
+    for site in config.sites:
+        if site.scan_name:
+            entries.extend(_hosts_line(scan_ip, site.scan_name) for scan_ip in site.scan_ips)
     for node in config.all_nodes:
         entries.append(_hosts_line(node.public_ip, node.host))
         if node.private_ip:

@@ -1265,6 +1265,36 @@ class CliTest(unittest.TestCase):
         self.assertIn("useradd -g oinstall -G asmadmin,asmdba,asmoper,dba,racdba grid", primary_command)
         self.assertIn("usermod -aG asmadmin,asmdba,asmoper,dba,racdba grid", primary_command)
 
+    def test_prepare_os_can_manage_scan_entries_in_hosts(self):
+        config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))
+        command = prepare_os_steps(config)[0].command
+
+        self.assertIn("10.148.0.30 rac-scan rac-scan", command)
+        self.assertIn("10.148.0.31 standby-rac-scan standby-rac-scan", command)
+
+    def test_scan_hosts_managed_precheck_does_not_require_dns(self):
+        import oracle_auto.precheck as precheck
+
+        config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))
+
+        self.assertEqual([], precheck._scan_dns_names(config))
+        self.assertIn("SCAN DNS not required", precheck._scan_dns_check(config))
+        self.assertIn("rac-scan", precheck._local_hostnames(config))
+        self.assertIn("standby-rac-scan", precheck._local_hostnames(config))
+
+    def test_scan_without_ip_still_requires_dns(self):
+        import oracle_auto.precheck as precheck
+
+        config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))
+        self.assertIsNotNone(config.standby_site)
+        assert config.standby_site is not None
+        standby_site = config.standby_site
+        config = replace(config, standby_site=replace(standby_site, scan_ips=[]))
+
+        self.assertEqual(["standby-rac-scan"], precheck._scan_dns_names(config))
+        self.assertIn("getent hosts standby-rac-scan", precheck._scan_dns_check(config))
+        self.assertNotIn("getent hosts rac-scan", precheck._scan_dns_check(config))
+
     def test_inventory_remains_remote_read_only(self):
         config = load_config(Path("configs/sample-single.json"))
         command = inventory_steps(config)[0].command

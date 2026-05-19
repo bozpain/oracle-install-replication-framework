@@ -9,9 +9,10 @@ JSON/YAML. The intended operator workflow is:
 3. Let the framework derive `-priv` and `-vip` hostnames, validate topology, and
    drive all later commands from this normalized model.
 
-Only SCAN names are expected to resolve from DNS. Public, private, and VIP names
-are written to `/etc/hosts` during OS preparation and are validated as local host
-file entries instead of DNS records.
+SCAN names may be supplied by DNS or by configured `scan_ip`/`scan_ips` values
+that are written to `/etc/hosts` during OS preparation. Public, private, VIP,
+and configured SCAN host file entries are validated locally instead of requiring
+external DNS records.
 """
 
 from __future__ import annotations
@@ -114,6 +115,7 @@ class SiteConfig:
     db_unique_name: str
     db_name: str | None = None
     scan_name: str | None = None
+    scan_ips: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -404,7 +406,23 @@ def _parse_site(name: str, data: Any) -> SiteConfig:
         db_name=_optional_str(data.get("db_name")),
         db_unique_name=db_unique_name,
         scan_name=_optional_str(data.get("scan_name")),
+        scan_ips=_parse_scan_ips(data),
     )
+
+
+def _parse_scan_ips(data: dict[str, Any]) -> list[str]:
+    if data.get("scan_ips") is not None:
+        raw = data["scan_ips"]
+        if not isinstance(raw, list):
+            raise ConfigError("scan_ips must be a list.")
+        values = [str(item) for item in raw]
+    elif data.get("scan_ip") is not None:
+        values = [str(data["scan_ip"])]
+    else:
+        values = []
+    if any(not value for value in values):
+        raise ConfigError("scan_ips cannot contain empty values.")
+    return values
 
 
 def _parse_node(data: Any, location: str) -> NodeConfig:
@@ -865,6 +883,8 @@ def _validate_unique_addresses(config: AutomationConfig) -> None:
             addresses.append(node.private_ip)
         if node.vip_ip:
             addresses.append(node.vip_ip)
+    for site in config.sites:
+        addresses.extend(site.scan_ips)
     duplicates = _duplicates(addresses)
     if duplicates:
         raise ConfigError(f"Duplicate IP address(es) across public/private/VIP config: {', '.join(duplicates)}")
@@ -1034,6 +1054,9 @@ def _validate_ip_values(config: AutomationConfig) -> None:
             _validate_ip(node.private_ip, f"{node.host}.private_ip")
         if node.vip_ip:
             _validate_ip(node.vip_ip, f"{node.host}.vip_ip")
+    for site in config.sites:
+        for scan_ip in site.scan_ips:
+            _validate_ip(scan_ip, f"{site.name}.scan_ips")
     for resolver in config.dns.resolvers:
         _validate_ip(resolver, "dns.resolvers")
     for server in config.os.ntp_servers:

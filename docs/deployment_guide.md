@@ -136,8 +136,8 @@ flowchart TB
 |---|---|
 | 🐧 OS | Oracle Linux fresh install |
 | 🔐 Bootstrap | SSH root aktif untuk bootstrap |
-| 📡 DNS | Untuk RAC, SCAN DNS record wajib tersedia |
-| 🧾 Hosts | Public/private/VIP hostname ditulis framework ke `/etc/hosts` |
+| 📡 DNS | Untuk RAC, SCAN DNS record wajib tersedia kalau `scan_ip`/`scan_ips` tidak diisi |
+| 🧾 Hosts | Public/private/VIP hostname, dan SCAN dengan `scan_ip`/`scan_ips`, ditulis framework ke `/etc/hosts` |
 | 📦 Installer | Installer dan patch ZIP sudah disalin manual ke target |
 | 💽 Storage | Disk ASM terlihat sebagai persistent `/dev/disk/by-id/...` path atau stable `/dev/mapper/<alias>` |
 
@@ -231,7 +231,7 @@ python main.py validate-config --config configs/my-deployment.json
 | Public hostname/IP | Config | Ditulis ke `/etc/hosts` |
 | Private interconnect IP | Config | RAC only, hostname generated |
 | VIP IP | Config | RAC only, hostname generated |
-| SCAN name | DNS | Jangan ditulis ke `/etc/hosts` |
+| SCAN name | DNS or Config | Kalau `scan_ip`/`scan_ips` diisi, framework tulis ke `/etc/hosts`; kalau kosong, SCAN wajib resolve dari DNS |
 | DNS resolver | Config | Ditulis ke target resolver config |
 
 Generated hostname:
@@ -254,8 +254,8 @@ DNS resolver example:
 
 | Rule | Status |
 |---|---|
-| SCAN must resolve from target resolver | Required |
-| SCAN must not be added to `/etc/hosts` | Required |
+| SCAN without `scan_ip`/`scan_ips` must resolve from target resolver | Required |
+| SCAN with `scan_ip`/`scan_ips` is written to `/etc/hosts` | Managed by framework |
 | Public/private/VIP DNS validation | Ignored |
 | Public/private/VIP `/etc/hosts` generation | Managed by framework |
 
@@ -983,8 +983,8 @@ Untuk install sungguhan, lebih aman berhenti di failure pertama, perbaiki, lalu 
 |---|---|
 | DNS resolver | Pastikan resolver reachable dari target |
 | `/etc/resolv.conf` | Pastikan resolver config benar |
-| SCAN record | Pastikan DNS punya SCAN record |
-| No hosts workaround | Jangan masukkan SCAN ke `/etc/hosts` |
+| SCAN record | Pastikan DNS punya SCAN record jika `scan_ip`/`scan_ips` tidak diisi |
+| Host-managed SCAN | Isi `scan_ip`/`scan_ips`; framework akan menulis SCAN ke `/etc/hosts` saat `prepare-os` |
 
 ### 📦 Installer Verification Gagal
 
@@ -1033,7 +1033,7 @@ Untuk install sungguhan, lebih aman berhenti di failure pertama, perbaiki, lalu 
 | Item | Status |
 |---|---|
 | Config direview DBA dan infra | ☐ |
-| SCAN DNS siap | ☐ |
+| SCAN DNS siap, atau `scan_ip`/`scan_ips` sudah diisi untuk host-managed SCAN | ☐ |
 | Public/private/VIP benar untuk `/etc/hosts` generation | ☐ |
 | ASM disk `DM_UUID` valid | ☐ |
 | Installer dan patch ZIP benar | ☐ |

@@ -686,8 +686,7 @@ def _print_config_summary(config: AutomationConfig) -> None:
         asm_summary = f"DATA={len(config.asm.data_disks)}, RECO={len(config.asm.reco_disks)}"
     print(f"ASM diskgroups     : {asm_summary}")
     print(f"DNS resolvers      : {', '.join(config.dns.resolvers)}")
-    scans = ", ".join(site.scan_name for site in config.sites if site.scan_name) or "not used"
-    print(f"SCAN DNS           : {scans}")
+    print(f"SCAN model         : {_scan_model_summary(config)}")
     print("Public/priv/VIP DNS: ignored; managed via /etc/hosts")
     print(f"Installer path     : {config.installer.sources_path}")
     print(f"Patch set          : {config.version.patch_set}")
@@ -697,3 +696,15 @@ def _print_config_summary(config: AutomationConfig) -> None:
         print(f"Active Data Guard  : enabled ({method}, max_performance)")
     else:
         print("Active Data Guard  : disabled")
+
+
+def _scan_model_summary(config: AutomationConfig) -> str:
+    scans = []
+    for site in config.sites:
+        if not site.scan_name:
+            continue
+        if site.scan_ips:
+            scans.append(f"{site.scan_name} via /etc/hosts ({', '.join(site.scan_ips)})")
+        else:
+            scans.append(f"{site.scan_name} via DNS")
+    return ", ".join(scans) or "not used"

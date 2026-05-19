@@ -71,11 +71,11 @@ Generated hostname:
 
 SCAN:
 
-- SCAN cukup berupa DNS name.
-- SCAN tidak dimasukkan ke `/etc/hosts`.
-- Automation mengatur DNS resolver target, lalu mengecek SCAN resolve melalui DNS.
-- Jika SCAN tidak resolve, precheck gagal.
-- Public, private, dan VIP tidak divalidasi lewat DNS. Ketiganya menjadi generated `/etc/hosts` entries supaya install tidak tergantung DNS selain SCAN.
+- SCAN cukup berupa DNS name jika DNS target bisa resolve.
+- Jika config mengisi `scan_ip` atau `scan_ips`, SCAN menjadi generated `/etc/hosts` entry.
+- Automation mengatur DNS resolver target, lalu mengecek DNS hanya untuk SCAN yang tidak punya `scan_ip`/`scan_ips`.
+- Jika SCAN tanpa `scan_ip`/`scan_ips` tidak resolve dari DNS, precheck gagal.
+- Public, private, VIP, dan host-managed SCAN tidak divalidasi lewat DNS. Semuanya menjadi generated `/etc/hosts` entries.
 
 ## 5. OS Baseline
 
@@ -89,7 +89,7 @@ Automation mengelola:
 - Direktori `/u01/app/grid`, Grid home, Oracle base, DB home, `/u01/sources`, dan `/u01/stage`.
 - Ownership dan permission.
 - DNS resolver di `/etc/resolv.conf`.
-- `/etc/hosts` untuk public/private/VIP primary dan standby.
+- `/etc/hosts` untuk public/private/VIP primary dan standby, plus SCAN jika `scan_ip`/`scan_ips` diisi.
 - SELinux menjadi `permissive`.
 - Disable firewall service.
 - Chrony ke NTP `192.168.113.41` dan `192.168.115.41`.

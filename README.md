@@ -159,7 +159,7 @@ Seluruh urutan deployment, flag destructive guardrail, dry-run penuh, dan produc
 | 🧩 Patch baseline  | Manifest-driven `19.30`; tambah `manifests/19.31.yaml` untuk patch berikutnya |
 | 💽 Storage model   | ASM only; `single-gi` uses `DATA`/`RECO`, `rac` uses `OCR`/`DATA`/`RECO` |
 | 🟢 Data Guard      | Active Data Guard, `max_performance`                                     |
-| 📡 DNS model       | SCAN via DNS, public/private/VIP managed through `/etc/hosts`            |
+| 📡 DNS model       | SCAN via DNS unless `scan_ip`/`scan_ips` is set; public/private/VIP managed through `/etc/hosts` |
 
 ---
 

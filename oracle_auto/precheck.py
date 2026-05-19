@@ -1,9 +1,9 @@
 """Precheck runner manual.
 
 Precheck is the non-destructive gate before OS preparation. It validates SSH,
-OS baseline, DNS resolver/SCAN behavior, installer source visibility, and ASM
-disk path/DM_UUID visibility. Only SCAN is checked through DNS; public, private,
-and VIP names are treated as `/etc/hosts` content managed by prepare-os.
+OS baseline, resolver/SCAN behavior, installer source visibility, and ASM disk
+path/DM_UUID visibility. Public, private, VIP, and optionally SCAN names are
+treated as `/etc/hosts` content managed by prepare-os when configured.
 """
 
 from __future__ import annotations
@@ -280,12 +280,12 @@ class PrecheckRunner:
                     ),
                     Check(
                         name="scan_dns_resolve",
-                        command=_scan_check(self.config),
+                        command=_scan_dns_check(self.config),
                         fail_message="SCAN DNS name does not resolve from target DNS.",
                     ),
                     Check(
                         name="scan_dns_record_count",
-                        command=_scan_count_check(self.config),
+                        command=_scan_dns_count_check(self.config),
                         fail_message="SCAN DNS record count could not be inspected.",
                         warn_only=True,
                     ),
@@ -478,13 +478,17 @@ def _disk_size_check(config: AutomationConfig, node: NodeConfig | None = None) -
     return " && ".join(commands)
 
 
-def _scan_check(config: AutomationConfig) -> str:
-    scans = [site.scan_name for site in config.sites if site.scan_name]
+def _scan_dns_check(config: AutomationConfig) -> str:
+    scans = _scan_dns_names(config)
+    if not scans:
+        return "printf 'SCAN DNS not required; scan_ip/scan_ips configured for all SCAN names'"
     return " && ".join(f"getent hosts {shlex.quote(scan)}" for scan in scans)
 
 
-def _scan_count_check(config: AutomationConfig) -> str:
-    scans = [site.scan_name for site in config.sites if site.scan_name]
+def _scan_dns_count_check(config: AutomationConfig) -> str:
+    scans = _scan_dns_names(config)
+    if not scans:
+        return "printf 'SCAN DNS record count not required for host-managed SCAN names'"
     return " && ".join(
         f"printf '%s ' {shlex.quote(scan)}; getent ahosts {shlex.quote(scan)} | awk '{{print $1}}' | sort -u | wc -l"
         for scan in scans
@@ -493,6 +497,9 @@ def _scan_count_check(config: AutomationConfig) -> str:
 
 def _local_hostnames(config: AutomationConfig) -> list[str]:
     names: list[str] = []
+    for site in config.sites:
+        if site.scan_name and site.scan_ips:
+            names.append(site.scan_name)
     for node in config.all_nodes:
         names.append(node.host)
         if node.private_ip:
@@ -500,6 +507,10 @@ def _local_hostnames(config: AutomationConfig) -> list[str]:
         if node.vip_ip:
             names.append(node.vip_hostname)
     return names
+
+
+def _scan_dns_names(config: AutomationConfig) -> list[str]:
+    return [site.scan_name for site in config.sites if site.scan_name and not site.scan_ips]
 
 
 def _compact(value: str, limit: int = 140) -> str:
