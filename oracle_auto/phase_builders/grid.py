@@ -430,25 +430,15 @@ def _temporary_network_anchor_lines(site: SiteConfig, node) -> list[str]:
     if not anchors:
         return []
 
-    lines = [
-        "ORACLE_AUTO_NET_ANCHORS=()",
-        "cleanup_oracle_auto_net_anchors() {",
-        '  for item in "${ORACLE_AUTO_NET_ANCHORS[@]}"; do',
-        '    read -r iface cidr <<< "$item"',
-        '    ip addr del "$cidr" dev "$iface" 2>/dev/null || true',
-        "  done",
-        "}",
-        "trap cleanup_oracle_auto_net_anchors EXIT",
-    ]
+    lines = []
     for interface_name, cidr in anchors:
         quoted_interface = shlex.quote(interface_name)
         quoted_cidr = shlex.quote(cidr)
-        quoted_anchor = shlex.quote(f"{interface_name} {cidr}")
         quoted_label = shlex.quote(f"{interface_name}:0")
         lines.extend(
             [
                 f"if ! ip -o -4 addr show dev {quoted_interface} | awk '{{print $4}}' | grep -Fxq {quoted_cidr}; then",
-                f"  ip addr add {quoted_cidr} brd + dev {quoted_interface} label {quoted_label} noprefixroute 2>/dev/null && ORACLE_AUTO_NET_ANCHORS+=({quoted_anchor}) || true",
+                f"  ip addr add {quoted_cidr} brd + dev {quoted_interface} label {quoted_label} noprefixroute 2>/dev/null || true",
                 "fi",
             ]
         )
