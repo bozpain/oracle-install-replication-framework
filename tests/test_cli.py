@@ -870,6 +870,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("chmod 664 /etc/oraInst.loc", grid_command)
         self.assertIn("cat > /u01/app/19.0.0/grid/oraInst.loc", grid_command)
         self.assertIn("chown grid:oinstall /u01/app/19.0.0/grid/oraInst.loc", grid_command)
+        self.assertIn("Grid Infrastructure already configured; preserving existing OPatch.", grid_command)
         self.assertIn("rm -rf /u01/app/19.0.0/grid/OPatch", grid_command)
         self.assertIn("sudo -iu grid /u01/app/19.0.0/grid/OPatch/opatch version", grid_command)
         self.assertIn("sudo -iu grid env CV_ASSUME_DISTID=OL7", grid_command)

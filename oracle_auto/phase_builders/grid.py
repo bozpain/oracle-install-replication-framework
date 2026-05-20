@@ -157,10 +157,15 @@ def _grid_opatch_lines(config: AutomationConfig) -> list[str]:
         return []
     opatch_zip = f"{config.installer.sources_path}/{config.installer.opatch_zip}"
     return [
-        f"test -s {shlex.quote(opatch_zip)}",
-        f"rm -rf {GRID_BASE}/OPatch",
-        f"sudo -iu grid unzip -oq {shlex.quote(opatch_zip)} -d {GRID_BASE}",
-        f"sudo -iu grid {GRID_BASE}/OPatch/opatch version",
+        "if test -f /etc/oracle/olr.loc; then",
+        "  echo 'Grid Infrastructure already configured; preserving existing OPatch.'",
+        f"  test -x {GRID_BASE}/OPatch/opatch || echo 'WARNING: Grid OPatch is missing after Grid configuration; restore OPatch manually if patching is required.'",
+        "else",
+        f"  test -s {shlex.quote(opatch_zip)}",
+        f"  rm -rf {GRID_BASE}/OPatch",
+        f"  sudo -iu grid unzip -oq {shlex.quote(opatch_zip)} -d {GRID_BASE}",
+        f"  sudo -iu grid {GRID_BASE}/OPatch/opatch version",
+        "fi",
     ]
 
 
