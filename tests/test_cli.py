@@ -1145,7 +1145,7 @@ class CliTest(unittest.TestCase):
         )
         command = install_grid_steps(config)[0].command
         self.assertIn("ip addr add 10.148.15.241/20 brd + dev eth0 label eth0:0 noprefixroute", command)
-        self.assertIn("ip addr add 192.168.10.6/24 brd + dev eth1 label eth1:0 noprefixroute", command)
+        self.assertIn("ip addr add 192.168.10.241/24 brd + dev eth1 label eth1:0 noprefixroute", command)
 
     def test_rac_grid_cleans_prebound_local_vip_routes_before_install(self):
         config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))

@@ -222,13 +222,27 @@ def _asm_password_export(config: AutomationConfig) -> str:
 
 def _grid_root_script(config: AutomationConfig, site: SiteConfig, node) -> str:
     crs_check = _crs_check_command(config)
+    crs_online_check = (
+        'printf "%s\\n" "$GRID_ROOT_CHECK_OUTPUT" | grep -q \'Oracle High Availability Services is online\' && '
+        'printf "%s\\n" "$GRID_ROOT_CHECK_OUTPUT" | grep -q \'Cluster Ready Services is online\' && '
+        'printf "%s\\n" "$GRID_ROOT_CHECK_OUTPUT" | grep -q \'Cluster Synchronization Services is online\' && '
+        'printf "%s\\n" "$GRID_ROOT_CHECK_OUTPUT" | grep -q \'Event Manager is online\''
+        if config.install_type == "rac"
+        else 'printf "%s\\n" "$GRID_ROOT_CHECK_OUTPUT" | grep -q \'Oracle High Availability Services is online\''
+    )
     lines = [
         *_pre_grid_vip_cleanup_lines(site, node),
         *_temporary_network_anchor_lines(site, node),
         "test -x /u01/app/oraInventory/orainstRoot.sh && /u01/app/oraInventory/orainstRoot.sh || true",
         f"test -x {GRID_BASE}/root.sh",
-        f"if sudo -iu grid {crs_check} >/dev/null 2>&1; then echo 'Grid appears active; skipping root.sh rerun.'; else {GRID_BASE}/root.sh; fi",
-        f"sudo -iu grid {crs_check} || true",
+        f"GRID_ROOT_CHECK_OUTPUT=$(sudo -iu grid {crs_check} 2>&1 || true)",
+        'printf "%s\\n" "$GRID_ROOT_CHECK_OUTPUT"',
+        f"if {crs_online_check}; then",
+        "  echo 'Grid appears fully active; skipping root.sh rerun.'",
+        "else",
+        f"  {GRID_BASE}/root.sh",
+        "fi",
+        f"sudo -iu grid {crs_check}",
         f"sudo -iu grid {GRID_BASE}/bin/asmcmd lsdg || true",
     ]
     return shell_script("Run Grid root scripts", lines)
