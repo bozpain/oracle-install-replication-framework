@@ -64,11 +64,11 @@ class ConfigTest(unittest.TestCase):
 
         self.assertEqual(config.primary_site.network_interface_list, "eth0:10.148.0.0/20:1,eth1:192.168.10.0/24:5")
         self.assertEqual(config.primary_site.nodes[0].public_subnet_anchor_ip, "10.148.15.241")
-        self.assertEqual(config.primary_site.nodes[0].private_subnet_anchor_ip, "192.168.10.241")
+        self.assertIsNone(config.primary_site.nodes[0].private_subnet_anchor_ip)
         assert config.standby_site is not None
         self.assertEqual(config.standby_site.network_interface_list, "eth0:10.148.0.0/20:1,eth1:192.168.10.0/24:5")
         self.assertEqual(config.standby_site.nodes[0].public_subnet_anchor_ip, "10.148.15.243")
-        self.assertEqual(config.standby_site.nodes[0].private_subnet_anchor_ip, "192.168.10.243")
+        self.assertIsNone(config.standby_site.nodes[0].private_subnet_anchor_ip)
 
     def test_bad_network_interface_list_is_rejected(self):
         data = json.loads(Path("configs/gcp-rac-dg-multidisk.json").read_text(encoding="utf-8"))
