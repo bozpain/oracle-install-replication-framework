@@ -40,8 +40,7 @@ class CliTest(unittest.TestCase):
         return Path(tempfile.mkdtemp(prefix=f"oracle-auto-{name}-{uuid.uuid4().hex}-"))
 
     def _single_site_config(self, tmp: Path) -> Path:
-        data = json.loads(Path("configs/sample-single.json").read_text(encoding="utf-8"))
-        data.pop("standby_site", None)
+        data = json.loads(Path("configs/single-gi.json").read_text(encoding="utf-8"))
         data["run_id"] = "single-site-demo"
         path = tmp / "single-site.json"
         path.write_text(json.dumps(data), encoding="utf-8")
@@ -54,18 +53,18 @@ class CliTest(unittest.TestCase):
             str(tmp),
             "generate-plan",
             "--config",
-            "configs/sample-rac-dg.json",
+            "configs/rac-multisite.json",
             "--dataguard-mode",
             "broker",
         ])
 
         self.assertEqual(code, 0)
-        self.assertTrue((tmp / "rac-adg-demo-plan.html").exists())
-        self.assertTrue((tmp / "rac-adg-demo-plan.json").exists())
-        self.assertTrue((tmp / "rac-adg-demo-runbook.sh").exists())
-        self.assertTrue((tmp / "rac-adg-demo-phase-runbooks" / "prepare-os.sh").exists())
-        self.assertTrue((tmp / "rac-adg-demo-phase-runbooks" / "apply-ojvm-patch.sh").exists())
-        self.assertFalse((tmp / "rac-adg-demo-phase-runbooks" / "datapatch.sh").exists())
+        self.assertTrue((tmp / "rac-multisite-plan.html").exists())
+        self.assertTrue((tmp / "rac-multisite-plan.json").exists())
+        self.assertTrue((tmp / "rac-multisite-runbook.sh").exists())
+        self.assertTrue((tmp / "rac-multisite-phase-runbooks" / "prepare-os.sh").exists())
+        self.assertTrue((tmp / "rac-multisite-phase-runbooks" / "apply-ojvm-patch.sh").exists())
+        self.assertFalse((tmp / "rac-multisite-phase-runbooks" / "datapatch.sh").exists())
 
     def test_generate_report_prints_start_logger(self):
         tmp = self._test_dir("report")
@@ -88,7 +87,7 @@ class CliTest(unittest.TestCase):
                     str(tmp),
                     "generate-report",
                     "--config",
-                    "configs/sample-single.json",
+                    "configs/single-gi-multisite.json",
                     "--dataguard-mode",
                     "broker",
                 ])
@@ -105,8 +104,8 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("RUN   generate-report:local:generate_report", buffer.getvalue())
         self.assertIn("Report published:", buffer.getvalue())
-        self.assertIn("REPORT_URL=https://dbaportal/reports/single-gi-demo.html", buffer.getvalue())
-        self.assertTrue((publish / "single-gi-demo.html").exists())
+        self.assertIn("REPORT_URL=https://dbaportal/reports/single-gi-multisite.html", buffer.getvalue())
+        self.assertTrue((publish / "single-gi-multisite.html").exists())
 
     def test_generate_report_can_publish_without_url(self):
         tmp = self._test_dir("report-no-url")
@@ -129,7 +128,7 @@ class CliTest(unittest.TestCase):
                     str(tmp),
                     "generate-report",
                     "--config",
-                    "configs/sample-single.json",
+                    "configs/single-gi-multisite.json",
                 ])
         finally:
             if previous_path is None:
@@ -144,7 +143,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("Report published:", buffer.getvalue())
         self.assertNotIn("Report URL:", buffer.getvalue())
-        self.assertTrue((publish / "single-gi-demo.html").exists())
+        self.assertTrue((publish / "single-gi-multisite.html").exists())
 
     def test_progress_line_reports_current_running_step(self):
         tmp = self._test_dir("progress")
@@ -165,7 +164,7 @@ class CliTest(unittest.TestCase):
         code = main([
             "configure-asm-storage",
             "--config",
-            "configs/sample-rac-dg.json",
+            "configs/rac-multisite.json",
         ])
 
         self.assertEqual(code, 2)
@@ -174,33 +173,33 @@ class CliTest(unittest.TestCase):
         code = main([
             "validate-config",
             "--config",
-            "configs/gcp-single-gi-lab.json",
+            "configs/single-gi-multisite.json",
         ])
 
         self.assertEqual(code, 0)
 
-    def test_dataguard_action_requires_dataguard_mode_cli_arg(self):
+    def test_dataguard_action_requires_runtime_mode(self):
         code = main([
             "configure-dataguard",
             "--config",
-            "configs/gcp-single-gi-lab.json",
+            "configs/single-gi-multisite.json",
             "--dry-run",
         ])
 
         self.assertEqual(code, 2)
 
-    def test_full_workflow_with_standby_requires_dataguard_mode_cli_arg(self):
+    def test_full_workflow_with_standby_requires_runtime_mode(self):
         code = main([
             "full",
             "--config",
-            "configs/sample-rac-dg.json",
+            "configs/rac-multisite.json",
             "--dry-run",
         ])
 
         self.assertEqual(code, 2)
 
-    def test_report_renders_standby_config_without_dataguard_mode(self):
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+    def test_report_renders_unselected_dataguard_mode(self):
+        config = load_config(Path("configs/single-gi-multisite.json"))
 
         html = render_html_report(config, [])
 
@@ -208,7 +207,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("Active Data Guard", html)
 
     def test_manual_dataguard_steps_prepare_network_auxiliary_and_duplicate(self):
-        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        base = load_config(Path("configs/single-gi-multisite.json"))
         config = replace(base, dataguard=replace(base.dataguard, configuration_method="manual"))
 
         steps = configure_dataguard_steps(config)
@@ -243,8 +242,8 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("configure_broker", names)
         self.assertIn("tnsnames.ora", command)
         self.assertIn("SID_LIST_LISTENER", command)
-        self.assertIn("(HOST = 10.128.0.3)", command)
-        self.assertIn("(HOST = 10.128.0.4)", command)
+        self.assertIn("(HOST = 10.148.0.11)", command)
+        self.assertIn("(HOST = 10.148.0.12)", command)
         self.assertIn("tnsping ORCL", command)
         self.assertIn("tnsping ORCLSTBY", command)
         self.assertIn("ALTER DATABASE ARCHIVELOG", command)
@@ -349,7 +348,7 @@ class CliTest(unittest.TestCase):
                 self.assertIn(f"/u01/stage/oracle-auto/state/{step.phase.replace('-', '_')}", step.command)
 
     def test_broker_dataguard_adds_broker_after_manual_steps(self):
-        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        base = load_config(Path("configs/single-gi-multisite.json"))
         config = replace(base, dataguard=replace(base.dataguard, configuration_method="broker"))
 
         steps = configure_dataguard_steps(config)
@@ -364,7 +363,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("SHOW CONFIGURATION VERBOSE", steps[-1].command)
 
     def test_validate_deployment_uses_safe_sqlplus_heredoc(self):
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
 
         steps = validate_deployment_steps(config)
         command = next(step.command for step in steps if step.name == "validate_primary_database")
@@ -399,7 +398,7 @@ class CliTest(unittest.TestCase):
             self.assertNotIn("oracle-auto remote marker wrapper", step.command)
 
     def test_dataguard_uses_configured_standby_redo_log_size(self):
-        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        base = load_config(Path("configs/single-gi-multisite.json"))
         config = replace(
             base,
             dataguard=replace(base.dataguard, configuration_method="manual", standby_redo_log_size="512M"),
@@ -411,7 +410,7 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("SIZE 2G", command)
 
     def test_rac_dataguard_registers_instances_and_switches_final_tns_to_scan(self):
-        base = load_config(Path("configs/sample-rac-dg.json"))
+        base = load_config(Path("configs/rac-multisite.json"))
         config = replace(base, dataguard=replace(base.dataguard, configuration_method="broker"))
 
         steps = configure_dataguard_steps(config)
@@ -429,27 +428,28 @@ class CliTest(unittest.TestCase):
         self.assertIn("SID_NAME = ORCL_B1", command)
         self.assertIn("SID_NAME = ORCL_B2", command)
         self.assertIn("srvctl config database -db ORCL_B | grep -qw ORCL_B1", command)
-        self.assertIn("srvctl add instance -db ORCL_B -instance ORCL_B1 -node db1-site-b.example.com", command)
-        self.assertIn("srvctl add instance -db ORCL_B -instance ORCL_B2 -node db2-site-b.example.com", command)
+        self.assertIn("srvctl add instance -db ORCL_B -instance ORCL_B1 -node ora-standby-1", command)
+        self.assertIn("srvctl add instance -db ORCL_B -instance ORCL_B2 -node ora-standby-2", command)
         self.assertIn("awk -v primary_unique=ORCL_A -v standby_unique=ORCL_B", command)
         self.assertIn("body_l=tolower(body)", command)
         self.assertIn("remote_listener", command)
-        self.assertIn("scan-site-b.example.com:1521", command)
+        self.assertIn("standby-rac-scan:1521", command)
         self.assertIn("ORCL_B1.local_listener", command)
-        self.assertIn("HOST=db1-site-b.example.com", command)
+        self.assertIn("HOST=ora-standby-1", command)
         self.assertIn("ORCL_B2.local_listener", command)
-        self.assertIn("HOST=db2-site-b.example.com", command)
-        self.assertIn("(HOST = 192.168.113.101)", command)
-        self.assertIn("(HOST = scan-site-a.example.com)", command)
-        self.assertIn("(HOST = scan-site-b.example.com)", command)
-        self.assertIn("HOST=scan-site-a.example.com", broker_command)
-        self.assertIn("HOST=scan-site-b.example.com", broker_command)
+        self.assertIn("HOST=ora-standby-2", command)
+        self.assertIn("(HOST = 10.148.0.9)", command)
+        self.assertIn("(HOST = 10.148.0.7)", command)
+        self.assertIn("(HOST = rac-scan)", command)
+        self.assertIn("(HOST = standby-rac-scan)", command)
+        self.assertIn("HOST=rac-scan", broker_command)
+        self.assertIn("HOST=standby-rac-scan", broker_command)
 
     def test_full_guardrail_blocks_real_execution_without_flags(self):
         code = main([
             "full",
             "--config",
-            "configs/sample-single.json",
+            "configs/single-gi-multisite.json",
             "--dataguard-mode",
             "broker",
         ])
@@ -465,14 +465,14 @@ class CliTest(unittest.TestCase):
             str(tmp),
             "full",
             "--config",
-            "configs/sample-single.json",
+            "configs/single-gi-multisite.json",
             "--dataguard-mode",
             "broker",
             "--dry-run",
         ])
 
         self.assertEqual(code, 0)
-        self.assertTrue((tmp / "single-gi-demo.html").exists())
+        self.assertTrue((tmp / "single-gi-multisite.html").exists())
 
     def test_single_site_config_skips_dataguard_workflow_phase(self):
         tmp = self._test_dir("single-site")
@@ -511,7 +511,7 @@ class CliTest(unittest.TestCase):
 
     def test_ssh_executor_uses_node_ssh_host_when_configured(self):
         node = NodeConfig(host="ora-primary-01", public_ip="10.184.0.7", ssh_host="34.101.185.178")
-        executor = SSHExecutor(load_config(Path("configs/gcp-single-gi-multidisk.json")).ssh, dry_run=True)
+        executor = SSHExecutor(load_config(Path("configs/single-gi.json")).ssh, dry_run=True)
 
         result = executor.run(node, "printf ok")
 
@@ -640,7 +640,7 @@ class CliTest(unittest.TestCase):
                     barrier.wait(timeout=2)
                 return CommandResult(node.host, command, 0, "ok", "")
 
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         runner = PrecheckRunner(config, FakeExecutor(), state=NoopStateStore())
         results = runner.run()
 
@@ -658,7 +658,7 @@ class CliTest(unittest.TestCase):
                 calls.append(command)
                 return CommandResult(node.host, command, 255, "", "ssh: connect to host timed out")
 
-        config = load_config(Path("configs/gcp-single-gi-multidisk.json"))
+        config = load_config(Path("configs/single-gi.json"))
         runner = PrecheckRunner(config, FakeExecutor(), state=NoopStateStore())
         results = runner.run()
 
@@ -667,12 +667,12 @@ class CliTest(unittest.TestCase):
         self.assertEqual(results[0].status, "FAIL")
 
     def test_verify_installer_has_no_framework_timeout(self):
-        config = load_config(Path("configs/sample-single.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
 
         self.assertIsNone(verify_installer_steps(config)[0].timeout)
 
     def test_verify_installer_prints_zip_progress(self):
-        config = load_config(Path("configs/sample-single.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         command = verify_installer_steps(config)[0].command
 
         self.assertIn("verify_zip_integrity LINUX.X64_193000_grid_home.zip", command)
@@ -683,7 +683,7 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("grep -q 'gridSetup.sh'", command)
 
     def test_verify_installer_caches_zip_integrity_per_file(self):
-        config = load_config(Path("configs/sample-single.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         command = verify_installer_steps(config)[0].command
 
         self.assertIn("VERIFY_CACHE_DIR=/u01/stage/installer-checks/zip-integrity", command)
@@ -695,7 +695,7 @@ class CliTest(unittest.TestCase):
     def test_precheck_keeps_installer_checks_lightweight(self):
         from oracle_auto.precheck import PrecheckRunner
 
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
         checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
 
@@ -706,7 +706,23 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("unzip -t", checks["installer_zip_contents"].command)
 
     def test_storage_prepares_oracleasm_aliases_for_multipath_sources(self):
-        config = load_config(Path("configs/sample-rac-dg.json"))
+        data = json.loads(Path("configs/rac-multisite.json").read_text(encoding="utf-8"))
+        data["asm"].pop("sites")
+        data["asm"]["ocr_disks"] = [
+            "360060e8008a3cf000050a3cf00000101",
+            "360060e8008a3cf000050a3cf00000102",
+        ]
+        data["asm"]["data_disks"] = [
+            "360060e8008a3cf000050a3cf00000103",
+            "360060e8008a3cf000050a3cf00000104",
+        ]
+        data["asm"]["reco_disks"] = [
+            "360060e8008a3cf000050a3cf00000105",
+            "360060e8008a3cf000050a3cf00000106",
+        ]
+        path = self._test_dir("dm-uuid-storage") / "config.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        config = load_config(path)
         command = prepare_storage_rules_steps(config)[0].command
 
         self.assertIn("DM_UUID=mpath-360060e8008a3cf000050a3cf00000101", command)
@@ -724,7 +740,7 @@ class CliTest(unittest.TestCase):
     def test_precheck_storage_inspection_uses_sudo(self):
         from oracle_auto.precheck import _disk_signature_check, _disk_size_check
 
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
 
         self.assertIn("sudo -n wipefs", _disk_signature_check(config))
         self.assertIn("sudo -n blockdev", _disk_size_check(config))
@@ -732,7 +748,7 @@ class CliTest(unittest.TestCase):
     def test_precheck_warns_when_asmlib_packages_are_not_visible(self):
         from oracle_auto.precheck import PrecheckRunner
 
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
         checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
 
@@ -744,7 +760,7 @@ class CliTest(unittest.TestCase):
     def test_raw_storage_skips_asmlib_os_and_precheck_requirements(self):
         from oracle_auto.precheck import PrecheckRunner
 
-        base = load_config(Path("configs/gcp-single-gi-multidisk.json"))
+        base = load_config(Path("configs/single-gi.json"))
         config = replace(base, asm=replace(base.asm, storage_mode="raw"))
         prepare_command = prepare_os_steps(config)[0].command
         verify_command = verify_installer_steps(config)[0].command
@@ -789,7 +805,7 @@ class CliTest(unittest.TestCase):
             def mark_warning(self, key, details):
                 self.statuses[key] = "warning"
 
-        config = load_config(Path("configs/sample-single.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         executor = FakeExecutor()
         state = MemoryState()
 
@@ -806,7 +822,7 @@ class CliTest(unittest.TestCase):
     def test_precheck_dnf_checks_have_no_framework_timeout(self):
         from oracle_auto.precheck import PrecheckRunner
 
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
         checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
 
@@ -817,7 +833,7 @@ class CliTest(unittest.TestCase):
     def test_precheck_detects_vm_storage_mode_without_warning(self):
         from oracle_auto.precheck import PrecheckRunner
 
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
         checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
 
@@ -829,7 +845,23 @@ class CliTest(unittest.TestCase):
     def test_precheck_requires_multipath_when_dm_uuid_is_configured(self):
         from oracle_auto.precheck import PrecheckRunner
 
-        config = load_config(Path("configs/sample-rac-dg.json"))
+        data = json.loads(Path("configs/rac-multisite.json").read_text(encoding="utf-8"))
+        data["asm"].pop("sites")
+        data["asm"]["ocr_disks"] = [
+            "360060e8008a3cf000050a3cf00000101",
+            "360060e8008a3cf000050a3cf00000102",
+        ]
+        data["asm"]["data_disks"] = [
+            "360060e8008a3cf000050a3cf00000103",
+            "360060e8008a3cf000050a3cf00000104",
+        ]
+        data["asm"]["reco_disks"] = [
+            "360060e8008a3cf000050a3cf00000105",
+            "360060e8008a3cf000050a3cf00000106",
+        ]
+        path = self._test_dir("dm-uuid-precheck") / "config.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        config = load_config(path)
         runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
         checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
 
@@ -840,7 +872,7 @@ class CliTest(unittest.TestCase):
     def test_precheck_checks_asmlib_kernel_interface(self):
         from oracle_auto.precheck import PrecheckRunner
 
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         runner = PrecheckRunner(config, executor=None, state=NoopStateStore())
         checks = {check.name: check for check in runner._checks_for(config.primary_site.nodes[0])}
 
@@ -849,7 +881,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("oracleasm.ko", checks["asmlib_kernel_interface"].command)
 
     def test_install_steps_apply_targeted_ru_patches(self):
-        config = load_config(Path("configs/sample-single.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         grid_steps = install_grid_steps(config)
         grid_command = grid_steps[0].command
         root_command = next(step.command for step in grid_steps if step.name.startswith("root_scripts_site-a_"))
@@ -912,8 +944,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("ssh-keyscan -T 10 -t rsa,ecdsa,ed25519", config_tools_command)
         self.assertIn("2>/dev/null >> /home/grid/.ssh/known_hosts || true", config_tools_command)
         self.assertIn("/etc/ssh/ssh_known_hosts", config_tools_command)
-        self.assertIn("db1-site-a.example.com", config_tools_command)
-        self.assertIn("db1-site-a", config_tools_command)
+        self.assertIn("ora-primary-01", config_tools_command)
         self.assertIn("Grid configuration tools failed; extracting recent Oracle log errors", config_tools_command)
         self.assertIn("gridConfigTools-site-a.out", config_tools_command)
         self.assertIn("Running ASMCA directly with configured ASM disk string", config_tools_command)
@@ -941,7 +972,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("FATAL|ERROR|INS-|failed|failure", db_command)
         self.assertIn("Successfully Setup Software|execute the following script", db_command)
         self.assertIn("Existing Database Oracle version before home cleanup", db_command)
-        self.assertIn("Database home is already usable for ORCL_A; not cleaning DB home.", db_command)
+        self.assertIn("Database home is already usable for ORCL; not cleaning DB home.", db_command)
         self.assertIn("Cleaning Database home before install/resume.", db_command)
         self.assertIn("DB_HOME_INVENTORY_REGISTERED=false", db_command)
         self.assertIn("LOC=\"/u01/app/oracle/product/19.0.0/dbhome_1\"", db_command)
@@ -972,15 +1003,15 @@ class CliTest(unittest.TestCase):
         self.assertIn("v$asm_diskgroup", db_root_command)
 
     def test_persistent_by_id_paths_are_labeled_with_asmlib(self):
-        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        base = load_config(Path("configs/single-gi-multisite.json"))
         config = replace(base, asm=replace(base.asm, storage_mode="asmlibv3"))
         command = prepare_storage_rules_steps(config)[0].command
 
         self.assertIn("ORACLE_AUTO_MULTIPATH=false", command)
         self.assertIn("multipath -ll", command)
         self.assertIn("Writing stable Oracle ASM aliases under /dev/oracleasm", command)
-        self.assertIn("ASM_DATA1_SOURCE=/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", command)
-        self.assertIn("ASM_RECO1_SOURCE=/dev/disk/by-id/scsi-0Google_PersistentDisk_p-reco-1-part1", command)
+        self.assertIn("ASM_DATA01_SOURCE=/dev/disk/by-id/scsi-0Google_PersistentDisk_site-a-data-1-part1", command)
+        self.assertIn("ASM_RECO01_SOURCE=/dev/disk/by-id/scsi-0Google_PersistentDisk_site-a-reco-1-part1", command)
         self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_data-part2", command)
         self.assertIn("ORACLE_AUTO_ASMLIB_IOFILTER=n", command)
         self.assertIn("Direct ASMLIB mode detected; disabling ASMLIB I/O filter", command)
@@ -990,10 +1021,10 @@ class CliTest(unittest.TestCase):
         self.assertIn("systemctl restart oracleasm || oracleasm init", command)
         self.assertIn("oracleasm status || true", command)
         self.assertLess(
-            command.index("resolve_asm_source_device DATA1"),
-            command.index("validate_asmlib_label DATA1"),
+            command.index("resolve_asm_source_device DATA01"),
+            command.index("validate_asmlib_label DATA01"),
         )
-        self.assertLess(command.index("oracleasm createdisk DATA1"), command.rindex("validate_asmlib_label DATA1"))
+        self.assertLess(command.index("oracleasm createdisk DATA01"), command.rindex("validate_asmlib_label DATA01"))
         self.assertIn("oracleasm querydisk -p", command)
         self.assertIn("LABEL=", command)
         self.assertIn("TYPE=", command)
@@ -1005,13 +1036,13 @@ class CliTest(unittest.TestCase):
         self.assertIn("config-manager --set-enabled ol8_addons", command)
         self.assertIn("/u01/sources/oracleasmlib-3.1.1-1.el8.x86_64.rpm", command)
         self.assertNotIn("download.oracle.com/otn_software/asmlib", command)
-        self.assertIn("oracleasm createdisk DATA1", command)
+        self.assertIn("oracleasm createdisk DATA01", command)
         self.assertIn("oracleasm listdisks", command)
-        self.assertIn("/dev/oracleasm/DATA1", command)
+        self.assertIn("/dev/oracleasm/DATA01", command)
         self.assertNotIn("ln -sfn", command)
 
     def test_raw_storage_uses_oracleasm_aliases_without_asmlib_labels(self):
-        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        base = load_config(Path("configs/single-gi-multisite.json"))
         config = replace(base, asm=replace(base.asm, storage_mode="raw"))
         rules_command = prepare_storage_rules_steps(config)[0].command
         asm_command = configure_asm_storage_steps(config)[0].command
@@ -1023,44 +1054,45 @@ class CliTest(unittest.TestCase):
         self.assertIn("Raw ASM storage prepared", rules_command)
         self.assertNotIn("oracleasm createdisk", rules_command)
         self.assertNotIn("oracleasm configure", rules_command)
-        self.assertIn("/dev/oracleasm/DATA1", asm_command)
-        self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", asm_command)
+        self.assertIn("/dev/oracleasm/DATA01", asm_command)
+        self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_site-a-data-1-part1", asm_command)
         self.assertIn("Using raw ASM storage", asm_command)
-        self.assertNotIn("ORCL:DATA1", asm_command)
-        self.assertIn("ASM_DISCOVERY_STRING=/dev/oracleasm/DATA1,/dev/oracleasm/RECO1", db_command)
-        self.assertIn("oracle.install.asm.diskGroup.disks=/dev/oracleasm/DATA1", response)
-        self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=/dev/oracleasm/DATA1", response)
+        self.assertNotIn("ORCL:DATA01", asm_command)
+        self.assertIn("ASM_DISCOVERY_STRING=/dev/oracleasm/DATA01,/dev/oracleasm/DATA02,/dev/oracleasm/RECO01,/dev/oracleasm/RECO02", db_command)
+        self.assertIn("oracle.install.asm.diskGroup.disks=/dev/oracleasm/DATA01", response)
+        self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=/dev/oracleasm/DATA01", response)
 
     def test_afd_storage_uses_afd_labels(self):
-        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        base = load_config(Path("configs/single-gi-multisite.json"))
         config = replace(base, asm=replace(base.asm, storage_mode="afd"))
         rules_command = prepare_storage_rules_steps(config)[0].command
         asm_command = configure_asm_storage_steps(config)[0].command
         response = grid_response(config, config.primary_site)
 
         self.assertIn("AFD ASM storage prepared", rules_command)
-        self.assertIn("asmcmd afd_label DATA1 /dev/oracleasm/DATA1", asm_command)
+        self.assertIn("asmcmd afd_label DATA01 /dev/oracleasm/DATA01", asm_command)
         self.assertIn("asmcmd afd_scan", asm_command)
-        self.assertIn("AFD:DATA1", asm_command)
-        self.assertIn("oracle.install.asm.diskGroup.disks=AFD:DATA1", response)
+        self.assertIn("AFD:DATA01", asm_command)
+        self.assertIn("oracle.install.asm.diskGroup.disks=AFD:DATA01", response)
         self.assertIn("oracle.install.asm.diskGroup.diskDiscoveryString=AFD:*", response)
 
     def test_standby_storage_uses_site_specific_paths(self):
-        base = load_config(Path("configs/gcp-single-gi-lab.json"))
+        base = load_config(Path("configs/single-gi-multisite.json"))
         config = replace(base, asm=replace(base.asm, storage_mode="asmlibv3"))
         command = prepare_storage_rules_steps(config)[1].command
 
-        self.assertIn("ASM_DATA1_SOURCE=/dev/disk/by-id/scsi-0Google_PersistentDisk_s-data-1-part1", command)
-        self.assertIn("oracleasm createdisk DATA1", command)
-        self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_p-data-1-part1", command)
+        self.assertIn("ASM_DATA01_SOURCE=/dev/disk/by-id/scsi-0Google_PersistentDisk_site-b-data-1-part1", command)
+        self.assertIn("oracleasm createdisk DATA01", command)
+        self.assertNotIn("/dev/disk/by-id/scsi-0Google_PersistentDisk_site-a-data-1-part1", command)
 
     def test_non_multipath_storage_can_resolve_id_serial_and_id_wwn(self):
         import json
         import tempfile
         import uuid
 
-        data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))
+        data = json.loads(Path("configs/single-gi-multisite.json").read_text(encoding="utf-8"))
         data["asm"].pop("storage_mode", None)
+        data["asm"].pop("sites")
         data["asm"]["data_disks"] = [{"id_serial": "scsi-3600ABCDEF001", "name": "DATA01"}]
         data["asm"]["reco_disks"] = [{"id_wwn": "0x600abcdef002", "name": "RECO01"}]
         path = Path(tempfile.mkdtemp(prefix=f"oracle-auto-byid-{uuid.uuid4().hex}-")) / "config.json"
@@ -1079,7 +1111,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("oracleasm createdisk RECO01", command)
 
     def test_configured_grid_patch_id_selects_ru_bundle_top(self):
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         command = install_grid_steps(config)[0].command
 
         self.assertIn("GRID_PATCH_TOP=/u01/sources/38629535", command)
@@ -1088,7 +1120,7 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("^(38629535);", command)
 
     def test_configured_db_and_ojvm_patch_ids_select_patch_tops(self):
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         db_command = install_db_software_steps(config)[0].command
         ojvm_command = apply_ojvm_patch_steps(config)[0].command
 
@@ -1100,23 +1132,23 @@ class CliTest(unittest.TestCase):
         import tempfile
         import uuid
 
-        data = json.loads(Path("configs/gcp-single-gi-lab.json").read_text(encoding="utf-8"))
+        data = json.loads(Path("configs/single-gi-multisite.json").read_text(encoding="utf-8"))
         data["asm"].pop("storage_mode", None)
-        data["asm"]["data_disks"][0]["site_paths"]["site-a"] = "/dev/mapper/ora_data01"
-        data["asm"]["reco_disks"][0]["site_paths"]["site-a"] = "/dev/mapper/ora_reco01"
+        data["asm"]["sites"]["site-a"]["data"][0]["path"] = "/dev/mapper/ora_data01"
+        data["asm"]["sites"]["site-a"]["reco"][0]["path"] = "/dev/mapper/ora_reco01"
         path = Path(tempfile.mkdtemp(prefix=f"oracle-auto-mpath-{uuid.uuid4().hex}-")) / "config.json"
         path.write_text(json.dumps(data), encoding="utf-8")
 
         config = load_config(path)
         command = prepare_storage_rules_steps(config)[0].command
 
-        self.assertIn("ASM_DATA1_SOURCE=/dev/mapper/ora_data01", command)
-        self.assertIn('ASM_DATA1_RESOLVED=$(resolve_asm_source_device DATA1 "$ASM_DATA1_SOURCE"', command)
-        self.assertIn("oracleasm createdisk DATA1", command)
-        self.assertIn("oracleasm querydisk DATA1", command)
+        self.assertIn("ASM_DATA01_SOURCE=/dev/mapper/ora_data01", command)
+        self.assertIn('ASM_DATA01_RESOLVED=$(resolve_asm_source_device DATA01 "$ASM_DATA01_SOURCE"', command)
+        self.assertIn("oracleasm createdisk DATA01", command)
+        self.assertIn("oracleasm querydisk DATA01", command)
 
     def test_single_gi_grid_response_omits_cluster_only_fields(self):
-        config = load_config(Path("configs/sample-single.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         response = grid_response(config, config.primary_site)
 
         self.assertIn("oracle.install.option=HA_CONFIG", response)
@@ -1128,15 +1160,15 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("oracle.install.crs.config.clusterNodes", response)
 
     def test_rac_grid_response_embeds_vips_in_cluster_nodes(self):
-        config = load_config(Path("configs/sample-rac-dg.json"))
+        config = load_config(Path("configs/rac-multisite.json"))
         response = grid_response(config, config.primary_site)
 
         self.assertIn("oracle.install.option=CRS_CONFIG", response)
-        self.assertIn("oracle.install.crs.config.clusterNodes=db1-site-a.example.com:db1-site-a-vip.example.com", response)
+        self.assertIn("oracle.install.crs.config.clusterNodes=ora-primary-1:ora-primary-1-vip", response)
         self.assertNotIn("oracle.install.crs.config.clusterNodeVIPs", response)
 
     def test_rac_grid_response_uses_configured_network_interface_list(self):
-        config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))
+        config = load_config(Path("configs/rac-multisite.json"))
         response = grid_response(config, config.primary_site)
 
         self.assertIn(
@@ -1148,7 +1180,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("ip addr add 192.168.10.241/24 brd + dev eth1 label eth1:0 noprefixroute", command)
 
     def test_rac_grid_cleans_prebound_local_vip_routes_before_install(self):
-        config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))
+        config = load_config(Path("configs/rac-multisite.json"))
         steps = install_grid_steps(config)
 
         install_command = steps[0].command
@@ -1164,7 +1196,7 @@ class CliTest(unittest.TestCase):
         )
 
     def test_ojvm_patch_runs_before_database_creation_phase(self):
-        config = load_config(Path("configs/sample-single.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         steps = apply_ojvm_patch_steps(config)
 
         self.assertEqual(len(steps), 2)
@@ -1175,7 +1207,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("is not visible in DB home patch list after apply", steps[0].command)
 
     def test_patch_inventory_collects_versions_and_patch_lists(self):
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         command = patch_inventory_steps(config)[0].command
 
         self.assertIn("== Grid home version ==", command)
@@ -1193,7 +1225,7 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("opatch lsinventory", command)
 
     def test_create_database_validates_asm_before_dbca(self):
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         command = create_database_steps(config)[0].command
 
         self.assertIn("Validating ASM diskgroups before DBCA.", command)
@@ -1240,7 +1272,7 @@ class CliTest(unittest.TestCase):
             str(tmp),
             "doctor",
             "--config",
-            "configs/sample-single.json",
+            "configs/single-gi-multisite.json",
             "--dataguard-mode",
             "broker",
         ])
@@ -1268,7 +1300,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("sudo -n bash -lc", command)
 
     def test_remote_marker_uses_sudo_for_stage_state(self):
-        config = load_config(Path("configs/sample-single.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         command = prepare_os_steps(config)[0].command
 
         self.assertIn("sudo -n test -f /u01/stage/oracle-auto/state/prepare_os/prepare_os.done", command)
@@ -1277,7 +1309,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("ORACLE_AUTO_NO_REMOTE_RESUME", command)
 
     def test_no_resume_bypasses_remote_marker(self):
-        config = load_config(Path("configs/sample-single.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         step = prepare_os_steps(config)[0]
         command = _with_remote_resume_override([step])[0].command
 
@@ -1285,7 +1317,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("Remote marker bypass requested; rerunning", command)
 
     def test_prepare_os_sets_grid_and_oracle_profiles(self):
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         primary_command = prepare_os_steps(config)[0].command
         standby_command = prepare_os_steps(config)[1].command
 
@@ -1302,7 +1334,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("usermod -aG asmadmin,asmdba,asmoper,dba,racdba grid", primary_command)
 
     def test_prepare_os_can_manage_scan_entries_in_hosts(self):
-        config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))
+        config = load_config(Path("configs/rac-multisite.json"))
         command = prepare_os_steps(config)[0].command
 
         self.assertIn("10.148.0.30 rac-scan rac-scan", command)
@@ -1311,7 +1343,7 @@ class CliTest(unittest.TestCase):
     def test_scan_hosts_managed_precheck_does_not_require_dns(self):
         import oracle_auto.precheck as precheck
 
-        config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))
+        config = load_config(Path("configs/rac-multisite.json"))
 
         self.assertEqual([], precheck._scan_dns_names(config))
         self.assertIn("SCAN DNS not required", precheck._scan_dns_check(config))
@@ -1321,7 +1353,7 @@ class CliTest(unittest.TestCase):
     def test_scan_without_ip_still_requires_dns(self):
         import oracle_auto.precheck as precheck
 
-        config = load_config(Path("configs/gcp-rac-dg-multidisk.json"))
+        config = load_config(Path("configs/rac-multisite.json"))
         self.assertIsNotNone(config.standby_site)
         assert config.standby_site is not None
         standby_site = config.standby_site
@@ -1332,14 +1364,14 @@ class CliTest(unittest.TestCase):
         self.assertNotIn("getent hosts rac-scan", precheck._scan_dns_check(config))
 
     def test_inventory_remains_remote_read_only(self):
-        config = load_config(Path("configs/sample-single.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         command = inventory_steps(config)[0].command
 
         self.assertNotIn("oracle-auto remote marker wrapper", command)
         self.assertNotIn("/u01/stage/oracle-auto/state", command)
 
     def test_secret_precheck_uses_sudo_secret_file(self):
-        config = load_config(Path("configs/gcp-single-gi-lab.json"))
+        config = load_config(Path("configs/single-gi-multisite.json"))
         command = _secret_env_check(config)
 
         self.assertIn("sudo -n bash -lc", command)

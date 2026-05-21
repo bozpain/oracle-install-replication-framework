@@ -125,8 +125,10 @@ Jika `standby_site` diisi, Active Data Guard dianggap aktif otomatis.
 | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | 📕 [Deployment Guide](docs/deployment_guide.md)                                     | Runbook teknis premium: prerequisites, config, command sequence, guardrails, reports, troubleshooting |
 | 📘 [Installation and Replication Outline](docs/installation-replication-outline.md) | Blueprint desain, scope, default, dan roadmap framework                                               |
-| 🧪 [Sample RAC + Data Guard Config](configs/sample-rac-dg.json)                     | Contoh config RAC dengan standby                                                                      |
-| 🧪 [Sample Single GI Config](configs/sample-single.json)                            | Contoh config single-node GI                                                                          |
+| 🧪 [single-gi-multisite](configs/single-gi-multisite.json)                         | Site A + Site B, Single GI, Data Guard mode dipilih portal/CLI                                        |
+| 🧪 [rac-multisite](configs/rac-multisite.json)                                     | Site A + Site B, RAC, Data Guard mode dipilih portal/CLI                                              |
+| 🧪 [single-gi](configs/single-gi.json)                                             | Site A only, Single GI, tanpa replikasi                                                               |
+| 🧪 [rac](configs/rac.json)                                                         | Site A only, RAC, tanpa replikasi                                                                     |
 
 ---
 
@@ -135,10 +137,10 @@ Jika `standby_site` diisi, Active Data Guard dianggap aktif otomatis.
 Mulai dari guide teknis:
 
 ```bash
-python main.py validate-config --config configs/sample-rac-dg.json
-python main.py generate-plan --config configs/sample-rac-dg.json --dataguard-mode broker
-python main.py precheck --config configs/sample-rac-dg.json --dry-run
-python main.py full --config configs/sample-rac-dg.json --dataguard-mode broker --dry-run
+python main.py validate-config --config configs/rac-multisite.json
+python main.py generate-plan --config configs/rac-multisite.json --dataguard-mode manual
+python main.py precheck --config configs/rac-multisite.json --dry-run
+python main.py full --config configs/rac-multisite.json --dataguard-mode manual --dry-run
 ```
 
 Untuk eksekusi end-to-end, gunakan `full`. Jika run terputus atau salah satu step gagal, jalankan `resume`

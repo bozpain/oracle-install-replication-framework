@@ -194,7 +194,7 @@ flowchart LR
 Mulai dari sample:
 
 ```bash
-cp configs/sample-rac-dg.json configs/my-deployment.json
+cp configs/rac-multisite.json configs/my-deployment.json
 ```
 
 Review blok berikut sebelum menjalankan command:
@@ -203,16 +203,16 @@ Review blok berikut sebelum menjalankan command:
 |---|---|
 | 🏷️ `run_id` | Nama deployment dan prefix artifact |
 | 🧱 `install_type` | `single-gi` atau `rac` |
-| 🟥 `version` | Oracle Linux, GI/DB version, patch set |
-| 🐧 `os` | Package manager, preinstall package, NTP, SELinux |
-| 🔐 `ssh` | SSH user, port, option |
+| 🟥 `patch_set` | Patch set; default OS/Oracle version disediakan framework |
+| 🐧 `os` | NTP dan override OS opsional |
+| 🔐 `ssh` | SSH user dan key file bila perlu |
 | 📡 `dns` | Resolver dan search domain |
 | 🟦 `primary_site` | Site primary dan node list |
 | 🟩 `standby_site` | Optional standby site |
-| 💽 `asm` | Diskgroup dan disk source: `DM_UUID`, `ID_SERIAL`, `ID_WWN`, atau persistent path |
-| 📦 `installer` | ZIP installer, OPatch, patch list |
+| 💽 `asm` | Diskgroup per-site: `data`, `reco`, dan `ocr` khusus RAC |
+| 📦 Installer | Default `/u01/sources`; manifest mengikuti `patch_set` |
 | 🟢 Data Guard mode | Dipilih runtime via portal atau `--dataguard-mode` |
-| 🔒 `secrets` | Nama environment variable password |
+| 🔒 Secrets | Nama environment variable password sudah default |
 
 Validasi schema:
 
@@ -292,19 +292,40 @@ Physical multipath example:
 ```json
 "asm": {
   "redundancy": "EXTERNAL",
-  "ocr_disks": [
-    "360060e8008a3cf000050a3cf00000101",
-    "360060e8008a3cf000050a3cf00000102",
-    "360060e8008a3cf000050a3cf00000103"
-  ],
-  "data_disks": [
-    "360060e8008a3cf000050a3cf00000104",
-    "360060e8008a3cf000050a3cf00000105"
-  ],
-  "reco_disks": [
-    "360060e8008a3cf000050a3cf00000106",
-    "360060e8008a3cf000050a3cf00000107"
-  ]
+  "sites": {
+    "site-a": {
+      "data": [
+        {
+          "name": "DATA01",
+          "path": "/dev/disk/by-id/dm-uuid-mpath-360060e8008a3cf000050a3cf00000104"
+        },
+        {
+          "name": "DATA02",
+          "path": "/dev/disk/by-id/dm-uuid-mpath-360060e8008a3cf000050a3cf00000105"
+        }
+      ],
+      "reco": [
+        {
+          "name": "RECO01",
+          "path": "/dev/disk/by-id/dm-uuid-mpath-360060e8008a3cf000050a3cf00000106"
+        },
+        {
+          "name": "RECO02",
+          "path": "/dev/disk/by-id/dm-uuid-mpath-360060e8008a3cf000050a3cf00000107"
+        }
+      ],
+      "ocr": [
+        {
+          "name": "OCR01",
+          "path": "/dev/disk/by-id/dm-uuid-mpath-360060e8008a3cf000050a3cf00000101"
+        },
+        {
+          "name": "OCR02",
+          "path": "/dev/disk/by-id/dm-uuid-mpath-360060e8008a3cf000050a3cf00000102"
+        }
+      ]
+    }
+  }
 }
 ```
 
@@ -322,22 +343,26 @@ Non-multipath example:
 ```json
 "asm": {
   "redundancy": "EXTERNAL",
-  "data_disks": [
-    {
-      "id_serial": "scsi-3600ABCDEF001",
-      "name": "DATA01"
-    },
-    {
-      "id_wwn": "0x600abcdef002",
-      "name": "DATA02"
+  "sites": {
+    "site-a": {
+      "data": [
+        {
+          "name": "DATA01",
+          "path": "/dev/disk/by-id/scsi-3600ABCDEF001"
+        },
+        {
+          "name": "DATA02",
+          "path": "/dev/disk/by-id/wwn-0x600abcdef002"
+        }
+      ],
+      "reco": [
+        {
+          "name": "RECO01",
+          "path": "/dev/disk/by-id/scsi-3600ABCDEF003"
+        }
+      ]
     }
-  ],
-  "reco_disks": [
-    {
-      "ID_SERIAL": "scsi-3600ABCDEF003",
-      "name": "RECO01"
-    }
-  ]
+  }
 }
 ```
 
@@ -355,23 +380,31 @@ Non-multipath example:
 Custom disk name:
 
 ```json
-"data_disks": [
-  {
-    "uuid": "360060e8008a3cf000050a3cf00000175",
-    "name": "data102"
+"sites": {
+  "site-a": {
+    "data": [
+      {
+        "name": "DATA102",
+        "path": "/dev/disk/by-id/dm-uuid-mpath-360060e8008a3cf000050a3cf00000175"
+      }
+    ]
   }
-]
+}
 ```
 
 Path example:
 
 ```json
-"data_disks": [
-  {
-    "path": "/dev/disk/by-id/google-data1",
-    "name": "data01"
+"sites": {
+  "site-a": {
+    "data": [
+      {
+        "name": "DATA01",
+        "path": "/dev/disk/by-id/google-data1"
+      }
+    ]
   }
-]
+}
 ```
 
 Jika topologi memakai `path`, precheck akan gagal sampai path tersebut benar-benar ada di semua host yang memakai config itu. Untuk non-multipath yang lebih portable, pilih `id_serial` atau `id_wwn` dari `udevadm info --query=property --name <device>`.
@@ -379,15 +412,24 @@ Jika topologi memakai `path`, precheck akan gagal sampai path tersebut benar-ben
 Per-site path example:
 
 ```json
-"data_disks": [
-  {
-    "site_paths": {
-      "site-a": "/dev/disk/by-id/google-primary-data1",
-      "site-b": "/dev/disk/by-id/google-standby-data1"
-    },
-    "name": "data01"
+"sites": {
+  "site-a": {
+    "data": [
+      {
+        "name": "DATA01",
+        "path": "/dev/disk/by-id/google-primary-data1"
+      }
+    ]
+  },
+  "site-b": {
+    "data": [
+      {
+        "name": "DATA01",
+        "path": "/dev/disk/by-id/google-standby-data1"
+      }
+    ]
   }
-]
+}
 ```
 
 Untuk RAC atau kondisi path berbeda per host dalam site yang sama, gunakan `node_paths` dengan key hostname node.
@@ -395,12 +437,16 @@ Untuk RAC atau kondisi path berbeda per host dalam site yang sama, gunakan `node
 Multipath alias example:
 
 ```json
-"data_disks": [
-  {
-    "path": "/dev/mapper/ora_data01",
-    "name": "data01"
+"sites": {
+  "site-a": {
+    "data": [
+      {
+        "name": "DATA01",
+        "path": "/dev/mapper/ora_data01"
+      }
+    ]
   }
-]
+}
 ```
 
 ASMLib discovery shape:
@@ -416,14 +462,7 @@ oracle.install.asm.diskGroup.disks=ORCL:DATA01
 
 Operator menyalin file ZIP manual ke target server. Framework memverifikasi file, mengekstrak base home, mengganti OPatch di masing-masing home setelah unzip atau cleanup home, menerapkan Grid RU saat `install-grid`, menerapkan DB RU saat `install-db-software`, menerapkan OJVM ke DB home sebelum `create-database`, dan menyimpan inventory.
 
-```json
-"installer": {
-  "sources_path": "/u01/sources",
-  "patch_manifest": "19.30"
-}
-```
-
-`patch_manifest` mengarah ke `manifests/<patch_set>.yaml` dan mengikuti naming Oracle Patch Framework:
+Baseline config cukup mengisi `patch_set`; installer path default adalah `/u01/sources`, dan manifest otomatis mengarah ke `manifests/<patch_set>.yaml` mengikuti naming Oracle Patch Framework:
 
 ```yaml
 patch_id: "19.30"
@@ -447,15 +486,15 @@ oracleasmlib_rpm_x86_64: "oracleasmlib-3.1.1-1.el8.x86_64.rpm"
 pre_datapatch_sql: "pre_datapatch.sql"
 ```
 
-Base installer ZIP, ASMLIB RPM, dan patch ZIP dibaca dari `/u01/sources`. Base home diekstrak ke Oracle home masing-masing, patch ZIP diekstrak langsung ke `/u01/sources`, lalu `gridSetup.sh -applyRU` memakai `/u01/sources/<gi_dir>` dan `runInstaller -applyRU` memakai `/u01/sources/<dbru_dir>`. Untuk naik patch berikutnya, tambahkan `manifests/19.31.yaml` dengan ZIP dan direktori patch yang benar, lalu ubah `version.patch_set` dan `installer.patch_manifest` ke `19.31`.
+Base installer ZIP, ASMLIB RPM, dan patch ZIP dibaca dari `/u01/sources`. Base home diekstrak ke Oracle home masing-masing, patch ZIP diekstrak langsung ke `/u01/sources`, lalu `gridSetup.sh -applyRU` memakai `/u01/sources/<gi_dir>` dan `runInstaller -applyRU` memakai `/u01/sources/<dbru_dir>`. Untuk naik patch berikutnya, tambahkan `manifests/19.31.yaml` dengan ZIP dan direktori patch yang benar, lalu ubah `patch_set` ke `19.31`.
 
 ---
 
 ## 7. Data Guard
 
-Jika `standby_site` diisi, Active Data Guard otomatis aktif. Method Data Guard
-tidak dibaca dari JSON; operator harus memilih mode runtime lewat portal atau
-CLI `--dataguard-mode`.
+Jika `standby_site` diisi, Active Data Guard otomatis aktif. Baseline multisite
+tidak menyimpan metode konfigurasi di JSON; portal atau CLI wajib memilih mode
+runtime lewat `--dataguard-mode`.
 
 | Method | Use Case |
 |---|---|
@@ -472,16 +511,7 @@ max_performance
 
 ## 8. Secrets
 
-Password tidak ditulis hardcoded di script. Config hanya menyimpan nama environment variable yang harus tersedia di target saat step terkait dijalankan.
-
-```json
-"secrets": {
-  "sys_password_env": "ORACLE_AUTO_SYS_PASSWORD",
-  "system_password_env": "ORACLE_AUTO_SYSTEM_PASSWORD",
-  "asmsnmp_password_env": "ORACLE_AUTO_ASMSNMP_PASSWORD",
-  "dg_password_env": "ORACLE_AUTO_DG_PASSWORD"
-}
-```
+Password tidak ditulis hardcoded di script. Baseline config tidak perlu blok `secrets`; framework memakai nama environment variable default: `ORACLE_AUTO_SYS_PASSWORD`, `ORACLE_AUTO_SYSTEM_PASSWORD`, `ORACLE_AUTO_ASMSNMP_PASSWORD`, dan `ORACLE_AUTO_DG_PASSWORD`.
 
 Default runtime membaca secret dari file root-only berikut di setiap target:
 

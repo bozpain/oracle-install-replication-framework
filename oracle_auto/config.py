@@ -44,9 +44,9 @@ class SSHConfig:
     user: str = "root"
     port: int = 22
     key_file: str | None = None
-    connect_timeout: int = 10
-    server_alive_interval: int = 30
-    server_alive_count_max: int = 6
+    connect_timeout: int | None = None
+    server_alive_interval: int | None = None
+    server_alive_count_max: int | None = None
     strict_host_key_checking: str = "accept-new"
 
 
@@ -454,10 +454,24 @@ def _parse_asm(data: Any) -> ASMConfig:
     if not isinstance(data, dict):
         raise ConfigError("asm must be an object/mapping.")
     storage_mode = _normalize_asm_storage_mode(data.get("storage_mode", "asmlibv3"))
+    site_disks = data.get("sites")
+    if site_disks is not None:
+        legacy_keys = {"data_disks", "reco_disks", "ocr_disks"} & set(data)
+        if legacy_keys:
+            keys = ", ".join(sorted(legacy_keys))
+            raise ConfigError(f"asm.sites cannot be combined with legacy ASM disk key(s): {keys}.")
+        disk_groups = _parse_asm_site_layout(site_disks)
+        data_disks = disk_groups["data"]
+        reco_disks = disk_groups["reco"]
+        ocr_disks = disk_groups["ocr"]
+    else:
+        data_disks = _required_asm_disk_list(data.get("data_disks"), "asm.data_disks")
+        reco_disks = _required_asm_disk_list(data.get("reco_disks"), "asm.reco_disks")
+        ocr_disks = _optional_asm_disk_list(data.get("ocr_disks"), "asm.ocr_disks")
     return ASMConfig(
-        data_disks=_required_asm_disk_list(data.get("data_disks"), "asm.data_disks"),
-        reco_disks=_required_asm_disk_list(data.get("reco_disks"), "asm.reco_disks"),
-        ocr_disks=_optional_asm_disk_list(data.get("ocr_disks"), "asm.ocr_disks"),
+        data_disks=data_disks,
+        reco_disks=reco_disks,
+        ocr_disks=ocr_disks,
         redundancy=str(data.get("redundancy", "EXTERNAL")).upper(),
         storage_mode=storage_mode,
     )
@@ -682,12 +696,11 @@ def _parse_dataguard(data: Any) -> DataGuardConfig:
         return DataGuardConfig()
     if not isinstance(data, dict):
         raise ConfigError("dataguard must be an object/mapping.")
-    if "configuration_method" in data:
-        raise ConfigError("dataguard.configuration_method is no longer read from config; use --dataguard-mode.")
     if "protection_mode" in data:
         raise ConfigError("dataguard.protection_mode is fixed by the framework and must not be set in config.")
+    configuration_method = _optional_str(data.get("configuration_method") or data.get("mode"))
     return DataGuardConfig(
-        configuration_method=None,
+        configuration_method=configuration_method,
         protection_mode="max_performance",
         standby_redo_log_size=str(data.get("standby_redo_log_size", DEFAULT_STANDBY_REDO_LOG_SIZE)).upper(),
     )
@@ -768,9 +781,9 @@ def _parse_ssh(data: Any) -> SSHConfig:
         user=str(data.get("user", "root")),
         port=int(data.get("port", 22)),
         key_file=_optional_str(data.get("key_file")),
-        connect_timeout=int(data.get("connect_timeout", 10)),
-        server_alive_interval=int(data.get("server_alive_interval", 30)),
-        server_alive_count_max=int(data.get("server_alive_count_max", 6)),
+        connect_timeout=_optional_int(data.get("connect_timeout"), "ssh.connect_timeout"),
+        server_alive_interval=_optional_int(data.get("server_alive_interval"), "ssh.server_alive_interval"),
+        server_alive_count_max=_optional_int(data.get("server_alive_count_max"), "ssh.server_alive_count_max"),
         strict_host_key_checking=str(data.get("strict_host_key_checking", "accept-new")),
     )
 
@@ -990,6 +1003,92 @@ def _required_str_list(value: Any, name: str) -> list[str]:
     return items
 
 
+def _parse_asm_site_layout(value: Any) -> dict[str, list[ASMDiskConfig]]:
+    if not isinstance(value, dict) or not value:
+        raise ConfigError("asm.sites must be a non-empty object/mapping.")
+
+    paths_by_group: dict[str, dict[str, dict[str, str]]] = {"data": {}, "reco": {}, "ocr": {}}
+    order_by_group: dict[str, list[str]] = {"data": [], "reco": [], "ocr": []}
+    sites_by_group: dict[str, set[str]] = {"data": set(), "reco": set(), "ocr": set()}
+    aliases = {
+        "data": "data",
+        "data_disks": "data",
+        "reco": "reco",
+        "reco_disks": "reco",
+        "ocr": "ocr",
+        "ocr_disks": "ocr",
+    }
+    default_prefix = {"data": "DATA", "reco": "RECO", "ocr": "OCR"}
+
+    for raw_site, site_data in value.items():
+        site = str(raw_site)
+        if not site:
+            raise ConfigError("asm.sites cannot contain an empty site name.")
+        if not isinstance(site_data, dict):
+            raise ConfigError(f"asm.sites.{site} must be an object/mapping.")
+
+        for raw_group, group in aliases.items():
+            if raw_group not in site_data:
+                continue
+            disks = site_data[raw_group]
+            if disks is None:
+                continue
+            if not isinstance(disks, list) or not disks:
+                raise ConfigError(f"asm.sites.{site}.{raw_group} must be a non-empty list.")
+            sites_by_group[group].add(site)
+            seen_names: set[str] = set()
+            for index, item in enumerate(disks, start=1):
+                name, path = _parse_asm_site_disk(
+                    item,
+                    f"asm.sites.{site}.{raw_group}[{index - 1}]",
+                    default_prefix[group],
+                    index,
+                )
+                if name in seen_names:
+                    raise ConfigError(f"asm.sites.{site}.{raw_group} contains duplicate disk name: {name}")
+                seen_names.add(name)
+                if name not in paths_by_group[group]:
+                    paths_by_group[group][name] = {}
+                    order_by_group[group].append(name)
+                paths_by_group[group][name][site] = path
+
+    parsed: dict[str, list[ASMDiskConfig]] = {}
+    for group in ("data", "reco", "ocr"):
+        site_names = sites_by_group[group]
+        items: list[dict[str, Any]] = []
+        for name in order_by_group[group]:
+            site_paths = paths_by_group[group][name]
+            missing_sites = sorted(site_names - set(site_paths))
+            if missing_sites:
+                raise ConfigError(
+                    f"asm.sites.{group} disk {name} is missing path for site(s): {', '.join(missing_sites)}"
+                )
+            items.append({"name": name, "site_paths": site_paths})
+        parsed[group] = _parse_asm_disk_list(items, f"asm.sites.{group}") if items else []
+
+    if not parsed["data"]:
+        raise ConfigError("asm.sites must define data disks.")
+    if not parsed["reco"]:
+        raise ConfigError("asm.sites must define reco disks.")
+    return parsed
+
+
+def _parse_asm_site_disk(item: Any, location: str, prefix: str, index: int) -> tuple[str, str]:
+    if isinstance(item, str):
+        name = f"{prefix}{index:02d}"
+        path = item
+    elif isinstance(item, dict):
+        name = _optional_str(item.get("name")) or f"{prefix}{index:02d}"
+        path = _optional_str(item.get("path"))
+    else:
+        raise ConfigError(f"{location} must be a /dev path string or object.")
+    if not name or "/" in name or name.startswith("."):
+        raise ConfigError(f"{location}.name must be a simple symlink name.")
+    if not path or not path.startswith("/dev/"):
+        raise ConfigError(f"{location}.path must be an absolute /dev path.")
+    return name, path
+
+
 def _required_asm_disk_list(value: Any, name: str) -> list[ASMDiskConfig]:
     if not isinstance(value, list) or not value:
         raise ConfigError(f"{name} must be a non-empty list.")
@@ -1131,6 +1230,15 @@ def _optional_str(value: Any) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _optional_int(value: Any, name: str) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{name} must be an integer.") from exc
 
 
 def _derived_hostname(host: str, suffix: str) -> str:

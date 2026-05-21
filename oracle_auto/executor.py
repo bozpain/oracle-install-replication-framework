@@ -146,17 +146,8 @@ class SSHExecutor:
             "ssh",
             "-p",
             str(self.config.port),
-            "-o",
-            f"ConnectTimeout={self.config.connect_timeout}",
-            "-o",
-            f"ServerAliveInterval={self.config.server_alive_interval}",
-            "-o",
-            f"ServerAliveCountMax={self.config.server_alive_count_max}",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            f"StrictHostKeyChecking={self.config.strict_host_key_checking}",
         ]
+        ssh_command.extend(self._ssh_options())
         if self.config.key_file:
             ssh_command.extend(["-i", self.config.key_file])
         ssh_command.extend([target, command])
@@ -167,21 +158,28 @@ class SSHExecutor:
             "scp",
             "-P",
             str(self.config.port),
-            "-o",
-            f"ConnectTimeout={self.config.connect_timeout}",
-            "-o",
-            f"ServerAliveInterval={self.config.server_alive_interval}",
-            "-o",
-            f"ServerAliveCountMax={self.config.server_alive_count_max}",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            f"StrictHostKeyChecking={self.config.strict_host_key_checking}",
         ]
+        scp_command.extend(self._ssh_options())
         if self.config.key_file:
             scp_command.extend(["-i", self.config.key_file])
         scp_command.extend([source, target])
         return scp_command
+
+    def _ssh_options(self) -> list[str]:
+        options: list[str] = []
+        if self.config.connect_timeout is not None:
+            options.extend(["-o", f"ConnectTimeout={self.config.connect_timeout}"])
+        if self.config.server_alive_interval is not None:
+            options.extend(["-o", f"ServerAliveInterval={self.config.server_alive_interval}"])
+        if self.config.server_alive_count_max is not None:
+            options.extend(["-o", f"ServerAliveCountMax={self.config.server_alive_count_max}"])
+        options.extend([
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            f"StrictHostKeyChecking={self.config.strict_host_key_checking}",
+        ])
+        return options
 
     def _target(self, node: NodeConfig) -> str:
         user = node.ssh_user or self.config.user

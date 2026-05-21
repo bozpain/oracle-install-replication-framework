@@ -98,9 +98,9 @@ Automation mengelola:
 
 Storage selalu ASM. `prepare-storage-rules` membaca source disk dari config (`path`, by-id/by-uuid, `ID_SERIAL`, `ID_WWN`, atau `DM_UUID`) lalu menulis `/etc/udev/rules.d/99-oracle-asm.rules` untuk membuat symlink stabil `/dev/oracleasm/<LABEL>`. Setelah alias valid, mode `raw` memakai `/dev/oracleasm/<LABEL>` langsung di ASM diskstring dan create diskgroup, mode `asmlibv3` menjalankan `oracleasm createdisk <LABEL> /dev/oracleasm/<LABEL>`, dan mode `afd` menjalankan `asmcmd afd_label <LABEL> /dev/oracleasm/<LABEL>`.
 
-- `ocr_disks` untuk diskgroup `OCR`.
-- `data_disks` untuk diskgroup `DATA`.
-- `reco_disks` untuk diskgroup `RECO`.
+- `asm.sites.<site>.ocr` untuk diskgroup `OCR` khusus RAC.
+- `asm.sites.<site>.data` untuk diskgroup `DATA`.
+- `asm.sites.<site>.reco` untuk diskgroup `RECO`.
 - `redundancy`, default `EXTERNAL`.
 
 Automation melakukan:

@@ -108,15 +108,15 @@ def render_runbook(config: AutomationConfig, steps: list[AutomationStep]) -> str
     ]
     for index, step in enumerate(steps, start=1):
         user = step.node.ssh_user or config.ssh.user
-        ssh_options = " ".join(
-            [
-                f"-p {config.ssh.port}",
-                f"-o ConnectTimeout={config.ssh.connect_timeout}",
-                f"-o ServerAliveInterval={config.ssh.server_alive_interval}",
-                f"-o ServerAliveCountMax={config.ssh.server_alive_count_max}",
-                f"-o StrictHostKeyChecking={config.ssh.strict_host_key_checking}",
-            ]
-        )
+        ssh_option_parts = [f"-p {config.ssh.port}"]
+        if config.ssh.connect_timeout is not None:
+            ssh_option_parts.append(f"-o ConnectTimeout={config.ssh.connect_timeout}")
+        if config.ssh.server_alive_interval is not None:
+            ssh_option_parts.append(f"-o ServerAliveInterval={config.ssh.server_alive_interval}")
+        if config.ssh.server_alive_count_max is not None:
+            ssh_option_parts.append(f"-o ServerAliveCountMax={config.ssh.server_alive_count_max}")
+        ssh_option_parts.append(f"-o StrictHostKeyChecking={config.ssh.strict_host_key_checking}")
+        ssh_options = " ".join(ssh_option_parts)
         lines.extend(
             [
                 f"# [{index}] {step.phase}:{step.name} on {step.node.host}",

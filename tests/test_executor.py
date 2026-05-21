@@ -36,11 +36,28 @@ class SSHExecutorTest(unittest.TestCase):
         self.assertEqual(result.stdout, "partial stdout")
         self.assertFalse(result.ok)
 
-    def test_build_ssh_command_enables_keepalive(self):
+    def test_build_ssh_command_omits_timeout_keepalive_by_default(self):
         executor = SSHExecutor(SSHConfig(user="oracle_auto"))
 
         command = executor._build_ssh_command("oracle_auto@db1.example.com", "true")
 
+        self.assertNotIn("ConnectTimeout=10", command)
+        self.assertNotIn("ServerAliveInterval=30", command)
+        self.assertNotIn("ServerAliveCountMax=6", command)
+
+    def test_build_ssh_command_uses_explicit_timeout_keepalive(self):
+        executor = SSHExecutor(
+            SSHConfig(
+                user="oracle_auto",
+                connect_timeout=5,
+                server_alive_interval=30,
+                server_alive_count_max=6,
+            )
+        )
+
+        command = executor._build_ssh_command("oracle_auto@db1.example.com", "true")
+
+        self.assertIn("ConnectTimeout=5", command)
         self.assertIn("ServerAliveInterval=30", command)
         self.assertIn("ServerAliveCountMax=6", command)
 
