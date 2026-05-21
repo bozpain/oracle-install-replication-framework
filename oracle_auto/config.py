@@ -29,6 +29,10 @@ VALID_INSTALL_TYPES = {"single-gi", "rac"}
 VALID_DATAGUARD_METHODS = {"manual", "broker"}
 VALID_ASM_STORAGE_MODES = {"asmlibv3", "raw", "afd"}
 DEFAULT_STANDBY_REDO_LOG_SIZE = "200M"
+DEFAULT_PUBLIC_INTERFACE = "eth0"
+DEFAULT_PRIVATE_INTERFACE = "eth1"
+DEFAULT_PUBLIC_NETWORK_PREFIX = 24
+DEFAULT_PRIVATE_NETWORK_PREFIX = 24
 DEFAULT_NTP_SERVERS = ["192.168.113.41", "192.168.115.41"]
 DEFAULT_ASMLIB_RPMS = {
     "x86_64": "oracleasmlib-3.1.1-1.el8.x86_64.rpm",
@@ -1209,6 +1213,20 @@ def _validate_network_interface_subnet(value: str, label: str) -> None:
             ipaddress.ip_address(value)
     except ValueError as exc:
         raise ConfigError(f"{label} must be a valid IP address or CIDR: {value}") from exc
+
+
+def network_interface_list_for_site(site: SiteConfig) -> str:
+    if site.network_interface_list:
+        return site.network_interface_list
+    node = site.nodes[0]
+    entries = [f"{DEFAULT_PUBLIC_INTERFACE}:{_network_cidr(node.public_ip, DEFAULT_PUBLIC_NETWORK_PREFIX)}:1"]
+    if node.private_ip:
+        entries.append(f"{DEFAULT_PRIVATE_INTERFACE}:{_network_cidr(node.private_ip, DEFAULT_PRIVATE_NETWORK_PREFIX)}:5")
+    return ",".join(entries)
+
+
+def _network_cidr(address: str, prefix_length: int) -> str:
+    return str(ipaddress.ip_network(f"{address}/{prefix_length}", strict=False))
 
 
 def _asm_label_names(config: AutomationConfig) -> list[str]:

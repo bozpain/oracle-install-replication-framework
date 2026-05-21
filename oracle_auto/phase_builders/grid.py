@@ -9,7 +9,7 @@ from __future__ import annotations
 import shlex
 
 from oracle_auto.automation import AutomationStep, shell_script
-from oracle_auto.config import AutomationConfig, NodeConfig, SiteConfig
+from oracle_auto.config import AutomationConfig, NodeConfig, SiteConfig, network_interface_list_for_site
 from oracle_auto.phase_builders.common import (
     GRID_BASE,
     GRID_BASE_DIR,
@@ -401,9 +401,7 @@ def _pre_grid_vip_cleanup_lines(site: SiteConfig, node: NodeConfig) -> list[str]
 
 
 def _public_interface_name(site: SiteConfig) -> str | None:
-    if not site.network_interface_list:
-        return None
-    for entry in site.network_interface_list.split(","):
+    for entry in network_interface_list_for_site(site).split(","):
         interface_name, _subnet, interface_type = entry.split(":")
         if interface_type == "1":
             return interface_name
@@ -411,11 +409,8 @@ def _public_interface_name(site: SiteConfig) -> str | None:
 
 
 def _temporary_network_anchor_lines(site: SiteConfig, node) -> list[str]:
-    if not site.network_interface_list:
-        return []
-
     anchors: list[tuple[str, str]] = []
-    for entry in site.network_interface_list.split(","):
+    for entry in network_interface_list_for_site(site).split(","):
         interface_name, subnet, interface_type = entry.split(":")
         if "/" not in subnet:
             continue

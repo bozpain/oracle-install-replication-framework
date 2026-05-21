@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from oracle_auto.config import AutomationConfig, SiteConfig
+from oracle_auto.config import AutomationConfig, SiteConfig, network_interface_list_for_site
 from oracle_auto.phase_builders.common import GRID_BASE_DIR
 from oracle_auto.phase_builders.storage import asm_discovery_string, asm_disk_spec, asm_entries
 
@@ -71,10 +71,8 @@ def _cluster_lines(site: SiteConfig) -> list[str]:
 
 
 def _oracle_network_interface_list(site: SiteConfig) -> str:
-    if not site.network_interface_list:
-        return ""
     entries = []
-    for entry in site.network_interface_list.split(","):
+    for entry in network_interface_list_for_site(site).split(","):
         interface_name, subnet, interface_type = entry.split(":")
         entries.append(f"{interface_name}:{subnet.split('/', 1)[0]}:{interface_type}")
     return ",".join(entries)

@@ -1167,7 +1167,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("oracle.install.crs.config.clusterNodes=ora-primary-1:ora-primary-1-vip", response)
         self.assertNotIn("oracle.install.crs.config.clusterNodeVIPs", response)
 
-    def test_rac_grid_response_uses_configured_network_interface_list(self):
+    def test_rac_grid_response_uses_default_network_interface_list(self):
         config = load_config(Path("configs/rac-multisite.json"))
         response = grid_response(config, config.primary_site)
 
@@ -1176,7 +1176,7 @@ class CliTest(unittest.TestCase):
             response,
         )
         command = install_grid_steps(config)[0].command
-        self.assertIn("ip addr add 10.148.0.9/20 brd + dev eth0 label eth0:0 noprefixroute", command)
+        self.assertIn("ip addr add 10.148.0.9/24 brd + dev eth0 label eth0:0 noprefixroute", command)
         self.assertIn("ip addr add 192.168.10.6/24 brd + dev eth1 label eth1:0 noprefixroute", command)
 
     def test_rac_grid_cleans_prebound_local_vip_routes_before_install(self):

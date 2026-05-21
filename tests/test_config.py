@@ -5,7 +5,7 @@ import uuid
 import os
 from pathlib import Path
 
-from oracle_auto.config import ConfigError, load_config
+from oracle_auto.config import ConfigError, load_config, network_interface_list_for_site
 
 
 class ConfigTest(unittest.TestCase):
@@ -58,14 +58,16 @@ class ConfigTest(unittest.TestCase):
         assert config.installer.patch_manifest is not None
         self.assertEqual(config.installer.patch_manifest.patch_id, "19.30")
 
-    def test_site_network_interface_list_is_parsed(self):
+    def test_rac_network_interface_list_defaults_to_eth0_eth1(self):
         config = load_config(Path("configs/rac-multisite.json"))
 
-        self.assertEqual(config.primary_site.network_interface_list, "eth0:10.148.0.0/20:1,eth1:192.168.10.0/24:5")
+        self.assertIsNone(config.primary_site.network_interface_list)
+        self.assertEqual(network_interface_list_for_site(config.primary_site), "eth0:10.148.0.0/24:1,eth1:192.168.10.0/24:5")
         self.assertIsNone(config.primary_site.nodes[0].public_subnet_anchor_ip)
         self.assertIsNone(config.primary_site.nodes[0].private_subnet_anchor_ip)
         assert config.standby_site is not None
-        self.assertEqual(config.standby_site.network_interface_list, "eth0:10.148.0.0/20:1,eth1:192.168.10.0/24:5")
+        self.assertIsNone(config.standby_site.network_interface_list)
+        self.assertEqual(network_interface_list_for_site(config.standby_site), "eth0:10.148.0.0/24:1,eth1:192.168.10.0/24:5")
         self.assertIsNone(config.standby_site.nodes[0].public_subnet_anchor_ip)
         self.assertIsNone(config.standby_site.nodes[0].private_subnet_anchor_ip)
 
