@@ -1,5 +1,5 @@
 {
-  "run_id": "rac-multisite",
+  "app_name": "rac-multisite",
   "install_type": "rac",
   "patch_set": "19.30",
   "os": {

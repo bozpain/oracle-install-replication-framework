@@ -374,7 +374,7 @@ def _parse_config(data: dict[str, Any], path: Path) -> AutomationConfig:
     dataguard = _parse_dataguard(data.get("dataguard", {}))
     secrets = _parse_secrets(data.get("secrets", {}))
     report_publish = _parse_report_publish(data.get("report_publish", {}))
-    run_id = str(data.get("run_id") or path.stem)
+    run_id = str(data.get("run_id") or data.get("app_name") or path.stem)
 
     return AutomationConfig(
         install_type=install_type,

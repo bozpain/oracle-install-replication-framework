@@ -1,5 +1,5 @@
 {
-  "run_id": "single-gi",
+  "app_name": "single-gi",
   "install_type": "single-gi",
   "patch_set": "19.30",
   "os": {

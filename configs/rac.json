@@ -1,5 +1,5 @@
 {
-  "run_id": "rac",
+  "app_name": "rac",
   "install_type": "rac",
   "patch_set": "19.30",
   "os": {

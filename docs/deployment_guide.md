@@ -201,7 +201,7 @@ Review blok berikut sebelum menjalankan command:
 
 | Block | Purpose |
 |---|---|
-| 🏷️ `run_id` | Nama deployment dan prefix artifact |
+| 🏷️ `app_name` | Nama aplikasi/deployment; dipakai sebagai prefix artifact |
 | 🧱 `install_type` | `single-gi` atau `rac` |
 | 🟥 `patch_set` | Patch set; default OS/Oracle version disediakan framework |
 | 🐧 `os` | NTP dan override OS opsional |
@@ -969,7 +969,7 @@ Report berisi:
 
 | Section | Content |
 |---|---|
-| Identity | `run_id`, version baseline, topology |
+| Identity | `app_name`/`run_id`, version baseline, topology |
 | Network | Generated private/VIP hostnames, DNS resolver, SCAN status |
 | Storage | ASM `DM_UUID`, persistent device path, `/dev/oracleasm/<LABEL>` alias, storage label, diskgroup mapping |
 | Installer | Installer and patch list |

@@ -1,5 +1,5 @@
 {
-  "run_id": "single-gi-multisite",
+  "app_name": "single-gi-multisite",
   "install_type": "single-gi",
   "patch_set": "19.30",
   "os": {
