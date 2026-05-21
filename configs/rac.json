@@ -33,16 +33,12 @@
         "host": "ora-primary-1",
         "public_ip": "10.148.0.9",
         "private_ip": "192.168.10.6",
-        "public_subnet_anchor_ip": "10.148.15.241",
-        "private_subnet_anchor_ip": "192.168.10.241",
         "vip_ip": "10.148.0.21"
       },
       {
         "host": "ora-primary-2",
         "public_ip": "10.148.0.10",
         "private_ip": "192.168.10.7",
-        "public_subnet_anchor_ip": "10.148.15.242",
-        "private_subnet_anchor_ip": "192.168.10.242",
         "vip_ip": "10.148.0.22"
       }
     ]

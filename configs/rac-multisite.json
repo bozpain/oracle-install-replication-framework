@@ -33,16 +33,12 @@
         "host": "ora-primary-1",
         "public_ip": "10.148.0.9",
         "private_ip": "192.168.10.6",
-        "public_subnet_anchor_ip": "10.148.15.241",
-        "private_subnet_anchor_ip": "192.168.10.241",
         "vip_ip": "10.148.0.21"
       },
       {
         "host": "ora-primary-2",
         "public_ip": "10.148.0.10",
         "private_ip": "192.168.10.7",
-        "public_subnet_anchor_ip": "10.148.15.242",
-        "private_subnet_anchor_ip": "192.168.10.242",
         "vip_ip": "10.148.0.22"
       }
     ]
@@ -58,16 +54,12 @@
         "host": "ora-standby-1",
         "public_ip": "10.148.0.7",
         "private_ip": "192.168.10.4",
-        "public_subnet_anchor_ip": "10.148.15.243",
-        "private_subnet_anchor_ip": "192.168.10.243",
         "vip_ip": "10.148.0.23"
       },
       {
         "host": "ora-standby-2",
         "public_ip": "10.148.0.8",
         "private_ip": "192.168.10.5",
-        "public_subnet_anchor_ip": "10.148.15.244",
-        "private_subnet_anchor_ip": "192.168.10.244",
         "vip_ip": "10.148.0.24"
       }
     ]
